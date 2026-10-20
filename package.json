@@ -4,6 +4,7 @@
   "private": true,
   "description": "Exomina private cross-platform beta",
   "author": "Exomina",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "desktop/main.mjs",
   "scripts": {
@@ -57,6 +58,8 @@
       "build/update-channel.json",
       "package.json",
       "README.md",
+      "LICENSE",
+      "NOTICE",
       "PROVIDER-TOOLS.md",
       "TERMINAL.md",
       "PUBLIC-UPDATES.md",

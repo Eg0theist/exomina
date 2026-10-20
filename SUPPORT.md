@@ -28,11 +28,11 @@ The packaged QA starts a fresh synthetic profile, checks ordinary first-run read
 
 Built-in system speech currently requires Windows. ChatGPT Realtime voice is experimental. macOS computer control requires Accessibility/Screen Recording permissions; Linux control depends on display/session permissions.
 
-Claude through a Claude plan needs Claude Code on the user's computer. Exomina installs Anthropic's official copy when the user turns it on; see [Using Claude](PRIVATE-BETA.md#using-claude).
+Claude through a Claude plan needs Claude Code on the user's computer. Exomina installs Anthropic's official copy when the user turns it on; see [Using Claude](BETA.md#using-claude).
 
 ## Signing and updates
 
-Windows is unsigned. macOS is ad-hoc signed without Developer ID or notarization. Private release updates are manual.
+Windows is unsigned. macOS is ad-hoc signed without Developer ID or notarization. Beta updates are manual.
 
 ## Build workflow
 

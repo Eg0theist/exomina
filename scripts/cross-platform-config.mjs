@@ -68,7 +68,7 @@ export function crossPlatformConfig(platform,{arch=process.arch,ciOnly=false}={}
     compression:'normal',publish:null,npmRebuild:true,
     afterPack:markNativeDistribution,
     directories:{...base.directories,output:`release-${platform}`},
-    files:[...(base.files||[]),'LICENSE','PRIVATE-BETA.md','FEEDBACK.md','SUPPORT.md',
+    files:[...(base.files||[]),'LICENSE','BETA.md','FEEDBACK.md','SUPPORT.md',
       '!**/__pycache__/**','!**/*.pyc','!**/*.pyo',
       '!vendor/analysis-node/**','!vendor/muse/**','!desktop/windows-interop/*.dll','!vendor/python/**/*.exe','!vendor/python/**/*.dll','!vendor/python/**/*.pyd','!vendor/python/*._pth',
       '!vendor/cua-driver/**/*.exe','!vendor/cua-driver/**/*.dll','!vendor/grok/*.exe',

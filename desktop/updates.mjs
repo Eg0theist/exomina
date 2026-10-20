@@ -79,7 +79,7 @@ export class Updater {
   close(){clearInterval(this.timer);this.public.close();}
   async status(){
     let lastResult=this.stateDir?await readJson(path.join(this.stateDir,RESULT)):null;
-    if(this.manualUpdates)return {supported:false,manualUpdates:true,installed:this.appDir?await readStamp(this.appDir):null,repositoryUrl:this.repositoryUrl,reason:'This private beta updates by running the latest installer from GitHub Releases. Your chats and sign-ins are kept. Repository access is required.',lastResult};
+    if(this.manualUpdates)return {supported:false,manualUpdates:true,installed:this.appDir?await readStamp(this.appDir):null,repositoryUrl:this.repositoryUrl,reason:'This beta updates by running the latest installer from GitHub Releases. Your chats and sign-ins are kept.',lastResult};
     if(!this.packaged||!this.home)return {supported:false,reason:'Updates install only into an installed Exomina (C:\\Program Files\\Exomina layout), not a development or portable copy.',lastResult};
     if(!await exists(this.installer)||!await exists(this.runner))return {supported:false,reason:'This installation predates automatic updates. Install once with scripts\\install-windows.ps1; later updates install themselves.',lastResult};
     const [installed,local,remote]=await Promise.all([readStamp(this.appDir),readStamp(this.build),this.public.ready(this.feedUrl)]);

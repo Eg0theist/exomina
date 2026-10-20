@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const args=process.argv.slice(2),arg=name=>args[args.indexOf(name)+1];
-const output=path.resolve(args.includes('--output')?arg('--output'):path.join(root,'..','Workspace','exomina-private-beta'));
+const output=path.resolve(args.includes('--output')?arg('--output'):path.join(root,'..','Workspace','exomina-beta'));
 if(output===root||root.startsWith(output+path.sep)||output.startsWith(root+path.sep))throw Error('The share copy must be outside the personal source tree.');
 try {if((await readdir(output)).length)throw Error('Choose an empty output folder. Existing share copies are never overwritten.');}catch(e){if(e.code!=='ENOENT')throw e;}
 const repository=args.includes('--repository')?arg('--repository'):'https://github.com/Eg0theist/exomina';
@@ -21,8 +21,8 @@ await mkdir(path.join(output,'scripts'));await mkdir(path.join(output,'build'));
 const scripts=['prepare-version.mjs','prepare-beta-release.mjs','prepare-beta-vendor.mjs','prepare-taskbar-icon.mjs','prepare-grok-runtime.mjs','prepare-analysis-node.mjs','prepare-windows-interop.mjs','release-windows.mjs','verify-windows-signatures.ps1','verify-vendor-binaries.mjs','beta-installer-config.mjs','beta-installer-path-limits.mjs','beta-installer-path-limits.nsh','beta-installer.nsh','verify-beta-update.ps1','qa-beta-installer.mjs','qa-profile.mjs','qa-packaged.mjs','qa-grok-native.mjs','qa-grok-connection.mjs','install-windows.ps1','create-public-update.mjs','create-update.ps1'];
 for(const file of scripts){try{await copy('scripts/'+file);}catch(e){if(e.code!=='ENOENT')throw e;}}
 for(const relative of ['index.html','vite.config.mjs','build/icon.ico','build/icon.png'])await copy(relative);
-for(const file of ['README.md','PRIVATE-BETA.md','FEEDBACK.md','LICENSE','THIRD-PARTY-NOTICES.txt','SECURITY-AUDIT.txt','VALIDATION.txt'])await cp(path.join(root,'scripts/beta-docs',file),path.join(output,file));
-await cp(path.join(root,'scripts/beta-docs/.github'),path.join(output,'.github'),{recursive:true});
+for(const file of ['README.md','BETA.md','FEEDBACK.md','LICENSE','NOTICE','THIRD-PARTY-NOTICES.txt','SECURITY-AUDIT.txt','VALIDATION.txt'])await copy(file);
+await copy('.github');
 await writeFile(path.join(output,'build/update-channel.json'),'{"feedUrl":""}\n');
 await writeFile(path.join(output,'desktop/theme-catalog.mjs'),"export {THEMES,THEME_PROFILE} from './theme-catalog-standard.mjs';\n");
 await writeFile(path.join(output,'desktop/distribution.mjs'),`export const DISTRIBUTION_PROFILE='beta';\nexport const DISTRIBUTION_REPOSITORY=${JSON.stringify(repository)};\n`);
@@ -30,7 +30,7 @@ await writeFile(path.join(output,'src/voice-preview-clips.js'),"export {VOICE_PR
 // Generic synthetic fixture text, not anyone's profile or writing samples.
 // This checkout already uses synthetic fixtures; release copies preserve them.
 const pkg=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
-pkg.version='0.5.0-beta.1';pkg.description='Exomina private Windows beta';pkg.author='Exomina';pkg.homepage=repository;
+pkg.version='0.5.0-beta.1';pkg.description='Exomina Windows beta';pkg.author='Exomina';pkg.homepage=repository;
 delete pkg.dependencies['@anthropic-ai/claude-code-win32-x64'];
 pkg.scripts={prepackage:'node scripts/prepare-version.mjs --advance',prebuild:'node scripts/prepare-version.mjs',build:'vite build',start:'electron .',test:'node --test test/*.test.mjs','version:sync':'node scripts/prepare-version.mjs',
  'prepare:runtimes':'node scripts/prepare-beta-vendor.mjs && node scripts/prepare-grok-runtime.mjs',

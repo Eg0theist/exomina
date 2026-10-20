@@ -1,4 +1,4 @@
-Exomina private desktop beta
+Exomina desktop beta
 
 Unmodified official runtimes: OpenAI Codex 0.160.1 (Apache-2.0), Google Gemini CLI
 0.62.0 (Apache-2.0), Moonshot Kimi Code 2.1.1 (MIT), GitHub Copilot SDK 1.0.16
@@ -25,10 +25,6 @@ BSD-3-Clause. Build tools Vite and electron-builder: MIT. Full dependency versio
 and integrity hashes are recorded in package-lock.json. Dependency licenses and
 third-party notices are retained in the packaged node_modules trees.
 
-Not included in this shared build: Anthropic's Claude Code, custom wallpaper art,
-and the Codex/Claude voice recordings from the desktop apps. This notice grants no
-right to redistribute them.
-
 Voice previews: off until the user chooses Settings > Voice > Add voice previews. Exomina
 then copies the voice recordings from the user's own installed OpenAI Codex and Anthropic
 Claude desktop apps into the user's private Exomina data folder and builds a tonal-EQ
@@ -52,4 +48,4 @@ Platform guides and their verified public-source provenance are retained.
 Native Grok 1.0.46: target-specific hashes in scripts/grok-runtime-config.mjs.
 The pinned official platform packages retain their license/notices.
 
-Muse Code SDK 1.4.6: MIT, Copyright Meta Platforms, Inc. and affiliates. Full license: vendor/licenses/MUSE-CODE-SDK.txt. The private beta does not redistribute the Muse executable; it can use the user’s own official installation. Meta account and service terms apply.
+Muse Code SDK 1.4.6: MIT, Copyright Meta Platforms, Inc. and affiliates. Full license: vendor/licenses/MUSE-CODE-SDK.txt. Muse connections use the user's official Muse installation. Meta account and service terms apply.

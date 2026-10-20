@@ -106,4 +106,4 @@ Verification binds the final source and package. Applying rechecks them, and the
 
 Legacy releases without an official baseline cannot safely infer it from edited source. Global replacement is blocked until a verified baseline is installed separately with the customized copy preserved. Direct edits to installed program files are also blocked; port them into Source for a reviewed rebuild.
 
-The per-user private beta still uses its whole-installer route. Its installer now refuses customized or baseline-less program copies; use a different empty installation folder to preserve those versions. The automatic merge/apply flow above is for the installed App/Source layout.
+The per-user beta uses its whole-installer route. Its installer refuses customized or baseline-less program copies; use a different empty installation folder to preserve those versions. The automatic merge/apply flow above is for the installed App/Source layout.

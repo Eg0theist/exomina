@@ -171,7 +171,7 @@ try{
  report.checks.honestStandardStorageUi=true;
  await page.getByRole('button',{name:'General',exact:true}).click();
  await page.getByRole('button',{name:'Updates',exact:true}).click();
- await page.getByText('Private beta updates',{exact:true}).waitFor();
+ await page.getByText('Beta updates',{exact:true}).waitFor();
  assert.equal(await page.getByRole('switch',{name:'Download updates automatically',exact:true}).count(),0);
  report.checks.manualUpdatesUi=true;
  assert.deepEqual(report.errors,[]);

@@ -1,5 +1,9 @@
 # Whole-chat memory
 
+## Inspiration and attribution
+
+Victor Taelin's [UniiChat](https://github.com/VictorTaelin/UniiChat) demonstrates a continuing conversation represented as a binary tree of summaries, with a bounded chronological view and zoom back to original messages. His [OptMem](https://github.com/VictorTaelin/OptMem) applies source-preserving, rebuildable summaries to durable notes and bounded memory retrieval. Both are important influences on Exomina's memory design. Their projects retain their own licences and terms; this acknowledgement explains the design influence.
+
 This feature was inspired by [Victor Taelin's proposal for a chat that never ends](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449): compress a conversation into a binary tree of short summaries, and let the model zoom back into the original messages whenever it needs the details. Exomina builds on that idea in its own way. Every conversation keeps its own tree, the memory carries across providers, it sits beside the shared notes instead of replacing them, and it adds credential redaction, known dates, background summaries on your existing subscriptions, and export.
 
 Each conversation has an append-only source journal and a persistent binary tree of summaries. Short source records stay exact; longer records and pairs are summarized into entries of at most 512 UTF-8 bytes. Originals remain available through `conversation_zoom`; `conversation_date` returns known dates without inventing missing legacy timestamps. Attachments retain references; their pixels are read separately.

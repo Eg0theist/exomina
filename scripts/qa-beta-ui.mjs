@@ -149,7 +149,7 @@ shell.openExternal = async url => { globalThis.qaBeta.external.push(url); throw 
   report.checks.sixStandardThemesWindowsAndDesignHint = { names: themeNames };
   await page.screenshot({ path: path.join(output, 'beta-appearance.png') });
   await page.getByRole('button', { name: 'Updates', exact: true }).click();
-  await page.getByText('Private beta updates', { exact: true }).waitFor();
+  await page.getByText('Beta updates', { exact: true }).waitFor();
   assert.equal(await page.getByRole('switch', { name: 'Download updates automatically', exact: true }).count(), 0);
   assert.equal(await page.getByLabel('Release feed address', { exact: true }).count(), 0);
   report.checks.manualBetaUpdates = true;

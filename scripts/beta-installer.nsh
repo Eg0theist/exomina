@@ -1,4 +1,4 @@
-; Private beta only. Exomina.exe remains the runtime executable while the
+; Beta installer. Exomina.exe remains the runtime executable while the
 ; installation folder, shortcut and registration are distinct from personal use.
 !undef APP_FILENAME
 !define APP_FILENAME "Exomina Beta"

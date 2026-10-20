@@ -38,8 +38,8 @@ npm run package:mac    # macOS
 npm run package:linux  # Linux
 ```
 
-Installers are written under `release/`, `release-darwin/` or `release-linux/`. Public runtime archives are pinned and checked by SHA-256. Generated binaries, installation outputs and personal data are excluded from Git.
+Installers are written under `release/`, `release-darwin/` or `release-linux/`. Public runtime archives are pinned and checked by SHA-256.
 
 Use fresh synthetic profiles and an explicitly chosen workspace temporary folder for packaged checks. Never use personal account stores as fixtures. Native qualification covers Windows Setup, macOS DMGs and Debian/Ubuntu DEBs. Mac ZIP and Linux AppImage are optional source-build targets, with installation not qualified for this release; the AppImage failed normal-sandbox startup on the Ubuntu qualification host.
 
-See [Windows build notes](BUILD-WINDOWS.md), [prepackaged build instructions](scripts/PREPACKAGED-BUILD.md) and [platform support](SUPPORT.md) for additional details. User installation steps are in the [installation guide](PRIVATE-BETA.md).
+See [Windows build notes](BUILD-WINDOWS.md), [prepackaged build instructions](scripts/PREPACKAGED-BUILD.md) and [platform support](SUPPORT.md) for additional details. User installation steps are in the [installation guide](BETA.md).

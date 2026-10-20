@@ -5,7 +5,7 @@ import path from 'node:path';
 
 export const SOURCE_FOLDER='exomina-source';
 const ROOTS=new Set(['desktop','src','scripts','test','public','build']);
-const FILES=new Set(['package.json','package-lock.json','index.html','preview.html','vite.config.mjs','README.md','LICENSE','PRIVATE-BETA.md','FEEDBACK.md','PROVIDER-TOOLS.md','PUBLIC-UPDATES.md','VALIDATION.txt','THIRD-PARTY-NOTICES.txt','SECURITY-AUDIT.txt']);
+const FILES=new Set(['package.json','package-lock.json','index.html','preview.html','vite.config.mjs','README.md','LICENSE','BETA.md','FEEDBACK.md','PROVIDER-TOOLS.md','PUBLIC-UPDATES.md','VALIDATION.txt','THIRD-PARTY-NOTICES.txt','SECURITY-AUDIT.txt']);
 export function sourcePath(value){
   if(typeof value!=='string'||value.length>400||value.includes('\\')||value.startsWith('/')||value.split('/').some(p=>!p||p==='.'||p==='..'||/[<>:"|?*\x00-\x1f]/.test(p)||/[. ]$/.test(p)||/^(CON|PRN|AUX|NUL|COM\d|LPT\d)(\.|$)/i.test(p)))throw Error('Invalid release source path.');
   if(!FILES.has(value)&&!ROOTS.has(value.split('/')[0]))throw Error('The file is outside the release source inputs.');

@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a private beta problem
+description: Report a beta problem
 body:
   - type: textarea
     id: problem

@@ -1,8 +1,10 @@
 # Installation and updates
 
+Exomina's own source code and documentation are open source under [Apache-2.0](LICENSE). You are encouraged to modify them, build upon them and distribute your own versions, including commercial versions, with the required notices. Third-party software and provider services retain their respective terms.
+
 ## Install
 
-Download the installer for your operating system and processor from [Releases](https://github.com/Eg0theist/exomina/releases). Sign in to GitHub with an account that has repository access.
+Download the installer for your operating system and processor from [Releases](https://github.com/Eg0theist/exomina/releases).
 
 - **Windows:** run the x64 Setup. Installation is per user and supports Windows 10/11 Home, Pro, Enterprise and Education. Fresh installs do not require EFS or a recovery-key setup.
 - **macOS:** choose ARM64 for Apple Silicon or x64 for Intel. Open the DMG and drag **Exomina Beta** to Applications.
@@ -54,7 +56,7 @@ There are two ways to connect Claude. Pick the one that matches how you pay.
 
   Use the switch on the Claude card to turn it off again.
 
-**Why Claude is a switch and not built in.** Claude Code belongs to Anthropic, so this download cannot include a copy. Exomina uses the copy you install from Anthropic, unchanged. You sign in on Anthropic's page, and Exomina never sees your password. Anthropic allows signing in to its unmodified Claude Code with your own plan. It is your account and your plan's limits, so the switch starts off and only you can turn it on. Exomina keeps its own Claude sign-in, separate from any Claude Code you already use in a terminal.
+Exomina uses Anthropic's official Claude Code and sign-in page. The connection starts off until you enable it and uses your account's access and limits. Exomina keeps its Claude sign-in separate from any Claude Code you already use in a terminal.
 
 Because Claude Code offers more than one sign-in method, Exomina accepts any of them, including a Console sign-in. The card tells you when usage is billed as API usage.
 
@@ -68,7 +70,7 @@ Previews let you hear a ChatGPT or Claude voice before you pick it. They are opt
 
 If the apps are somewhere unusual, Exomina offers **choose its folder**. **Update from my apps** refreshes the copies and **Remove** deletes them.
 
-**Why this is a button and not built in.** The recordings belong to OpenAI and Anthropic, and this download has no permission to hand them out. Copying them from the apps you already installed keeps them on your computer for your own use. Exomina reads only the apps' sound files, never their settings or sign-ins, and nothing is uploaded. Without the apps, voices still work; you just cannot preview them first.
+Voice previews use sound files from your installed apps and stay on your computer. Voice features also work without previews.
 
 Linux has no desktop versions of these apps to copy from. If Exomina cannot find an app on your computer, use **choose its folder**.
 
@@ -78,7 +80,7 @@ Linux has no desktop versions of these apps to copy from. If Exomina cannot find
 - **Voice:** built-in dictation and system spoken replies need Windows. ChatGPT Realtime is experimental. Voice previews are optional and copied from your own apps (see [Voice previews](#voice-previews)).
 - **Computer use:** macOS and Linux need the matching OS permissions and a supported desktop session.
 - **Windows paths:** Setup refuses overly long program or temporary paths before copying files. A shorter local path may be needed; release validation records the tested limits.
-- **Mac and Linux downloads:** DMGs and DEBs are the qualified downloads. ZIP and AppImage are optional source-build targets. The AppImage did not start with its normal sandbox on the qualification host and is excluded from this release.
+- **Mac and Linux downloads:** use the DMG or DEB for your processor. ZIP and AppImage are optional source-build targets.
 
 ## Reporting problems
 

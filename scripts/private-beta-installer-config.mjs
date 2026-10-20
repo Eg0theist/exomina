@@ -24,7 +24,7 @@ export default {
   directories:{...base.directories,output:'release'},
   files:[
     ...(base.files||['dist/**','desktop/**','vendor/**','package.json']),
-    'LICENSE','PRIVATE-BETA.md','FEEDBACK.md',
+    'LICENSE','BETA.md','FEEDBACK.md',
     '!**/__pycache__/**','!**/*.pyc','!**/*.pyo',
     '!node_modules/@xai-official/grok-win32-x64/**',
     '!node_modules/@anthropic-ai/claude-code-win32-x64/**',
