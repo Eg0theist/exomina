@@ -1,12 +1,26 @@
 # Exomina beta
 
-**One desktop workspace for your AI conversations and the work that follows.** Connect ChatGPT, Claude, Gemini, Grok and other providers, continue the same conversation across models, and give them shared memory, files, a browser and tools you control.
+**Make the software you wish existed.** Exomina brings ChatGPT, Claude, Gemini, Grok and local models into one free, open-source desktop workspace that remembers your work, edits your real files, browses the web and keeps going when one AI runs out of messages.
 
-Exomina brings practical work into the conversation: read and edit project files, run commands, research a website, inspect an application, follow a work plan, or pick up a chat from your phone. Your chat library stays on your computer. Content you send to a cloud provider is processed by that provider.
+- **Stop re-explaining yourself.** Long conversations keep a memory with links back to the original messages, and shared notes carry your preferences and decisions into new chats.
+- **Stop copy-pasting between AIs.** Switch the model or provider inside a conversation; the history, attachments and project context stay where they are.
+- **Stop waiting for limits to reset.** When one plan runs dry, continue with another connected AI in the same chat.
+- **Stop being the AI's hands.** Let it read and edit project files, run commands, research in a visible browser, inspect an application or follow a work plan under the access you choose.
+
+Your chat library stays on your computer; content sent to a cloud provider is processed by that provider.
 
 **[Website](https://eg0theist.github.io/exomina/)** · **[Download the current beta](https://github.com/Eg0theist/exomina/releases/tag/v0.5.0-beta.94)** · [Quick start](START-HERE.txt) · [Installation](BETA.md) · [Platform support](SUPPORT.md)
 
 Open source under [Apache-2.0](LICENSE). Forks, modifications and your own versions are welcome.
+
+## What could you make?
+
+- **Build software around your own habits.** A writing tracker, a personal dashboard or a desktop utility, with the screens and behavior you actually want.
+- **Rethink a subscription.** Build a focused alternative to the parts of a SaaS product you use, where practical. Start small, test it and account for data, integrations and maintenance before relying on it.
+- **Research and decide.** Let it read the pages in a browser you can watch, collect what matters for your question with sources, and give a recommendation you can check.
+- **Change your game.** Develop a mod for a supported game: adjust a mechanic, test it locally and refine how it feels.
+
+These are projects to develop and check, rather than a promise that any idea works in one prompt. The same workspace also supports writing, file work, browser tasks and other everyday work.
 
 ## Start with a new conversation
 
@@ -96,4 +110,4 @@ The central ideas are compact hierarchical summaries, a bounded view of a much l
 
 Exomina builds on these ideas in a local-first desktop application: separate memory trees for conversations, continuity across AI providers, shared saved notes, known message dates and correction links, and configurable sharing and tool permissions. It combines that memory with a visible browser, files, work plans and other integrated workflows. See [Whole-chat memory](CHAT-MEMORY.md) for the implementation and its limits.
 
-**Support Exomina's development via PayPal: @egotheist.** Contributions help fund continued development and testing.
+**[Support Exomina's development via PayPal: @egotheist](https://www.paypal.com/paypalme/egotheist).** Contributions help fund continued development and testing.
