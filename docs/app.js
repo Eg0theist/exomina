@@ -1,6 +1,9 @@
 const root = document.documentElement;
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-const motionAllowed = () => !reducedMotion.matches && !root.classList.contains('motion-paused');
+const motionAllowed = () => !document.hidden && !reducedMotion.matches && !root.classList.contains('motion-paused');
+const syncVisibility = () => root.classList.toggle('page-hidden', document.hidden);
+syncVisibility();
+document.addEventListener('visibilitychange', syncVisibility);
 const onVisible = (element, callback, options = {threshold: 0.25}) => {
   if (!element) return;
   if (!('IntersectionObserver' in window)) { callback(true); return; }
@@ -55,23 +58,8 @@ if ('IntersectionObserver' in window) {
   revealed.forEach(element => observer.observe(element));
 } else revealed.forEach(element => element.classList.add('is-visible'));
 
-// Small looping details only run while they are on screen
-document.querySelectorAll('.prompt-bar, .mini-plan, .final-orb').forEach(element => onVisible(element, visible => element.classList.toggle('in-view', visible), {threshold: 0}));
-
-// Card spotlight (at most one update per frame)
-document.querySelectorAll('.spot').forEach(card => {
-  let pending = 0, x = 0, y = 0;
-  card.addEventListener('pointermove', event => {
-    x = event.clientX; y = event.clientY;
-    if (pending) return;
-    pending = requestAnimationFrame(() => {
-      pending = 0;
-      const box = card.getBoundingClientRect();
-      card.style.setProperty('--mx', `${x - box.left}px`);
-      card.style.setProperty('--my', `${y - box.top}px`);
-    });
-  });
-});
+// Decorative details pause outside the viewport and do not restart on re-entry.
+document.querySelectorAll('.mini-plan, .final-orb').forEach(element => onVisible(element, visible => element.classList.toggle('in-view', visible), {threshold: 0}));
 
 // Starfield: drawn once and again after resizing, never animated per frame
 const canvas = document.querySelector('.starfield');
@@ -79,7 +67,7 @@ if (canvas && canvas.getContext) {
   const context = canvas.getContext('2d');
   let stars = [], width = 0, height = 0;
   const resize = () => {
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    const ratio = Math.min(window.devicePixelRatio || 1, 1);
     width = canvas.clientWidth; height = canvas.clientHeight;
     canvas.width = width * ratio; canvas.height = height * ratio;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -105,32 +93,29 @@ if (canvas && canvas.getContext) {
   window.addEventListener('resize', () => { if (innerWidth === lastWidth && stars.length) return; lastWidth = innerWidth; clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 150); });
 }
 
-// Typing prompt bar
+// Show each example once, then leave the page at rest. Whole phrases avoid
+// repeatedly laying out text as individual characters are inserted/deleted.
 const promptBar = document.querySelector('[data-prompts]');
 if (promptBar) {
   const output = promptBar.querySelector('[data-prompt-text]');
   const prompts = [...promptBar.querySelectorAll('[data-prompt-list] li')].map(item => item.textContent);
-  let index = 0, chars = prompts[0].length, deleting = true, timer, inView = true;
-  const step = () => {
+  let index = 0, timer = 0, inView = false;
+  const sync = () => {
     clearTimeout(timer);
-    if (!motionAllowed() || document.hidden || !inView) { output.textContent = prompts[index]; return; }
-    const text = prompts[index];
-    if (deleting) {
-      chars = Math.max(0, chars - 2);
-      output.textContent = text.slice(0, chars);
-      if (chars === 0) { deleting = false; index = (index + 1) % prompts.length; }
-      timer = setTimeout(step, 18);
-    } else {
-      const next = prompts[index];
-      chars++;
-      output.textContent = next.slice(0, chars);
-      if (chars >= next.length) { deleting = true; timer = setTimeout(step, 2600); }
-      else timer = setTimeout(step, 28 + Math.random() * 40);
-    }
+    timer = 0;
+    if (!motionAllowed() || document.hidden || !inView || index >= prompts.length - 1) return;
+    timer = setTimeout(() => {
+      timer = 0;
+      if (!motionAllowed() || document.hidden || !inView) return;
+      output.textContent = prompts[++index];
+      output.classList.add('is-changing');
+      sync();
+    }, 4000);
   };
-  onVisible(promptBar, visible => { inView = visible; if (visible) timer = setTimeout(step, 2200); else clearTimeout(timer); }, {threshold: 0});
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) timer = setTimeout(step, 800); });
-  motionListeners.push(() => { if (motionAllowed()) timer = setTimeout(step, 600); else step(); });
+  output.addEventListener('animationend', () => output.classList.remove('is-changing'));
+  onVisible(promptBar, visible => { inView = visible; sync(); }, {threshold: 0});
+  document.addEventListener('visibilitychange', sync);
+  motionListeners.push(sync);
 }
 
 // Hero walkthrough
@@ -162,17 +147,17 @@ if (story) {
     play.textContent = playing ? 'Ⅱ ' + play.dataset.pause : '▷ ' + (current === last ? play.dataset.replay : play.dataset.play);
     play.setAttribute('aria-pressed', String(playing));
   };
-  const pause = () => { clearTimeout(timer); playing = false; setPlayLabel(); };
+  const pause = () => { clearTimeout(timer); playing = false; story.dataset.playing = 'false'; setPlayLabel(); };
   const schedule = () => {
     timer = setTimeout(() => {
-      if (!playing) return;
+      if (!playing || document.hidden || !motionAllowed()) { pause(); return; }
       show(current + 1);
       if (current >= last) pause(); else schedule();
     }, current === 0 ? 2200 : 3000);
   };
   const start = () => {
     if (current >= last) show(0);
-    playing = true; setPlayLabel(); schedule();
+    playing = true; story.dataset.playing = 'true'; setPlayLabel(); schedule();
   };
   stepButtons.forEach((button, index) => button.addEventListener('click', () => { pause(); show(index); setPlayLabel(); }));
   play.addEventListener('click', () => {
@@ -197,43 +182,13 @@ if (compare) {
   range.hidden = false;
   const set = value => compare.style.setProperty('--split', `${value}%`);
   range.addEventListener('input', () => set(range.value));
-  let hinted = false;
-  onVisible(compare, visible => {
-    if (!visible || hinted || !motionAllowed()) return;
-    hinted = true;
-    const frames = [50, 78, 22, 50];
-    const start = performance.now(), duration = 2400;
-    const animate = now => {
-      if (document.activeElement === range) return;
-      const t = Math.min(1, (now - start) / duration), seg = t * (frames.length - 1), i = Math.min(frames.length - 2, Math.floor(seg)), local = seg - i;
-      const eased = .5 - Math.cos(local * Math.PI) / 2;
-      const value = frames[i] + (frames[i + 1] - frames[i]) * eased;
-      set(value); range.value = String(Math.round(value));
-      if (t < 1) requestAnimationFrame(animate);
-    };
-    setTimeout(() => requestAnimationFrame(animate), 500);
-  }, {threshold: 0.5});
 }
 
-// Memory visual and stats
-document.querySelectorAll('[data-memory]').forEach(visual => onVisible(visual, visible => visual.classList.toggle('is-live', visible), {threshold: 0.3}));
-document.querySelectorAll('[data-count]').forEach(element => {
-  const target = Number(element.dataset.count);
-  if (!target) return;
-  let done = false;
-  onVisible(element, visible => {
-    if (!visible || done) return;
-    done = true;
-    if (!motionAllowed()) return;
-    const start = performance.now();
-    const tick = now => {
-      const t = Math.min(1, (now - start) / 1200);
-      element.textContent = String(Math.round(target * (1 - Math.pow(1 - t, 3))));
-      if (t < 1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  }, {threshold: 0.6});
-});
+// One short memory illustration per visit. Scrolling back never restarts it.
+document.querySelectorAll('[data-memory]').forEach(visual => onVisible(visual, visible => {
+  visual.classList.toggle('in-view', visible);
+  if (visible) visual.classList.add('is-live');
+}, {threshold: 0.3}));
 
 // Tabs
 const tabs = [...document.querySelectorAll('[data-tab]')];
@@ -309,7 +264,7 @@ document.querySelectorAll('[data-jump-preview]').forEach(preview => {
     preview.querySelector('[data-jump-status]').textContent = preview.dataset.mode === 'double' ? action.dataset.doubleResult : action.dataset.normalResult;
     scene.classList.remove('is-jumping');
     clearTimeout(reset);
-    if (!reducedMotion.matches) {
+    if (motionAllowed()) {
       void scene.offsetWidth;
       scene.classList.add('is-jumping');
       reset = setTimeout(() => scene.classList.remove('is-jumping'), 1700);
