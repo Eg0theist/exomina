@@ -1,0 +1,91 @@
+{
+  "name": "exomina",
+  "version": "0.5.0-beta.94",
+  "private": true,
+  "description": "Exomina private cross-platform beta",
+  "author": "Exomina",
+  "type": "module",
+  "main": "desktop/main.mjs",
+  "scripts": {
+    "prebuild": "node scripts/prepare-version.mjs",
+    "build": "vite build",
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs",
+    "prepare:runtimes": "node scripts/prepare-beta-vendor.mjs && node scripts/prepare-grok-runtime.mjs && node scripts/prepare-analysis-node.mjs",
+    "package": "npm run build && npm run prepare:runtimes && node scripts/prepare-taskbar-icon.mjs && node scripts/prepare-windows-interop.mjs && electron-builder --config scripts/private-beta-installer-config.mjs --win nsis --x64",
+    "package:mac": "node scripts/package-cross-platform.mjs darwin",
+    "package:linux": "node scripts/package-cross-platform.mjs linux",
+    "qa:package": "node scripts/qa-packaged.mjs",
+    "qa:installer": "node scripts/qa-beta-installer.mjs"
+  },
+  "dependencies": {
+    "@huggingface/tokenizers": "0.2.0",
+    "@lydell/node-pty": "1.1.0",
+    "@muse-code/sdk": "1.4.6",
+    "@openai/codex": "0.160.1",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "lucide-react": "^0.468.0",
+    "onnxruntime-node": "1.30.0",
+    "playwright": "^1.56.0",
+    "qrcode": "1.5.4",
+    "rea-agents": "6.1.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "smol-toml": "1.9.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "vite": "8.3.2"
+  },
+  "build": {
+    "electronDist": "node_modules/electron/dist",
+    "appId": "local.exomina.desktop",
+    "productName": "Exomina",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "desktop/**",
+      "!desktop/antigravity-browser/**",
+      "vendor/**",
+      "build/icon.png",
+      "build/taskbar-icon.json",
+      "build/shell-icons/**",
+      "build/update-channel.json",
+      "package.json",
+      "README.md",
+      "PROVIDER-TOOLS.md",
+      "TERMINAL.md",
+      "PUBLIC-UPDATES.md",
+      "VALIDATION.txt",
+      "THIRD-PARTY-NOTICES.txt",
+      "SECURITY-AUDIT.txt",
+      "scripts/install-windows.ps1"
+    ],
+    "asarUnpack": [
+      "desktop/**",
+      "vendor/**",
+      "node_modules/**",
+      "build/shell-icons/**",
+      "scripts/install-windows.ps1"
+    ],
+    "win": {
+      "target": "dir",
+      "icon": "build/icon.ico",
+      "signExecutable": false
+    },
+    "npmRebuild": false
+  },
+  "homepage": "https://github.com/Eg0theist/exomina",
+  "optionalDependencies": {
+    "@xai-official/grok-darwin-arm64": "1.0.46",
+    "@xai-official/grok-darwin-x64": "1.0.46",
+    "@xai-official/grok-linux-arm64": "1.0.46",
+    "@xai-official/grok-linux-x64": "1.0.46",
+    "@xai-official/grok-win32-arm64": "1.0.46",
+    "@xai-official/grok-win32-x64": "1.0.46"
+  }
+}

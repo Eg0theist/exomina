@@ -1,0 +1,67 @@
+import {_electron as electron} from 'playwright';
+import {createProtectedQaProfile} from './qa-profile.mjs';
+import {Store} from '../desktop/store.mjs';
+import {mkdir,writeFile,readFile} from 'node:fs/promises';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {extractFile} from '@electron/asar';
+
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),runtimeRoot=path.resolve(process.env.EXOMINA_QA_RUNTIME_ROOT||root);
+const fixture=await createProtectedQaProfile('codex-continuation'),{profile,output}=fixture;
+const workspace=path.join(output,'workspace');await mkdir(workspace);
+const store=new Store(profile,{workspace});await store.init();
+Object.assign(store.state.settings,{workspace,autoTitle:false,autoUpdate:false,closeToTray:false,memoryEnabled:false,chatMemorySummaries:false,browserEnabled:false,desktopEnabled:false,permissionMode:'full',routing:'tools'});
+const chat=store.create('codex');chat.title='Continuation QA';chat.titleSource='manual';await store.save();
+const expectedVersion=JSON.parse(runtimeRoot.endsWith('.asar')?extractFile(runtimeRoot,'package.json'):await readFile(path.join(runtimeRoot,runtimeRoot.endsWith('.asar.unpacked')?'desktop/app-version.json':'package.json'),'utf8')).version;
+const moduleUrl=name=>JSON.stringify(pathToFileURL(path.join(runtimeRoot,name)).href);
+const launcher=path.join(output,'launcher.cjs');await writeFile(launcher,`const {app,BrowserWindow,session,dialog}=require('electron');
+BrowserWindow.prototype.show=function(){};app.commandLine.appendSwitch('mute-audio');dialog.showErrorBox=(title,message)=>{console.error(title,message);app.exit(1)};
+app.getVersion=()=>${JSON.stringify(expectedVersion)};
+globalThis.qaContinuation={calls:[],mainTurns:0,nativeDirections:[]};
+(async()=>{await app.whenReady();for(const partition of [session.defaultSession,session.fromPartition('persist:exomina-browser')])partition.webRequest.onBeforeRequest((details,callback)=>callback({cancel:/^https?:/.test(details.url)}));
+const {ProviderManager}=await import(${moduleUrl('desktop/providers.mjs')});const {PROVIDER_CATALOG}=await import(${moduleUrl('desktop/provider-catalog.mjs')});
+ProviderManager.prototype.status=async function({onStatus}={}){const rows=PROVIDER_CATALOG.filter(item=>item.mode==='subscription').map(item=>({id:item.id,installed:true,connected:item.id==='codex',available:true,checking:false,detail:'Synthetic QA connection.'}));for(const row of rows)onStatus?.(row);return rows};
+ProviderManager.prototype.subscriptionModels=async()=>({});ProviderManager.prototype.modelsFor=async()=>[];ProviderManager.prototype.codexUsage=async()=>null;ProviderManager.prototype.claudeUsage=async()=>null;ProviderManager.prototype.steer=async(_id,request)=>{globalThis.qaContinuation.nativeDirections.push(request.prompt);return true};
+ProviderManager.prototype.getCodex=async()=>{throw Error('Native account/runtime access prohibited in renderer QA')};
+ProviderManager.prototype.run=async function(request){
+ const qa=globalThis.qaContinuation;qa.calls.push({conversationId:request.conversationId,sessionId:request.sessionId,prompt:request.prompt,recoveryPrompt:request.recoveryPrompt,noTools:request.noTools,toolDefinitions:request.toolDefinitions});
+ if(request.conversationId!==${JSON.stringify(chat.id)})return {text:'This follow-up is tracked for the main task.',sessionId:'parallel-qa'};
+ if(++qa.mainTurns===1){this.emit({type:'chat.delta',conversationId:request.conversationId,text:'I am checking the build and preserving completed work.',block:'progress'});this.emit({type:'chat.thinking',conversationId:request.conversationId,id:'reasoning',text:'DETAILED_REASONING_ONLY',start:true});this.emit({type:'chat.tool',conversationId:request.conversationId,id:'published-once',name:'workspace_write',status:'done',output:'Original work completed and verified once.'});this.emit({type:'chat.tool',conversationId:request.conversationId,id:'probe',name:'workspace_shell',status:'error',output:'COMMAND_DETAILS_ONLY'});this.emit({type:'chat.delta',conversationId:request.conversationId,text:'The original task is complete and verified.',block:'final'});await new Promise(resolve=>qa.release=resolve);return {text:'The original task is complete and verified.',sessionId:'original-thread'};}
+ throw Error('Codex could not preserve selected permissions. Requested: full access, never, QA workspace. Effective: read-only. One fresh-thread attempt also returned read-only.');
+};
+await import(${moduleUrl('desktop/main.mjs')});})().catch(error=>{console.error(error);app.exit(1)});`);
+const env={...process.env,EXOMINA_DATA_DIR:profile,TEMP:output,TMP:output,TMPDIR:output};delete env.ELECTRON_RUN_AS_NODE;
+for(const key of Object.keys(env))if(/(?:token|secret|password|api_?key|credential|authorization)/i.test(key))delete env[key];
+let app,page;const report={runtimeRoot,output,expectedVersion,scope:'Production send, follow-up continuation, persistence and renderer in an encrypted synthetic profile; mock provider, no account stores or model requests.',checks:{},errors:[]};
+const reportDir=path.resolve(root,'../Workspace/codex-permission-recovery');await mkdir(reportDir,{recursive:true});
+try{
+ app=await electron.launch({args:[launcher],cwd:root,env,timeout:30000});page=await app.firstWindow();page.setDefaultTimeout(20000);page.on('pageerror',error=>report.errors.push(error.message));
+ await page.locator('.chat-open').filter({hasText:chat.title}).click();
+ assert.equal(await page.locator('.sidebar-bottom .version').textContent(),'v'+expectedVersion);
+ const initial=await page.evaluate(id=>window.studio.invoke('chat.send',{conversationId:id,provider:'codex',text:'Complete the original task and publish once.',mode:'tools'}),chat.id);
+ await page.getByText('The original task is complete and verified.',{exact:true}).waitFor();
+ await page.locator('.activity-updates .note').filter({hasText:'I am checking the build and preserving completed work.'}).waitFor();
+ await page.locator('.activity-updates .status-error').waitFor();assert.equal(await page.locator('.activity-work-details').count(),0);
+ assert.doesNotMatch(await page.locator('body').textContent(),/COMMAND_DETAILS_ONLY|DETAILED_REASONING_ONLY/);
+ const followup=await page.evaluate(id=>window.studio.invoke('chat.send',{conversationId:id,provider:'codex',text:'Now apply and verify the follow-up change.',mode:'tools'}),chat.id);
+ await page.getByText('This follow-up is tracked for the main task.',{exact:true}).waitFor();
+ await app.evaluate(()=>globalThis.qaContinuation.release());
+ await page.locator('.continuation-error').waitFor();
+ assert.match(await page.locator('.continuation-error').textContent(),/Requested: full access.*Effective: read-only/s);
+ assert.equal(await page.locator('.message.assistant .message-content').textContent(),'The original task is complete and verified.');
+ const state=await page.evaluate(()=>window.studio.invoke('bootstrap'));const saved=state.conversations.find(c=>c.id===initial.conversationId).messages.at(-1);
+ assert.equal(saved.error,undefined);assert.match(saved.continuationError,/read-only/);assert.equal(saved.followups.find(item=>item.id===followup.followup).taskStatus,'blocked');
+ const calls=await app.evaluate(()=>globalThis.qaContinuation.calls),continuation=calls.filter(call=>call.conversationId===chat.id).at(-1);
+ assert.equal(continuation.sessionId,'original-thread');assert.match(continuation.recoveryPrompt,/Complete the original task and publish once/);assert.match(continuation.recoveryPrompt,/Original work completed and verified once/);assert.match(continuation.recoveryPrompt,/The original task is complete and verified/);
+ const directions=await app.evaluate(()=>globalThis.qaContinuation.nativeDirections);assert.equal(directions.length,1);assert.match(directions[0],/apply and verify the follow-up change/);const side=calls.find(call=>call.conversationId!==chat.id);assert.equal(side.noTools,true);assert.deepEqual(side.toolDefinitions,[]);
+ await page.reload();await page.locator('.chat-open').filter({hasText:chat.title}).click();await page.locator('.continuation-error').waitFor();assert.equal(await page.locator('.message.assistant .message-content').textContent(),saved.content);
+ await page.locator('.live-followup[data-task-status="blocked"]').waitFor();
+ assert.equal(await page.locator('.activity-work-details').count(),0);assert.equal(await page.locator('.activity-head').getAttribute('aria-expanded'),'false');
+ await page.screenshot({path:path.join(reportDir,runtimeRoot===root?'source-progress.png':'packaged-progress.png')});
+ await page.getByRole('button',{name:/Work details/}).click();await page.locator('.activity-work-details .tool').first().waitFor();
+ report.checks={versionShown:true,completedReplyPreserved:true,separateContinuationError:true,unfinishedFollowupVisible:true,recoveryPromptHasOriginalTaskAndCompletedWork:true,persistedAcrossReload:true,progressAndProblemsVisible:true,commandsAndReasoningCollapsedByDefault:true,parallelAnswerBeforeMainCompletion:true,directionAlsoDeliveredToMain:true,parallelAnswerHasNoTools:true};
+ await page.screenshot({path:path.join(reportDir,runtimeRoot===root?'source-continuation.png':'packaged-continuation.png')});
+ await page.getByRole('button',{name:/Settings/}).click();await page.getByText('Exomina '+expectedVersion,{exact:true}).waitFor();report.checks.aboutVersionShown=true;
+ assert.deepEqual(report.errors,[]);report.passed=true;report.protection=await fixture.verify();
+}catch(error){report.error=error.stack;throw error;}finally{if(app)await app.close().catch(()=>{});await writeFile(path.join(reportDir,runtimeRoot===root?'source-continuation-qa.json':'packaged-continuation-qa.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));}

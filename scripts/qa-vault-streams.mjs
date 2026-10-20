@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {readFile,writeFile,access} from 'node:fs/promises';
+import {spawn} from 'node:child_process';
+import {WindowsVault} from '../desktop/vault.mjs';
+import {createProtectedQaProfile} from './qa-profile.mjs';
+const fixture=await createProtectedQaProfile('vault-streams'),vanishing=path.join(fixture.profile,'vanishing-empty'),hidden=path.join(fixture.profile,'hidden-empty'),ads=path.join(fixture.profile,'nonempty-ads');
+const executable=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
+function ps(command){return new Promise((resolve,reject)=>{const child=spawn(executable,['-NoProfile','-NonInteractive','-Command',command],{windowsHide:true,stdio:['ignore','pipe','pipe']});let error='';child.stderr.on('data',c=>error+=c);child.on('error',reject);child.on('close',code=>code?reject(Error(error)):resolve());});}
+const literal=value=>"'"+value.replaceAll("'","''")+"'";
+await writeFile(hidden,'');await ps(`[IO.File]::Decrypt(${literal(hidden)});[IO.File]::SetAttributes(${literal(hidden)},[IO.FileAttributes]::Hidden)`);
+const source=await readFile(fileURLToPath(new URL('../desktop/vault-windows.ps1',import.meta.url)),'utf8');
+const injected=source.replace('using(var handle=Open(item.Path))','if(item.Path.EndsWith("vanishing-empty",System.StringComparison.Ordinal))System.IO.File.Delete(item.Path);using(var handle=Open(item.Path))'),helper=path.join(fixture.output,'synthetic-disappearance.ps1');assert.notEqual(injected,source);await writeFile(helper,injected);
+const instrumented=new WindowsVault({scriptPath:helper});await writeFile(vanishing,'');await ps(`[IO.File]::Decrypt(${literal(vanishing)})`);
+let first;try{await instrumented.request('verify',fixture.profile);}catch(e){first=e.diagnostic;}assert.equal(first?.category,'FileNotFoundException');await assert.rejects(access(vanishing));
+await writeFile(vanishing,'');await ps(`[IO.File]::Decrypt(${literal(vanishing)})`);const retry=await instrumented.verify(fixture.profile);assert.equal(retry.encrypted,true);assert.equal(retry.restrictedAccess,true);await assert.rejects(access(vanishing));
+await writeFile(ads,'');await ps(`Set-Content -LiteralPath ${literal(ads)} -Stream 'synthetic-payload' -Value 'Synthetic ADS payload' -NoNewline;[IO.File]::Decrypt(${literal(ads)})`);
+let rejected;try{await new WindowsVault().verify(fixture.profile);}catch(e){rejected=e;}assert.ok(rejected);assert.equal(rejected.diagnostic?.verification?.unencryptedEntries,1);
+await ps(`Remove-Item -LiteralPath ${literal(ads)} -Force`);const final=await fixture.verify();
+const report={syntheticOnly:true,profile:fixture.profile,reproducedDisappearance:first.category,completeRetryPassed:retry.encrypted,hiddenEmptyPassed:true,nonemptyAdsRejected:true,final};await writeFile(path.join(fixture.output,'result.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));

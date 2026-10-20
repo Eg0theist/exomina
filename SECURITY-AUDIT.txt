@@ -1,0 +1,13 @@
+Private beta release boundaries
+
+Program files are packaged from an allowlisted source copy, without personal
+profiles, account stores, chats, imported archives, browser state or recovery keys.
+Fresh private storage uses restricted user permissions. Connection keys require
+OS-protected secret storage, refusing Linux plaintext fallbacks. Chats, advanced
+tool configuration and some provider sign-in files rely on device encryption.
+Existing EFS profiles retain their recovery checks and are never downgraded.
+Provider/tool approvals remain enabled. Sign-in uses each user's own account.
+Tests use fresh synthetic profiles; no personal account stores are used for QA.
+
+This is a release preparation record, not a penetration test or security
+certification. See PRIVATE-BETA.md for supported storage and known limitations.

@@ -1,0 +1,16 @@
+Private compatibility beta validation
+
+The release includes a separate VALIDATION.md with exact source commits,
+artifact checksums and native startup/installation results.
+
+Fresh installs use ordinary private per-user storage on Windows (including Home),
+macOS and Linux. Existing EFS profiles retain encryption/recovery checks. API
+connection keys require real OS secret protection; Linux plaintext fallback is
+refused while the app stays usable without stored connection credentials.
+
+Tests use synthetic signed-out profiles. No personal chats, accounts, browser
+state, recordings, recovery keys or custom wallpapers are included in source or
+packages.
+
+Windows is unsigned. macOS has no Developer ID/notarization configuration.
+Private release updates are manual. Uninstall keeps app data and project files.

@@ -1,0 +1,47 @@
+name: Portability foundation checks
+concurrency:
+  group: portability-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  push:
+    branches: [cross-platform-foundation]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'test/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/portability.yml'
+jobs:
+  shared-code:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-26, macos-26-intel, ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: node --test test/portability.test.mjs test/portability-native.test.mjs test/native-runtime-preparation.test.mjs test/window-chrome.test.mjs test/permissions.test.mjs
+      - run: node scripts/prepare-grok-runtime.mjs
+      - run: node scripts/qa-native-grok.mjs
+      - run: |
+          umask 077
+          node scripts/prepare-native-vendor.mjs
+        shell: bash
+        if: runner.os != 'Windows'
+      - run: node scripts/qa-native-vendor.mjs
+        if: runner.os != 'Windows'
+      # No Mac/Linux installer is uploaded: the private-storage adapter and
+      # target-native runtime/installation checks have not been completed.

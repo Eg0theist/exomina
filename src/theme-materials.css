@@ -1,0 +1,51 @@
+/* Artwork is atmosphere, never decoration on top of reading. Loaded after extravagant-themes.css.
+   Vivid worlds sit softly out of focus behind the conversation, like a wallpaper behind frosted glass;
+   Aurora keeps its crisp view. Atmospheric themes are quiet by design and show their artwork as painted. */
+
+/* Vivid: soft focus and a little less light, so detail stays in the background. Inset hides blurred edges. */
+html:is([data-theme="neon-leather"],[data-theme="nocturne"]) .main-shell{--artwork-filter:blur(8px) saturate(1.08) brightness(.72)}
+html:is([data-theme="neon-leather"],[data-theme="nocturne"]) .main-shell::before{inset:-32px;background-image:var(--theme-art);filter:var(--artwork-filter)}
+html:is([data-theme^="erebus-"],[data-theme="neo-babylon"],[data-theme="neon-leather"],[data-theme="nocturne"]) .sidebar{background-size:cover;background-image:linear-gradient(color-mix(in oklab,var(--n-0) 90%,transparent),color-mix(in oklab,var(--n-0) 83%,transparent)),var(--theme-art)}
+
+/* Composed for the interface: one subject on the right, quiet space elsewhere. Shown crisp, like Aurora. */
+html[data-theme^="erebus-"] .main-shell::before{background-image:linear-gradient(90deg,color-mix(in oklab,var(--n-0) 25%,transparent),transparent 60%),var(--theme-art);background-position:right center}
+html[data-theme^="erebus-"] .sidebar{background-position:8% center}
+/* Neo-Babylon: the lower city is busy, so a rain-dark veil rises behind the message box. */
+html[data-theme="neo-babylon"] .main-shell::before{background-image:linear-gradient(0deg,color-mix(in oklab,var(--n-0) 62%,transparent),transparent 55%),linear-gradient(90deg,color-mix(in oklab,var(--n-0) 30%,transparent),transparent 65%),var(--theme-art);background-position:right center}
+html[data-theme="neo-babylon"] .sidebar{background-position:12% center}
+html[data-theme="neo-babylon"] .topbar{border-bottom-color:color-mix(in oklab,var(--t-accent) 32%,var(--n-0))}
+html[data-theme="neon-leather"] .sidebar{background-position:5% center}
+html[data-theme="neon-leather"] .topbar{border-bottom-color:color-mix(in oklab,var(--t-lilac) 45%,var(--n-0))}
+html[data-theme="nocturne"] .sidebar{background-position:center}
+
+/* Atmospheric: the painting is the room. Panels are frosted and quiet; no motion, no glow. */
+html[data-artwork="calm"] .main-shell::before{background-image:var(--theme-art);background-position:center}
+html[data-artwork="calm"] .main-shell::after{display:none}
+html[data-artwork="calm"] .sidebar{background-size:cover;background-position:left center;background-image:linear-gradient(color-mix(in oklab,var(--n-0) 80%,transparent),color-mix(in oklab,var(--n-0) 72%,transparent)),var(--theme-art);border-right-color:color-mix(in oklab,var(--t-ink) 10%,transparent);box-shadow:none}
+html[data-artwork="calm"] .topbar{background:color-mix(in oklab,var(--n-0) 72%,transparent);border-bottom-color:color-mix(in oklab,var(--t-ink) 8%,transparent);box-shadow:none}
+html[data-artwork="calm"] .message.assistant{background:color-mix(in oklab,var(--n-0) 86%,transparent);backdrop-filter:blur(16px) saturate(1.1);border-color:color-mix(in oklab,var(--t-ink) 9%,transparent);box-shadow:0 8px 28px color-mix(in oklab,var(--t-shadow) 16%,transparent)}
+html[data-artwork="calm"] .user-bubble{background:color-mix(in oklab,var(--t-accent) 12%,var(--n-1));border-color:color-mix(in oklab,var(--t-accent) 26%,transparent);box-shadow:none}
+html[data-artwork="calm"] .composer{background:color-mix(in oklab,var(--n-1) 92%,transparent);border-color:color-mix(in oklab,var(--t-ink) 12%,transparent);backdrop-filter:blur(18px);box-shadow:0 10px 32px color-mix(in oklab,var(--t-shadow) 20%,transparent)}
+html[data-artwork="calm"] .composer:focus-within{border-color:color-mix(in oklab,var(--t-accent) 55%,transparent);box-shadow:0 10px 32px color-mix(in oklab,var(--t-shadow) 20%,transparent)}
+html[data-artwork="calm"] :is(.welcome-block,.welcome-hero){background:color-mix(in oklab,var(--n-0) 82%,transparent);border-color:color-mix(in oklab,var(--t-ink) 9%,transparent);box-shadow:0 8px 28px color-mix(in oklab,var(--t-shadow) 14%,transparent)}
+html[data-artwork="calm"] .content-page{background:color-mix(in oklab,var(--n-0) 88%,transparent)}
+html[data-artwork="calm"] .brand-mark{filter:none}
+html[data-artwork="calm"] :is(.new-chat-button,.send-button){box-shadow:none}
+
+/* Continuous Erebus panoramas keep their scale across screen widths,
+   including when the browser is open. */
+html[data-theme^="erebus-"][data-artwork-fit="panorama"] .main-shell::before{inset:0;background-size:100% 100%,var(--artwork-size);background-position:center,var(--artwork-position);background-repeat:no-repeat}
+:root[data-theme^="cyberpunk-"] .main-shell::before {
+  background-image: linear-gradient(90deg, var(--t-ground) var(--cp-fadeStart), color-mix(in srgb, var(--t-ground) 65%, transparent) var(--cp-fadeMiddle), color-mix(in srgb, var(--t-ground) 16%, transparent) var(--cp-fadeEnd)), linear-gradient(180deg, var(--t-ground) var(--cp-topStart), transparent var(--cp-topEnd), transparent var(--cp-bottomStart), var(--t-ground) var(--cp-bottomEnd)), var(--theme-art);
+  background-size: 100% 100%, 100% 100%, var(--cp-imageWidth) var(--cp-imageHeight);
+  background-position: 0 0, 0 0, var(--cp-left) var(--cp-top);
+  background-repeat: no-repeat;
+  filter: none;
+}
+:root[data-theme^="cyberpunk-"] .main-shell::after { animation: none; background: linear-gradient(180deg, color-mix(in srgb, var(--t-ground) 22%, transparent), transparent 42%, color-mix(in srgb, var(--t-ground) 18%, transparent)); }
+:root[data-theme^="cyberpunk-"] .sidebar { background: linear-gradient(90deg, color-mix(in srgb, var(--t-ground) 96%, transparent), color-mix(in srgb, var(--t-ground) 86%, transparent)), var(--theme-art) left center / auto 100% no-repeat; }
+:root[data-theme^="cyberpunk-"] .topbar { background: color-mix(in srgb, var(--t-ground) 91%, transparent); }
+:root[data-theme^="cyberpunk-"] .assistant { background: color-mix(in srgb, var(--t-ground) 96%, transparent); border-radius: 10px; }
+:root[data-theme^="cyberpunk-"] .composer { border-radius: 10px; }
+:root[data-theme="cyberpunk-johnny"] .composer { border-left: 2px solid var(--t-accent); }
+:root[data-theme="cyberpunk-judy"] .assistant { border-color: color-mix(in srgb, var(--t-accent) 29%, var(--t-ground)); }

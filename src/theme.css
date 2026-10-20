@@ -1,0 +1,91 @@
+/* Exomina theme layer. Loaded first; every other sheet references these tokens.
+   Themes set the --t-* anchors below (desktop/themes.mjs, applied by appearance.js);
+   the semantic tokens in refresh.css (--bg, --text, --accent…) derive from them.
+   Neutrals --n-0…--n-100 run from ground to ink in OKLab, so a light theme is a
+   dark theme with ground and ink swapped. Tinted colours mix one hue anchor into
+   a neutral step. Write new colours as tokens, never hex: test/theme.test.mjs
+   rejects hex literals outside this file. */
+:root{
+  --pet-inner:#e2b5b4;--pet-cream:#fff4e5;--pet-ink:#253337;
+  --t-ground:#0e110f;--t-ink:#eef1ea;--t-accent:#b8e9cb;--t-leaf:#a9d48a;--t-danger:#ef9f95;--t-warn:#e9c47c;--t-info:#a8c4f0;--t-lilac:#b8a7c4;--t-warm:#d7b095;--t-shadow:#000000;
+  /* Mid-tone contrast: step T sits at T + lift·T(100−T)/100 percent ink, so light
+     themes can darken secondary text without moving the ground, ink or surfaces. */
+  --t-lift:0;
+  /* Text steps (--n-30 and up) blend from --t-text, so a custom text colour recolours
+     text without tinting surfaces and dividers, which stay on the theme ink. */
+  --t-text:var(--t-ink);
+  --brand-shade:0%;
+  --reading-font:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--reading-size:14.5px;--chat-width:820px;
+  --n-0:var(--t-ground);--n-1:color-mix(in oklab,var(--t-ink) calc(1% + var(--t-lift)*0.99%),var(--t-ground));
+  --n-2:color-mix(in oklab,var(--t-ink) calc(2% + var(--t-lift)*1.96%),var(--t-ground));--n-3:color-mix(in oklab,var(--t-ink) calc(3% + var(--t-lift)*2.91%),var(--t-ground));
+  --n-4:color-mix(in oklab,var(--t-ink) calc(4% + var(--t-lift)*3.84%),var(--t-ground));--n-5:color-mix(in oklab,var(--t-ink) calc(5% + var(--t-lift)*4.75%),var(--t-ground));
+  --n-6:color-mix(in oklab,var(--t-ink) calc(6% + var(--t-lift)*5.64%),var(--t-ground));--n-7:color-mix(in oklab,var(--t-ink) calc(7% + var(--t-lift)*6.51%),var(--t-ground));
+  --n-8:color-mix(in oklab,var(--t-ink) calc(8% + var(--t-lift)*7.36%),var(--t-ground));--n-9:color-mix(in oklab,var(--t-ink) calc(9% + var(--t-lift)*8.19%),var(--t-ground));
+  --n-10:color-mix(in oklab,var(--t-ink) calc(10% + var(--t-lift)*9%),var(--t-ground));--n-11:color-mix(in oklab,var(--t-ink) calc(11% + var(--t-lift)*9.79%),var(--t-ground));
+  --n-12:color-mix(in oklab,var(--t-ink) calc(12% + var(--t-lift)*10.56%),var(--t-ground));--n-13:color-mix(in oklab,var(--t-ink) calc(13% + var(--t-lift)*11.31%),var(--t-ground));
+  --n-14:color-mix(in oklab,var(--t-ink) calc(14% + var(--t-lift)*12.04%),var(--t-ground));--n-15:color-mix(in oklab,var(--t-ink) calc(15% + var(--t-lift)*12.75%),var(--t-ground));
+  --n-16:color-mix(in oklab,var(--t-ink) calc(16% + var(--t-lift)*13.44%),var(--t-ground));--n-17:color-mix(in oklab,var(--t-ink) calc(17% + var(--t-lift)*14.11%),var(--t-ground));
+  --n-18:color-mix(in oklab,var(--t-ink) calc(18% + var(--t-lift)*14.76%),var(--t-ground));--n-19:color-mix(in oklab,var(--t-ink) calc(19% + var(--t-lift)*15.39%),var(--t-ground));
+  --n-20:color-mix(in oklab,var(--t-ink) calc(20% + var(--t-lift)*16%),var(--t-ground));--n-21:color-mix(in oklab,var(--t-ink) calc(21% + var(--t-lift)*16.59%),var(--t-ground));
+  --n-22:color-mix(in oklab,var(--t-ink) calc(22% + var(--t-lift)*17.16%),var(--t-ground));--n-23:color-mix(in oklab,var(--t-ink) calc(23% + var(--t-lift)*17.71%),var(--t-ground));
+  --n-25:color-mix(in oklab,var(--t-ink) calc(25% + var(--t-lift)*18.75%),var(--t-ground));--n-26:color-mix(in oklab,var(--t-ink) calc(26% + var(--t-lift)*19.24%),var(--t-ground));
+  --n-27:color-mix(in oklab,var(--t-ink) calc(27% + var(--t-lift)*19.71%),var(--t-ground));--n-28:color-mix(in oklab,var(--t-ink) calc(28% + var(--t-lift)*20.16%),var(--t-ground));
+  --n-29:color-mix(in oklab,var(--t-ink) calc(29% + var(--t-lift)*20.59%),var(--t-ground));--n-30:color-mix(in oklab,var(--t-text) calc(30% + var(--t-lift)*21%),var(--t-ground));
+  --n-31:color-mix(in oklab,var(--t-text) calc(31% + var(--t-lift)*21.39%),var(--t-ground));--n-32:color-mix(in oklab,var(--t-text) calc(32% + var(--t-lift)*21.76%),var(--t-ground));
+  --n-33:color-mix(in oklab,var(--t-text) calc(33% + var(--t-lift)*22.11%),var(--t-ground));--n-35:color-mix(in oklab,var(--t-text) calc(35% + var(--t-lift)*22.75%),var(--t-ground));
+  --n-36:color-mix(in oklab,var(--t-text) calc(36% + var(--t-lift)*23.04%),var(--t-ground));--n-37:color-mix(in oklab,var(--t-text) calc(37% + var(--t-lift)*23.31%),var(--t-ground));
+  --n-38:color-mix(in oklab,var(--t-text) calc(38% + var(--t-lift)*23.56%),var(--t-ground));--n-39:color-mix(in oklab,var(--t-text) calc(39% + var(--t-lift)*23.79%),var(--t-ground));
+  --n-40:color-mix(in oklab,var(--t-text) calc(40% + var(--t-lift)*24%),var(--t-ground));--n-41:color-mix(in oklab,var(--t-text) calc(41% + var(--t-lift)*24.19%),var(--t-ground));
+  --n-42:color-mix(in oklab,var(--t-text) calc(42% + var(--t-lift)*24.36%),var(--t-ground));--n-43:color-mix(in oklab,var(--t-text) calc(43% + var(--t-lift)*24.51%),var(--t-ground));
+  --n-44:color-mix(in oklab,var(--t-text) calc(44% + var(--t-lift)*24.64%),var(--t-ground));--n-45:color-mix(in oklab,var(--t-text) calc(45% + var(--t-lift)*24.75%),var(--t-ground));
+  --n-46:color-mix(in oklab,var(--t-text) calc(46% + var(--t-lift)*24.84%),var(--t-ground));--n-47:color-mix(in oklab,var(--t-text) calc(47% + var(--t-lift)*24.91%),var(--t-ground));
+  --n-48:color-mix(in oklab,var(--t-text) calc(48% + var(--t-lift)*24.96%),var(--t-ground));--n-49:color-mix(in oklab,var(--t-text) calc(49% + var(--t-lift)*24.99%),var(--t-ground));
+  --n-50:color-mix(in oklab,var(--t-text) calc(50% + var(--t-lift)*25%),var(--t-ground));--n-51:color-mix(in oklab,var(--t-text) calc(51% + var(--t-lift)*24.99%),var(--t-ground));
+  --n-52:color-mix(in oklab,var(--t-text) calc(52% + var(--t-lift)*24.96%),var(--t-ground));--n-53:color-mix(in oklab,var(--t-text) calc(53% + var(--t-lift)*24.91%),var(--t-ground));
+  --n-54:color-mix(in oklab,var(--t-text) calc(54% + var(--t-lift)*24.84%),var(--t-ground));--n-55:color-mix(in oklab,var(--t-text) calc(55% + var(--t-lift)*24.75%),var(--t-ground));
+  --n-56:color-mix(in oklab,var(--t-text) calc(56% + var(--t-lift)*24.64%),var(--t-ground));--n-57:color-mix(in oklab,var(--t-text) calc(57% + var(--t-lift)*24.51%),var(--t-ground));
+  --n-58:color-mix(in oklab,var(--t-text) calc(58% + var(--t-lift)*24.36%),var(--t-ground));--n-59:color-mix(in oklab,var(--t-text) calc(59% + var(--t-lift)*24.19%),var(--t-ground));
+  --n-60:color-mix(in oklab,var(--t-text) calc(60% + var(--t-lift)*24%),var(--t-ground));--n-61:color-mix(in oklab,var(--t-text) calc(61% + var(--t-lift)*23.79%),var(--t-ground));
+  --n-62:color-mix(in oklab,var(--t-text) calc(62% + var(--t-lift)*23.56%),var(--t-ground));--n-63:color-mix(in oklab,var(--t-text) calc(63% + var(--t-lift)*23.31%),var(--t-ground));
+  --n-64:color-mix(in oklab,var(--t-text) calc(64% + var(--t-lift)*23.04%),var(--t-ground));--n-65:color-mix(in oklab,var(--t-text) calc(65% + var(--t-lift)*22.75%),var(--t-ground));
+  --n-66:color-mix(in oklab,var(--t-text) calc(66% + var(--t-lift)*22.44%),var(--t-ground));--n-67:color-mix(in oklab,var(--t-text) calc(67% + var(--t-lift)*22.11%),var(--t-ground));
+  --n-68:color-mix(in oklab,var(--t-text) calc(68% + var(--t-lift)*21.76%),var(--t-ground));--n-69:color-mix(in oklab,var(--t-text) calc(69% + var(--t-lift)*21.39%),var(--t-ground));
+  --n-70:color-mix(in oklab,var(--t-text) calc(70% + var(--t-lift)*21%),var(--t-ground));--n-71:color-mix(in oklab,var(--t-text) calc(71% + var(--t-lift)*20.59%),var(--t-ground));
+  --n-72:color-mix(in oklab,var(--t-text) calc(72% + var(--t-lift)*20.16%),var(--t-ground));--n-73:color-mix(in oklab,var(--t-text) calc(73% + var(--t-lift)*19.71%),var(--t-ground));
+  --n-74:color-mix(in oklab,var(--t-text) calc(74% + var(--t-lift)*19.24%),var(--t-ground));--n-75:color-mix(in oklab,var(--t-text) calc(75% + var(--t-lift)*18.75%),var(--t-ground));
+  --n-76:color-mix(in oklab,var(--t-text) calc(76% + var(--t-lift)*18.24%),var(--t-ground));--n-77:color-mix(in oklab,var(--t-text) calc(77% + var(--t-lift)*17.71%),var(--t-ground));
+  --n-78:color-mix(in oklab,var(--t-text) calc(78% + var(--t-lift)*17.16%),var(--t-ground));--n-79:color-mix(in oklab,var(--t-text) calc(79% + var(--t-lift)*16.59%),var(--t-ground));
+  --n-80:color-mix(in oklab,var(--t-text) calc(80% + var(--t-lift)*16%),var(--t-ground));--n-81:color-mix(in oklab,var(--t-text) calc(81% + var(--t-lift)*15.39%),var(--t-ground));
+  --n-82:color-mix(in oklab,var(--t-text) calc(82% + var(--t-lift)*14.76%),var(--t-ground));--n-83:color-mix(in oklab,var(--t-text) calc(83% + var(--t-lift)*14.11%),var(--t-ground));
+  --n-84:color-mix(in oklab,var(--t-text) calc(84% + var(--t-lift)*13.44%),var(--t-ground));--n-85:color-mix(in oklab,var(--t-text) calc(85% + var(--t-lift)*12.75%),var(--t-ground));
+  --n-86:color-mix(in oklab,var(--t-text) calc(86% + var(--t-lift)*12.04%),var(--t-ground));--n-87:color-mix(in oklab,var(--t-text) calc(87% + var(--t-lift)*11.31%),var(--t-ground));
+  --n-88:color-mix(in oklab,var(--t-text) calc(88% + var(--t-lift)*10.56%),var(--t-ground));--n-89:color-mix(in oklab,var(--t-text) calc(89% + var(--t-lift)*9.79%),var(--t-ground));
+  --n-90:color-mix(in oklab,var(--t-text) calc(90% + var(--t-lift)*9%),var(--t-ground));--n-91:color-mix(in oklab,var(--t-text) calc(91% + var(--t-lift)*8.19%),var(--t-ground));
+  --n-92:color-mix(in oklab,var(--t-text) calc(92% + var(--t-lift)*7.36%),var(--t-ground));--n-93:color-mix(in oklab,var(--t-text) calc(93% + var(--t-lift)*6.51%),var(--t-ground));
+  --n-94:color-mix(in oklab,var(--t-text) calc(94% + var(--t-lift)*5.64%),var(--t-ground));--n-95:color-mix(in oklab,var(--t-text) calc(95% + var(--t-lift)*4.75%),var(--t-ground));
+  --n-96:color-mix(in oklab,var(--t-text) calc(96% + var(--t-lift)*3.84%),var(--t-ground));--n-97:color-mix(in oklab,var(--t-text) calc(97% + var(--t-lift)*2.91%),var(--t-ground));
+  --n-98:color-mix(in oklab,var(--t-text) calc(98% + var(--t-lift)*1.96%),var(--t-ground));--n-99:color-mix(in oklab,var(--t-text) calc(99% + var(--t-lift)*0.99%),var(--t-ground));
+  --n-100:var(--t-text);
+}
+:root[data-scheme=dark]{color-scheme:dark}
+:root[data-scheme=light]{color-scheme:light;--brand-shade:48%}
+
+/* Provider brand colours are pastel; shade them toward ink on light grounds. */
+.provider-mark{--provider-ink:color-mix(in oklab,var(--provider-accent) calc(100% - var(--brand-shade)),var(--t-ink))}
+
+/* Reading preferences apply to conversation text only. */
+:root .messages .markdown{font-family:var(--reading-font);font-size:var(--reading-size)}
+:root .messages .markdown :is(code,pre,kbd){font-family:'Cascadia Code','Cascadia Mono',Consolas,monospace}
+:root .messages .markdown h3.md-heading{font-size:calc(var(--reading-size)*1.31)}
+:root .messages .markdown h4.md-heading{font-size:calc(var(--reading-size)*1.14)}
+:root .messages .markdown :is(h5,h6).md-heading{font-size:var(--reading-size)}
+:root .messages,:root .composer-region{max-width:var(--chat-width)}
+
+/* Ambient glow: a faint wash of the theme's own light behind the conversation. */
+:root[data-glow] .main-shell{background:radial-gradient(ellipse 75% 55% at 72% -8%,color-mix(in oklab,var(--t-accent) 10%,transparent),transparent 70%),radial-gradient(ellipse 55% 45% at -5% 108%,color-mix(in oklab,var(--t-leaf) 7%,transparent),transparent 72%),var(--bg)}
+
+/* Theme switches crossfade instead of snapping. */
+:root.theme-switching *,:root.theme-switching *::before,:root.theme-switching *::after{transition:background-color .28s ease,border-color .28s ease,color .28s ease,fill .28s ease,box-shadow .28s ease!important}
+
+:root[data-motion=reduced] *,:root[data-motion=reduced] *::before,:root[data-motion=reduced] *::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+@media(prefers-reduced-motion:reduce){:root[data-motion=system] *,:root[data-motion=system] *::before,:root[data-motion=system] *::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}

@@ -1,0 +1,52 @@
+/* Artwork forms the atmosphere; reading surfaces keep their contrast. Loaded last. */
+html[data-artwork] .main-shell{position:relative;isolation:isolate;overflow:hidden;background:var(--bg)}
+html[data-artwork] .main-shell::before,html[data-artwork] .main-shell::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:-1}
+html[data-artwork] .main-shell::before{background-image:linear-gradient(90deg,color-mix(in oklab,var(--n-0) 18%,transparent),transparent 78%),var(--theme-art);background-size:cover;background-position:center}
+.chat-scroll{overflow-anchor:none}
+.helper-configuration{margin:6px 0!important}
+html[data-artwork] .main-shell::after{background:radial-gradient(ellipse at 90% 85%,color-mix(in oklab,var(--t-accent) 11%,transparent),transparent 58%);animation:atmosphere-breathe 12s ease-in-out infinite alternate}
+html[data-artwork] .sidebar{position:relative;background-image:linear-gradient(color-mix(in oklab,var(--n-0) 91%,transparent),color-mix(in oklab,var(--n-0) 78%,transparent)),var(--theme-art);background-position:left center;background-size:auto 100vh;border-right:1px solid color-mix(in oklab,var(--t-accent) 30%,var(--n-0));box-shadow:6px 0 32px color-mix(in oklab,var(--t-shadow) 50%,transparent),inset -1px 0 color-mix(in oklab,var(--t-accent) 9%,transparent)}
+html[data-artwork] .topbar{background:color-mix(in oklab,var(--n-0) 84%,transparent);backdrop-filter:blur(18px);border-bottom-color:color-mix(in oklab,var(--t-accent) 27%,var(--n-0));box-shadow:0 3px 22px color-mix(in oklab,var(--t-shadow) 25%,transparent)}
+html[data-artwork] .brand-mark{filter:drop-shadow(0 0 9px color-mix(in oklab,var(--t-accent) 35%,transparent))}
+html[data-artwork] .nav-item.active,html[data-artwork] .chat-item.selected{background:color-mix(in oklab,var(--t-accent) 14%,var(--n-1));box-shadow:inset 2px 0 var(--accent),inset 0 0 0 1px color-mix(in oklab,var(--t-accent) 18%,transparent)}
+html[data-artwork] .chat-page{background:transparent}
+html[data-artwork] .message.assistant{padding:20px 22px;border:1px solid color-mix(in oklab,var(--t-accent) 18%,var(--n-0));border-radius:16px;background:color-mix(in oklab,var(--n-0) 94%,transparent);backdrop-filter:blur(10px);box-shadow:0 12px 34px color-mix(in oklab,var(--t-shadow) 28%,transparent),inset 0 1px color-mix(in oklab,var(--t-accent) 9%,transparent)}
+html[data-artwork] .user-bubble{background:color-mix(in oklab,var(--n-1) 96%,transparent);border-color:color-mix(in oklab,var(--t-accent) 32%,var(--n-0));box-shadow:0 4px 20px color-mix(in oklab,var(--t-shadow) 32%,transparent)}
+html[data-artwork] :is(.usage-banner,.connection-banner,.feedback){background:color-mix(in oklab,var(--n-2) 96%,transparent);backdrop-filter:blur(10px)}
+html[data-artwork] .composer-caption{padding:5px 7px;border-radius:7px;background:color-mix(in oklab,var(--n-0) 95%,transparent)}
+html[data-artwork] :is(.activity,.helper-contribution){background:color-mix(in oklab,var(--n-1) 98%,transparent)}
+html[data-artwork] .composer{background:color-mix(in oklab,var(--n-2) 97%,transparent);border-color:color-mix(in oklab,var(--t-accent) 42%,var(--n-0));backdrop-filter:blur(20px);box-shadow:0 12px 38px color-mix(in oklab,var(--t-shadow) 58%,transparent),0 0 25px color-mix(in oklab,var(--t-accent) 12%,transparent),inset 0 1px color-mix(in oklab,var(--t-accent) 20%,transparent)}
+html[data-artwork] .composer:focus-within{border-color:var(--accent);box-shadow:0 12px 38px color-mix(in oklab,var(--t-shadow) 58%,transparent),0 0 32px color-mix(in oklab,var(--t-accent) 18%,transparent),inset 0 1px color-mix(in oklab,var(--t-accent) 25%,transparent)}
+html[data-artwork] .content-page{background:color-mix(in oklab,var(--n-0) 91%,transparent);backdrop-filter:blur(14px);border-right:1px solid color-mix(in oklab,var(--t-accent) 16%,transparent)}
+html[data-artwork] :is(.welcome-block,.welcome-hero){padding:20px 24px;border:1px solid color-mix(in oklab,var(--t-accent) 21%,var(--n-0));border-radius:18px;background:color-mix(in oklab,var(--n-0) 89%,transparent);backdrop-filter:blur(10px);box-shadow:0 10px 32px color-mix(in oklab,var(--t-shadow) 28%,transparent)}
+html[data-artwork] .welcome-hero{min-width:min(500px,100%)}
+html[data-artwork] :is(.welcome-connection,.recent-chat,.workbench-card){background:color-mix(in oklab,var(--n-2) 96%,transparent);border-color:color-mix(in oklab,var(--t-accent) 20%,var(--n-0))}
+
+/* Distinct materials, edges and lighting for each world. */
+html[data-theme="aurora"] .topbar{border-bottom-color:color-mix(in oklab,var(--t-accent) 40%,var(--n-0))}
+html[data-theme="aurora"] .composer{border-radius:20px}
+html[data-theme="aurora"] .main-shell::after{background:radial-gradient(ellipse at 95% 15%,color-mix(in oklab,var(--t-accent) 13%,transparent),transparent 55%)}
+
+/* Settings previews use the same artwork as the app. */
+.theme-group.extravagant .theme-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.theme-group.extravagant .theme-card{padding:8px 8px 13px;gap:11px;border-radius:14px}
+.theme-group.extravagant .theme-card-text{padding:0 5px;gap:4px}
+.theme-group.extravagant .theme-card-text strong{font-size:14px}
+.tp.tp-artwork{height:144px;border-radius:9px;background-image:var(--theme-art);background-size:cover;background-position:center}
+.tp-artwork .tp-side{width:22%;padding-top:14px;background:color-mix(in oklab,var(--g) 85%,transparent)}
+.tp-artwork .tp-main{padding:15px 14px;gap:8px;background:linear-gradient(90deg,color-mix(in oklab,var(--g) 52%,transparent),transparent)}
+.tp-artwork :is(.tp-line,.tp-bubble,.tp-composer){box-shadow:0 1px 5px color-mix(in oklab,var(--g) 80%,transparent)}
+.tp-artwork .tp-line{width:67%}.tp-artwork .tp-line.short{width:42%}
+.tp-artwork .tp-composer{height:24px;background:color-mix(in oklab,var(--g) 90%,transparent)}
+.tp-artwork .tp-bubble{background:color-mix(in oklab,var(--g) 80%,transparent);border:1px solid color-mix(in oklab,var(--a) 40%,var(--g));height:18px}
+.tp-leather .tp-side{border-right:1px solid var(--a)}.tp-leather .tp-composer{border-left:2px solid var(--a)}
+.tp-gilded{box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--a) 60%,var(--g))}
+
+@keyframes atmosphere-breathe{from{opacity:.35}to{opacity:.85}}
+html[data-motion="reduced"] .main-shell::after{animation:none!important}
+/* Artwork must not reserve a sidebar column while mobile navigation is closed. */
+@media(max-width:860px){html[data-artwork] .sidebar{position:fixed}}
+@media(prefers-reduced-motion:reduce){html[data-artwork] .main-shell::after{animation:none!important}}
+@media(max-width:760px){.theme-group.extravagant .theme-grid{grid-template-columns:1fr}html[data-artwork] .message.assistant{padding:16px}html[data-artwork] :is(.welcome-block,.welcome-hero){padding:16px}}
+
+.quick-ask{padding:25px;min-height:100vh;background:var(--bg);color:var(--text)}.quick-heading,.quick-actions{display:flex;align-items:center;gap:15px}.quick-heading strong{flex:1}.quick-heading small,.quick-actions span{color:var(--text-3);font-size:11px}.quick-ask textarea{width:100%;height:115px;resize:none;padding:15px 0;background:transparent;color:var(--text);border:0;font:inherit;outline:none}.quick-actions select{background:var(--surface-2);color:var(--text);border:1px solid var(--line);padding:8px;border-radius:8px}.quick-actions span{flex:1}

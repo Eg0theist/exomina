@@ -1,0 +1,52 @@
+// Production host + real tabs, synthetic pages and provider. Internet requests are blocked.
+import {_electron as electron} from 'playwright';
+import {createProtectedQaProfile} from './qa-profile.mjs';
+import {Store} from '../desktop/store.mjs';
+import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import {extractFile} from '@electron/asar';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+const root=process.cwd(),runtimeRoot=path.resolve(process.env.EXOMINA_QA_RUNTIME_ROOT||root).replace(/app\.asar\.unpacked$/i,'app.asar'),baseline=process.argv.includes('--baseline');
+const output=path.resolve(process.env.EXOMINA_QA_REPORT_DIR||'../Workspace/ghidra-sidebar-followups-20261011/browser-tabs-performance');await mkdir(output,{recursive:true});
+const fixture=await createProtectedQaProfile('browser-address-performance'),{profile}=fixture,workspace=path.join(fixture.output,'workspace');await mkdir(workspace);
+const server=http.createServer((req,res)=>{res.setHeader('Content-Type','text/html; charset=utf-8');res.end(`<title>Fixture ${req.url.split('?')[0]}</title><h1>Local browser fixture</h1><p>No external page was requested.</p><input aria-label="Local draft">`);});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
+const store=new Store(profile,{workspace});await store.init();Object.assign(store.state.settings,{workspace,autoTitle:false,autoUpdate:false,closeToTray:false,memoryEnabled:false,chatMemorySummaries:false,browserEnabled:true,desktopEnabled:false,permissionMode:'full',routing:'tools',appearance:{theme:'erebus-flame',motion:'reduced'}});
+const chat=store.create('codex');chat.title='Browser responsiveness fixture';chat.titleSource='manual';
+const body=Array.from({length:8},(_,i)=>`### Result ${i}\n\nA **measured** result with [a source](https://example.com) and enough text to exercise a long history.\n\n- A completed step\n- A saved result\n\n`).join('');
+chat.messages=Array.from({length:100},(_,i)=>({id:'history-'+i,role:i%2?'assistant':'user',provider:'codex',content:body,finishedAt:new Date().toISOString()}));await store.save();
+const version=JSON.parse(runtimeRoot.endsWith('.asar')?extractFile(runtimeRoot,'package.json'):await readFile(path.join(runtimeRoot,'package.json'),'utf8')).version;
+const moduleUrl=name=>JSON.stringify(pathToFileURL(path.join(runtimeRoot,name)).href),launcher=path.join(fixture.output,'launcher.cjs');
+await writeFile(launcher,`const{app,BrowserWindow,session,dialog}=require('electron');BrowserWindow.prototype.show=function(){};app.commandLine.appendSwitch('mute-audio');app.getVersion=()=>${JSON.stringify(version)};dialog.showErrorBox=(a,b)=>{console.error(a,b);app.exit(1)};globalThis.qaBrowserPerf={requests:[],calls:0};
+(async()=>{await app.whenReady();session.fromPartition('persist:exomina-browser').webRequest.onBeforeRequest((details,callback)=>{const url=new URL(details.url);if(url.origin===${JSON.stringify(base)})return callback({cancel:false});if(['www.google.com','example.com'].includes(url.hostname)){globalThis.qaBrowserPerf.requests.push(details.url);return callback({redirectURL:${JSON.stringify(base)}+'/routed?original='+encodeURIComponent(details.url)});}callback({cancel:/^https?:/.test(details.url)});});
+const{ProviderManager}=await import(${moduleUrl('desktop/providers.mjs')});const{PROVIDER_CATALOG}=await import(${moduleUrl('desktop/provider-catalog.mjs')});ProviderManager.prototype.status=async()=>PROVIDER_CATALOG.filter(p=>p.mode==='subscription').map(p=>({id:p.id,installed:true,connected:p.id==='codex',available:true,checking:false,detail:'Synthetic provider'}));ProviderManager.prototype.subscriptionModels=async()=>({});ProviderManager.prototype.modelsFor=async()=>[];ProviderManager.prototype.codexUsage=async()=>null;ProviderManager.prototype.claudeUsage=async()=>null;ProviderManager.prototype.getCodex=async()=>{throw Error('No account or native runtime access in QA')};
+ProviderManager.prototype.run=async function(request){globalThis.qaBrowserPerf.calls++;const start=Date.now();let emitted=0;while(Date.now()-start<4500){await new Promise(r=>setTimeout(r,20));this.emit({type:'chat.delta',conversationId:request.conversationId,text:' update-'+(++emitted)});this.emit({type:'chat.tool',conversationId:request.conversationId,name:'fixture',id:'tool',append:'A',status:'running'});}globalThis.qaBrowserPerf.emitted=emitted;await new Promise(resolve=>globalThis.qaBrowserPerf.release=resolve);return {text:'Synthetic work complete.'};};await import(${moduleUrl('desktop/main.mjs')});})().catch(e=>{console.error(e);app.exit(1)});`);
+const env={...process.env,EXOMINA_DATA_DIR:profile,TEMP:fixture.output,TMP:fixture.output,TMPDIR:fixture.output};delete env.ELECTRON_RUN_AS_NODE;for(const key of Object.keys(env))if(/(?:token|secret|password|api_?key|credential|authorization)/i.test(key))delete env[key];
+const report={passed:false,version,runtimeRoot,baseline,profile,scope:'Production host, long synthetic chat, eight native tabs, intercepted Google/domain requests, no account access or external network.',checks:{},errors:[],measurements:[]};let app,page;
+try{
+ app=await electron.launch({args:[launcher],cwd:root,env,timeout:30000});page=await app.firstWindow();page.setDefaultTimeout(20000);page.on('pageerror',e=>report.errors.push(e.message));
+ await page.locator(`[data-chat-id="${chat.id}"] .chat-open`).click();await page.getByRole('button',{name:'Browser',exact:true}).click();
+ const input=page.getByLabel('Browser address'),go=async text=>{await input.fill(text);await input.press('Enter');};
+ await go(base+'/tab-1');await page.getByRole('tab',{name:'Fixture /tab-1'}).waitFor();
+ for(let n=2;n<=8;n++){await page.getByRole('button',{name:'New tab',exact:true}).click();await go(base+'/tab-'+n);await page.getByRole('tab',{name:'Fixture /tab-'+n}).waitFor();}
+ assert.equal(await page.locator('.browser-tab').count(),8);report.checks.eightTabs=true;console.log('Eight synthetic tabs are ready.');
+ if(!baseline){
+  for(const [text,expected] of [['ghidra mcp','https://www.google.com/search?q=ghidra%20mcp'],['Example Weißer Hirsch','https://www.google.com/search?q=Example%20Wei%C3%9Fer%20Hirsch'],['example.com/docs','https://example.com/docs'],['https://example.com/full?x=1','https://example.com/full?x=1']]){
+   await go(text);await page.waitForFunction(url=>decodeURIComponent(document.querySelector('[aria-label="Browser address"]').value.split('original=')[1]||'')===url,expected);
+   assert.equal((await app.evaluate(()=>globalThis.qaBrowserPerf.requests)).at(-1),expected);assert.equal(await page.locator('.browser-tab').count(),8);
+  }
+  const before=(await app.evaluate(()=>globalThis.qaBrowserPerf.requests)).length;await go('javascript:alert(1)');await page.getByText('Use an http or https address, or enter search terms.',{exact:true}).waitFor();assert.equal((await app.evaluate(()=>globalThis.qaBrowserPerf.requests)).length,before);
+  await page.getByRole('tab',{name:'Fixture /tab-1'}).click();report.checks.keywordAndWebsiteRoutingInCurrentTab=true;report.checks.invalidSchemeRefused=true;
+ }
+ const metrics=async()=>app.evaluate(async({webContents})=>{const result=[],seen=new Set();for(const wc of webContents.getAllWebContents()){if(wc.isDestroyed()||!wc.getURL()||wc.getURL()==='about:blank')continue;const pid=wc.getOSProcessId();if(seen.has(pid))continue;seen.add(pid);try{if(!wc.debugger.isAttached())wc.debugger.attach('1.3');await Promise.race([wc.debugger.sendCommand('Performance.enable'),new Promise((_,reject)=>setTimeout(()=>reject(Error('Metrics timeout')),2000))]);const response=await Promise.race([wc.debugger.sendCommand('Performance.getMetrics'),new Promise((_,reject)=>setTimeout(()=>reject(Error('Metrics timeout')),2000))]);result.push({id:wc.id,pid,url:wc.getURL(),metrics:Object.fromEntries(response.metrics.map(m=>[m.name,m.value]))});}catch{}}return result;});
+ const measure=async(name,active)=>{await page.waitForTimeout(250);const before=await metrics();const start=Date.now();if(active)await page.evaluate(id=>window.studio.invoke('chat.send',{conversationId:id,provider:'codex',text:'Run the synthetic responsiveness fixture',mode:'tools'}),chat.id);await page.waitForTimeout(active?5100:2500);const after=await metrics();let task=0,script=0;for(const sample of after){const previous=before.find(old=>old.id===sample.id);if(previous){task+=(sample.metrics.TaskDuration-previous.metrics.TaskDuration)*1000;script+=(sample.metrics.ScriptDuration-previous.metrics.ScriptDuration)*1000;}}report.measurements.push({name,durationMs:Date.now()-start,rendererProcesses:after.length,taskMs:task,scriptMs:script});};
+ await measure('idle-eight-tabs-long-chat',false);console.log('Idle tab measurement completed.');await measure('active-eight-tabs-long-chat',true);console.log('Active tab measurement completed.');
+ await page.waitForFunction(()=>document.querySelector('[data-message-index="101"] .message-content')?.textContent.includes('update-'));
+ const emitted=await app.evaluate(()=>globalThis.qaBrowserPerf.emitted);const text=await page.locator('[data-message-index="101"]').textContent();assert.equal((text.match(/update-/g)||[]).length,emitted);report.checks.allStreamedUpdatesRetained=emitted;
+ await page.locator('.composer textarea').fill('A draft during active work');assert.equal(await page.locator('.composer textarea').inputValue(),'A draft during active work');
+ await page.getByRole('tab',{name:'Fixture /tab-2'}).click();await page.waitForFunction(url=>document.querySelector('[aria-label="Browser address"]').value===url,base+'/tab-2');report.checks.composerAndTabSwitchDuringWork=true;
+ await app.evaluate(()=>globalThis.qaBrowserPerf.release());await page.waitForFunction(()=>!document.querySelector('[aria-label="Stop this reply"]'));await page.screenshot({path:path.join(output,'browser-tabs.png')});
+ assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);assert.deepEqual(report.errors,[]);report.passed=true;
+}catch(error){report.failure=error.stack;process.exitCode=1;if(page)await page.screenshot({path:path.join(output,'failure.png')}).catch(()=>{});}finally{await app?.close().catch(()=>{});server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await writeFile(path.join(output,'result.json'),JSON.stringify(report,null,2));}
+console.log(JSON.stringify(report));

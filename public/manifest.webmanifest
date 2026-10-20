@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "Exomina",
+  "short_name": "Exomina",
+  "description": "Your favourite AI tools in one place.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#171d19",
+  "theme_color": "#171d19",
+  "icons": [
+    { "src": "/icons/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Exomina Browser Connection",
+  "version": "1.0.0",
+  "description": "Use Exomina's approved browser tools in your own Chrome or Edge profile.",
+  "permissions": ["tabs", "debugger", "storage", "alarms"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "options_page": "connect.html",
+  "action": { "default_title": "Connect Exomina to this browser", "default_popup": "connect.html" },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'" }
+}

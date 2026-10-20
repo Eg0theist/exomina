@@ -1,0 +1,15 @@
+import path from 'node:path';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { WindowsVault } from '../desktop/vault.mjs';
+import assert from 'node:assert/strict';
+const base = path.resolve('../qa-vault-kOUS9J/longpaths-' + Date.now());
+const directory = path.join(base, 'a'.repeat(60), 'b'.repeat(60), 'c'.repeat(80));
+await mkdir(directory, { recursive: true }); const file = path.join(directory, 'synthetic-longpath.txt'); await writeFile(file, 'Synthetic long path encryption test.');
+const child = spawn(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.resolve('scripts/qa-vault-longpath-probe.ps1')], { windowsHide:true, shell:false,stdio:['pipe','pipe','pipe'] });
+child.stdin.end(JSON.stringify({file}));child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);await new Promise(resolve=>child.once('close',resolve));console.log(JSON.stringify({pathCharacters:file.length,base}));
+const { thumbprint } = JSON.parse(await readFile(path.resolve('../qa-vault-kOUS9J/result.json'), 'utf8'));
+const vault = new WindowsVault(); const protection = await vault.protect(base, { recoveryThumbprint: thumbprint });
+const verified = await vault.verify(base, { recoveryThumbprint: thumbprint });
+assert.equal(await readFile(file, 'utf8'), 'Synthetic long path encryption test.');
+console.log(JSON.stringify({ pathCharacters:file.length,protection,verified },null,2));

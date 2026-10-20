@@ -1,0 +1,48 @@
+name: Chat memory checks
+on:
+  push:
+    branches: [chat-memory-tree]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/chat-memory-*.mjs'
+      - 'desktop/conversation-tools.mjs'
+      - 'desktop/data-export.mjs'
+      - 'desktop/archive.mjs'
+      - 'desktop/api-agent.mjs'
+      - 'test/**'
+      - '.github/workflows/chat-memory.yml'
+permissions:
+  contents: read
+jobs:
+  memory:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-26, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      TEMP: ${{ github.workspace }}/.chat-memory-qa-temp
+      TMP: ${{ github.workspace }}/.chat-memory-qa-temp
+      TMPDIR: ${{ github.workspace }}/.chat-memory-qa-temp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: npm
+      - name: Use workspace-owned temporary files
+        run: node -e "require('node:fs').mkdirSync(process.env.TMPDIR,{recursive:true,mode:0o700})"
+      - run: npm ci --ignore-scripts
+      - name: Prepare pinned Windows export reader
+        if: runner.os == 'Windows'
+        run: node scripts/prepare-beta-vendor.mjs --python-only
+      - name: Prepare pinned Unix export reader
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          umask 077
+          node scripts/prepare-native-vendor.mjs --python-only
+      - run: npm run build
+      - run: node --test test/chat-memory-tree.test.mjs test/chat-memory-compactor.test.mjs test/chat-memory-service.test.mjs test/api-agent.test.mjs test/data-export.test.mjs test/archive.test.mjs

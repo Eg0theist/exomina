@@ -1,0 +1,17 @@
+/* Imported after the shell design layer. Scroll area fills the pane; content keeps its reading preference. */
+.app-shell .chat-page{max-width:none}
+.app-shell .chat-scroll{overflow-anchor:none}
+.composer .composer-toolbar{flex-wrap:nowrap;justify-content:flex-end;gap:4px;width:100%}
+.composer-toolbar>.composer-chip,.composer-toolbar>.chat-style,.composer-toolbar>.permission-picker,.composer-toolbar>.model-selector{flex:0 1 auto;min-width:0}
+.composer-toolbar .composer-chip{padding:0 8px;max-width:280px;gap:5px}
+.composer-toolbar :is(.workspace-chip,.memory-chip,.chat-style>.composer-chip,.permission-picker:not(.chat-style)>.composer-chip){position:relative;width:32px;padding:0;justify-content:center}
+.composer-toolbar :is(.workspace-chip,.memory-chip,.chat-style>.composer-chip,.permission-picker:not(.chat-style)>.composer-chip)>span{display:none}
+.composer-toolbar :is(.chat-style,.permission-picker)>.composer-chip>.chip-caret{display:none}
+.composer-toolbar .send-button{margin-left:4px;flex:0 0 34px}
+.composer-toolbar .send-button+.send-button{margin-left:3px}
+.model-provider-row{display:flex;align-items:flex-end;gap:5px;padding:6px 8px 10px;border-bottom:1px solid var(--line)}
+.model-provider-row label{flex:1;min-width:0;font-size:11px;color:var(--text-3);margin:0}
+.model-provider-row select{display:block;width:100%;margin-top:5px;padding:8px;border:1px solid var(--line-strong);border-radius:var(--radius-s);background:var(--surface);color:var(--text);font-size:13px}
+.composer-toolbar .model-chip .provider-mark{flex-shrink:0}
+@container(max-width:670px){.composer-toolbar .model-chip{max-width:200px}.composer-toolbar .chip-sub{display:none}}
+@container(max-width:440px){.composer-toolbar .chip-caret{display:none}.composer-toolbar .composer-chip{padding:0 5px}.composer-toolbar .model-chip{max-width:90px}.composer .composer-toolbar{gap:1px}}

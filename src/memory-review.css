@@ -1,0 +1,13 @@
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.nav-dot.memory-update-dot{width:6px;height:6px;background:var(--t-accent);box-shadow:0 0 0 3px color-mix(in oklab,var(--t-accent) 4%,transparent)}
+.memory-review-toolbar{display:flex;align-items:center;justify-content:space-between;gap:15px;margin:0 0 17px}
+.memory-filters{display:flex;align-items:center;gap:3px;padding:3px;background:color-mix(in oklab,var(--t-accent) 10%,var(--n-0));border:1px solid color-mix(in oklab,var(--t-accent) 26%,var(--n-0));border-radius:7px}
+.memory-filters>button{display:flex;align-items:center;gap:7px;padding:7px 12px;color:color-mix(in oklab,var(--t-accent) 43%,var(--n-49));font-size:12.5px;border-radius:4px;min-height:32px}
+.memory-filters>button[aria-pressed=true]{background:color-mix(in oklab,var(--t-accent) 26%,var(--n-0));color:color-mix(in oklab,var(--t-accent) 36%,var(--n-95))}
+.memory-filters>button>span{font-size:12px;color:color-mix(in oklab,var(--t-accent) 72%,var(--n-80))}
+.memory-review-all{font-size:12.5px;color:color-mix(in oklab,var(--t-accent) 59%,var(--n-62))}
+.content-page .memory-card.is-new{border-color:color-mix(in oklab,var(--t-accent) 50%,var(--n-0));background:linear-gradient(135deg,color-mix(in oklab,var(--t-accent) 21%,var(--n-0)),color-mix(in oklab,var(--t-accent) 13%,var(--n-0)))}
+.memory-new-label{display:inline-flex;align-items:center;color:color-mix(in oklab,var(--t-accent) 90%,var(--n-100));background:color-mix(in oklab,var(--t-accent) 31%,var(--n-0));border-radius:4px;padding:3px 5px;font-size:11px;letter-spacing:0;text-transform:none;margin-left:3px}
+.memory-review-note{margin:0 0 17px;font-size:12.5px;color:color-mix(in oklab,var(--t-accent) 69%,var(--n-74))}
+.memory-searching{display:flex;align-items:center;justify-content:center;gap:9px;color:color-mix(in oklab,var(--t-accent) 60%,var(--n-42));min-height:150px;font-size:13.5px}
+@media(max-width:640px){.memory-review-toolbar{align-items:flex-start;flex-wrap:wrap;gap:10px}.memory-filters>button{min-height:44px;padding:9px 15px;font-size:12px}.memory-filters>button>span{font-size:11px}.memory-review-all,.memory-review-note{min-height:44px;font-size:12px}.memory-new-label{font-size:9px}.memory-card-top{flex-wrap:wrap;gap:9px}}

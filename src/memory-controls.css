@@ -1,0 +1,7 @@
+.content-page>.memory-capture-control{margin:-7px 0 28px;padding:0 2px 22px;border-bottom:1px solid var(--border)}
+.memory-capture-control select{max-width:100%;min-width:190px;min-height:38px;padding:8px 12px;border:1px solid color-mix(in oklab,var(--t-accent) 32%,var(--n-0));border-radius:6px;background:color-mix(in oklab,var(--t-accent) 16%,var(--n-0));color:color-mix(in oklab,var(--t-accent) 35%,var(--n-86));font-size:13.5px}
+.memory-card-top .memory-card-actions{display:flex;align-items:center;gap:9px;letter-spacing:0}
+.memory-card .memory-delete{color:color-mix(in oklab,var(--t-accent) 33%,var(--n-55))}
+.memory-card .memory-delete:hover{background:color-mix(in oklab,color-mix(in oklab,var(--t-danger) 35%,var(--n-0)) 18%,transparent);color:var(--danger)}
+.memory-delete-preview{margin:20px 0 0;padding:14px 16px;border-left:2px solid color-mix(in oklab,var(--t-accent) 53%,var(--n-25));background:color-mix(in oklab,var(--n-100) 2%,transparent);color:var(--text);font-size:14.5px;line-height:1.7;overflow-wrap:anywhere;white-space:pre-wrap}
+@media(max-width:600px){.memory-capture-control{align-items:stretch;flex-direction:column;gap:12px}.memory-capture-control select{width:100%;min-height:44px;font-size:16px}.memory-card .memory-delete{min-width:44px;min-height:44px}.memory-card-top .memory-card-actions{gap:3px}.memory-card-top{gap:8px}}

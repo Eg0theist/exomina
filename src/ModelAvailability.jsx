@@ -1,0 +1,8 @@
+import React,{useEffect,useState} from 'react';
+import {api} from './transport.js';
+export default function ModelAvailability({catalog}){
+ const[state,setState]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ useEffect(()=>{let live=true;const load=()=>api.invoke('models.status').then(s=>{if(live)setState(s);}).catch(()=>{});load();const timer=setInterval(load,5000);return()=>{live=false;clearInterval(timer);};},[]);
+ async function check(){setBusy(true);setError('');try{setState(await api.invoke('models.refresh'));}catch(e){setError(e.message);}finally{setBusy(false);}}
+ return <section className="explanation-card model-availability" aria-label="Model availability"><div><h3>Model choices and updates</h3><p>Check the choices reported by Exomina’s bundled subscription clients. Your provider controls account access. New client features, voice models and tools may require an Exomina update.</p><p role="status">{state?.status==='checking'?'Checking reported model choices…':state?.checkedAt?`Last completed check: ${new Date(state.checkedAt).toLocaleString()}`:'Model choices have not been checked this session.'}</p>{Object.entries(state?.counts||{}).map(([id,count])=><p key={id}>{catalog.find(p=>p.id===id)?.name||id}: {count} reported choices</p>)}{(error||state?.error)&&<p className="inline-error" role="alert">{error||state.error}</p>}<button type="button" className="secondary-button" disabled={busy||state?.status==='checking'} onClick={check}>{busy?'Checking…':'Check model choices'}</button><p>These are reported choices, which may include cached or bundled metadata. A successful check does not prove access to every new upstream model. It sends no chat request.</p></div></section>;
+}

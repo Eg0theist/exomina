@@ -1,0 +1,27 @@
+[Unit]
+Description=Exomina private workspace
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/exomina
+
+[Service]
+Type=simple
+User=exomina
+Group=exomina
+WorkingDirectory=/opt/exomina
+EnvironmentFile=/var/lib/exomina/private/server.env
+ExecStart=/usr/bin/node /opt/exomina/cloud/start.mjs
+Restart=on-failure
+RestartSec=10
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/exomina
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

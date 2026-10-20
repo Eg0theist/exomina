@@ -1,0 +1,20 @@
+import path from 'node:path';
+import {writeFile} from 'node:fs/promises';
+import {spawn} from 'node:child_process';
+import assert from 'node:assert/strict';
+import {WindowsVault} from '../desktop/vault.mjs';
+import {createProtectedQaProfile} from './qa-profile.mjs';
+const fixture=await createProtectedQaProfile('vault-deny'),file=path.join(fixture.profile,'synthetic-runtime.tmp'),plaintext=path.join(fixture.profile,'synthetic-plaintext.txt'),backup=path.join(fixture.output,'synthetic-invalid.pfx');
+const executable=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),literal=value=>"'"+value.replaceAll("'","''")+"'";
+function ps(command){return new Promise((resolve,reject)=>{const child=spawn(executable,['-NoProfile','-NonInteractive','-Command',"$ErrorActionPreference='Stop';Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security');"+command],{windowsHide:true,stdio:['ignore','pipe','pipe']});let error='';child.stderr.on('data',chunk=>error+=chunk);child.on('error',reject);child.on('close',code=>code?reject(Error(error)):resolve());});}
+const rule=(rights,type)=>`[Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'),[Security.AccessControl.FileSystemRights]::${rights},[Security.AccessControl.AccessControlType]::${type})`;
+await writeFile(file,'Synthetic runtime ACL fixture.');await ps(`$acl=Get-Acl -LiteralPath ${literal(file)};$acl.AddAccessRule(${rule('ExecuteFile','Deny')});Set-Acl -LiteralPath ${literal(file)} -AclObject $acl`);
+const vault=new WindowsVault(),restrictive=await vault.verify(fixture.profile);assert.equal(restrictive.restrictedAccess,true);
+await ps(`$acl=Get-Acl -LiteralPath ${literal(file)};$acl.AddAccessRule(${rule('Read','Allow')});Set-Acl -LiteralPath ${literal(file)} -AclObject $acl`);const broad=await vault.preflight(fixture.profile);assert.equal(broad.encrypted,true);assert.equal(broad.restrictedAccess,false);await assert.rejects(vault.verify(fixture.profile),/not fully protected/);
+await ps(`$acl=Get-Acl -LiteralPath ${literal(file)};$acl.RemoveAccessRuleSpecific(${rule('Read','Allow')});Set-Acl -LiteralPath ${literal(file)} -AclObject $acl`);
+await writeFile(plaintext,'Only synthetic plaintext for the negative encryption test.');await ps(`[IO.File]::Decrypt(${literal(plaintext)})`);const unencrypted=await vault.preflight(fixture.profile);assert.equal(unencrypted.encrypted,false);assert.equal(unencrypted.unencryptedEntries,1);await assert.rejects(vault.verify(fixture.profile),/not fully protected/);await ps(`Remove-Item -LiteralPath ${literal(plaintext)} -Force`);
+// A deliberately invalid synthetic PFX proves the production branch passed its
+// folder audit and reached Import. No personal backup/key/password is accessed.
+await writeFile(backup,Buffer.alloc(256,0x51));let failure;try{await vault.verifyRecoveryFile(fixture.profile,backup,'synthetic-only');}catch(e){failure=e;}assert.match(failure?.message||'',/backup could not be verified/);assert.equal(failure.diagnostic?.phase,'recovery');
+await ps(`$acl=Get-Acl -LiteralPath ${literal(file)};if(-not @($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])|Where-Object {$_.IdentityReference.Value -eq 'S-1-1-0' -and $_.AccessControlType -eq 'Deny' -and [long]$_.FileSystemRights -eq 32}).Count){throw 'Runtime deny rule was changed'};$nullDacl=[Security.AccessControl.RawSecurityDescriptor]::new('D:NO_ACCESS_CONTROL');$emptyDacl=[Security.AccessControl.RawSecurityDescriptor]::new('D:');if($null -ne $nullDacl.DiscretionaryAcl -or $null -eq $emptyDacl.DiscretionaryAcl){throw 'Null DACL distinction failed'}`);
+const final=await fixture.verify(),report={syntheticOnly:true,profile:fixture.profile,restrictiveDenyAccepted:true,denyPreserved:true,everyoneReadAllowRejected:true,unencryptedFileRejected:true,nullDaclDistinguished:true,syntheticInvalidPfxReachedImport:true,userBackupAccessed:false,final};await writeFile(path.join(fixture.output,'result.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));

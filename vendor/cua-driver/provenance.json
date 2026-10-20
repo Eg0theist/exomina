@@ -1,0 +1,49 @@
+{
+  "archiveSha256": "93f658ac02080ac1fac709f88f79ba38980ce77b816725ec2a0128aeba1811f5",
+  "license": "MIT",
+  "validation": "Version and 59-tool MCP handshake verified. A dedicated synthetic Electron window passed exact PID/HWND screenshot, UIA readback, foreground Unicode typing after explicit background refusal, background button click, and independent DOM verification. No app/window inventory or full-desktop capture was performed.",
+  "files": [
+    {
+      "file": "cua_driver_abi.h",
+      "bytes": 7998,
+      "sha256": "c17169f41da321baa5e7e953323c3ad660b00790176ba381e93189fba3506587"
+    },
+    {
+      "file": "cua_driver_node_runtime.node",
+      "bytes": 633168,
+      "sha256": "826750c50bd93fd10e2aca5db892c408469043d3cb8371b7403a9922a735f06b"
+    },
+    {
+      "file": "cua_driver_sdk.dll",
+      "bytes": 26962768,
+      "sha256": "ce7faf21267c9ae0c3e80ad9dbbdf93258edaae4c4dd276e5b036f96f7208242"
+    },
+    {
+      "file": "cua-cursor-theme.exe",
+      "bytes": 2042192,
+      "sha256": "ac8f044faffb1477548db441de8e91bf0063901c7932cb59cafcf729fee97c38"
+    },
+    {
+      "file": "cua-driver-uia.exe",
+      "bytes": 22050640,
+      "sha256": "0944c49abf5efe4ee2a1631403be30020ad36fb799bb39ff9ab8b9cd32672e7b"
+    },
+    {
+      "file": "cua-driver.exe",
+      "bytes": 34914640,
+      "sha256": "76e081ab6524e38ff13377daa227996106151440c67649b7d82126d41609f173"
+    },
+    {
+      "file": "LICENSE.md",
+      "bytes": 1069,
+      "sha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
+    }
+  ],
+  "licenseSource": "https://raw.githubusercontent.com/trycua/cua/cua-driver-rs-v0.33.4/LICENSE.md",
+  "release": "https://github.com/trycua/cua/releases/tag/cua-driver-rs-v0.33.4",
+  "archiveBytes": 31012995,
+  "authenticode": "Valid (verified during build)",
+  "name": "CUA Driver",
+  "source": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.33.4/cua-driver-rs-0.33.4-windows-x86_64-binary.zip",
+  "version": "0.33.4"
+}

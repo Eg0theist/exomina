@@ -1,0 +1,63 @@
+.interface-view{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-2)}
+.interface-view select{padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px;max-width:125px}
+.interface-view.compact{gap:5px;flex-shrink:0;-webkit-app-region:no-drag;app-region:no-drag}
+.interface-view.compact select{padding:3px 5px;height:27px}
+.app-frame[data-interface-view="standard"] .advanced-only{display:none!important}
+.welcome-block[hidden]{display:none}
+.advanced-view-hint{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 0;color:var(--text-2);font-size:12px;line-height:1.6}
+.advanced-view-hint p{flex:1;min-width:180px}
+.standard-task-start{display:flex;align-items:center;gap:7px;padding:7px 8px;margin-bottom:5px;border:1px solid var(--line);border-radius:7px;text-align:left;font-size:12px;color:var(--text);flex-shrink:0}
+.standard-task-start:hover{background:var(--accent-soft)}
+.standard-model-summary{padding:10px 12px;font-size:12px;color:var(--text-2);line-height:1.7}
+.standard-model-summary strong{color:var(--text)}
+.settings-view-note{margin-top:8px;font-size:12px;color:var(--text-2);line-height:1.6}
+.settings-search-result .advanced-setting-label{color:var(--accent);font-size:11px}
+@media(max-width:1100px){.interface-view.compact>span{display:none}}
+@media(max-width:860px){.interface-view.compact select{max-width:104px}.app-frame[data-interface-view="standard"] .window-header .topbar-provider{display:none}}
+
+/* Standard: a calm, roomy space built around one task at a time. */
+.app-frame[data-interface-view="standard"]{--chat-width:700px}
+.app-frame[data-interface-view="standard"] .messages{max-width:760px;padding:40px 36px 16px}
+.app-frame[data-interface-view="standard"] .message{margin-bottom:34px}
+.app-frame[data-interface-view="standard"] .messages .markdown{font-size:calc(var(--reading-size,14.5px) * 1.1);line-height:1.78}
+.app-frame[data-interface-view="standard"] .markdown p{margin-bottom:.85em}
+.app-frame[data-interface-view="standard"] .composer-region{max-width:760px;margin-left:auto;margin-right:auto;width:100%}
+.app-frame[data-interface-view="standard"] .composer{border-radius:22px;padding:6px 10px 8px 14px;box-shadow:0 10px 34px -14px color-mix(in oklab,var(--t-accent) 45%,transparent),0 1px 0 var(--line)}
+.app-frame[data-interface-view="standard"] .composer textarea{font-size:16px;line-height:1.6;min-height:58px;padding-top:8px}
+.app-frame[data-interface-view="standard"] .composer-chip{border-radius:999px}
+.app-frame[data-interface-view="standard"] .composer-caption>span:not(.privacy-caption){display:none}
+.app-frame[data-interface-view="standard"] .nav-item{padding:10px 12px;font-size:14.5px;border-radius:12px}
+.app-frame[data-interface-view="standard"] .chat-list-row{border-radius:10px}
+.app-frame[data-interface-view="standard"] .activity.is-plain{border:0;background:color-mix(in oklab,var(--t-accent) 7%,transparent);border-radius:12px;padding:2px 4px}
+.app-frame[data-interface-view="standard"] .activity.is-plain .activity-title{font-weight:520;font-size:13.5px}
+.app-frame[data-interface-view="standard"] .activity.is-plain .activity-sub{font-size:12px}
+.standard-home{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:0 24px 26px;width:100%;max-width:760px;margin:0 auto}
+.standard-home h1{font-size:36px;font-weight:620;letter-spacing:-.9px;line-height:1.15;color:var(--text);margin-top:4px}
+.standard-home>p{font-size:16px;color:var(--text-3)}
+.standard-tiers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:10px 12px 2px}
+.standard-model-select{display:flex;flex-direction:column;gap:5px;padding:8px 12px 0;font-size:12px;color:var(--text-2)}
+.standard-model-select select{padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px}
+.standard-choice .menu-footer{margin-top:8px}
+/* Standard: message-box buttons say what they are instead of relying on icons. */
+.standard-chip-label{display:none}
+.app-frame[data-interface-view="standard"] .standard-chip-label{display:inline;margin-left:5px;font-size:12px}
+.app-frame[data-interface-view="standard"] .composer-toolbar :is(.workspace-chip,.memory-chip,.permission-picker:not(.chat-style)>.composer-chip){width:auto;padding:0 9px;gap:5px}
+.app-frame[data-interface-view="standard"] .composer-toolbar :is(.workspace-chip,.memory-chip,.permission-picker:not(.chat-style)>.composer-chip)>span{display:inline;max-width:110px}
+.connection-standard-note{font-size:12px;color:var(--text-3);margin:-4px 0 4px}
+.standard-tiers button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;text-align:left;color:var(--text)}
+.standard-tiers button small{font-size:11px;color:var(--text-3);line-height:1.35}
+.standard-tiers button.selected{border-color:var(--accent);background:var(--accent-soft)}
+@media(max-width:900px){.standard-home h1{font-size:28px}}
+
+/* Advanced: a dense workbench where every setting that shapes a message is in view. */
+.app-frame:is([data-interface-view="advanced"],[data-interface-view="diagnostics"]){--chat-width:960px}
+.app-frame:is([data-interface-view="advanced"],[data-interface-view="diagnostics"]) .messages{max-width:1000px;padding:20px 28px 10px}
+.app-frame:is([data-interface-view="advanced"],[data-interface-view="diagnostics"]) .message{margin-bottom:18px}
+.app-frame:is([data-interface-view="advanced"],[data-interface-view="diagnostics"]) .messages .markdown{font-size:calc(var(--reading-size,14.5px) * .94);line-height:1.58}
+.app-frame:is([data-interface-view="advanced"],[data-interface-view="diagnostics"]) .markdown p{margin-bottom:.55em}
+.app-frame:is([data-interface-view="advanced"],[data-interface-view="diagnostics"]) .composer{border-radius:8px}
+.app-frame:is([data-interface-view="advanced"],[data-interface-view="diagnostics"]) .composer textarea{font-size:13.75px}
+.app-frame:is([data-interface-view="advanced"],[data-interface-view="diagnostics"]) .nav-item{padding:6px 9px;font-size:13px}
+@media(max-width:700px){.app-frame[data-interface-view] .messages{padding:20px 14px 10px}.standard-home h1{font-size:25px}}
+
+.skip-content{position:fixed;top:8px;left:8px;transform:translateY(-180%);z-index:10000;padding:12px;background:var(--surface);color:var(--text);border:2px solid var(--accent);border-radius:6px}.skip-content:focus{transform:none}:where(button,a,input,select,textarea,summary):focus-visible{outline:2px solid var(--accent);outline-offset:3px}

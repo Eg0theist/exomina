@@ -1,0 +1,17 @@
+.task-start{width:min(780px,100%);margin:0 auto;padding:30px 28px;color:var(--n-88)}
+.task-start-heading{display:flex;align-items:flex-start;gap:20px;margin-bottom:25px}
+.task-start-heading>div{flex:1}.task-start h1{font-size:28px;margin:8px 0 10px;font-weight:550}.task-start-heading p{font-size:14px;line-height:1.7;color:var(--n-63);max-width:610px}
+.task-field{display:flex;flex-direction:column;gap:8px;font-size:13px;font-weight:550;margin-bottom:20px}
+.task-field input,.task-field textarea,.task-field select,.task-access select{width:100%;border:1px solid color-mix(in oklab,var(--t-accent) 28%,var(--n-20));background:var(--n-7);color:var(--n-88);border-radius:7px;padding:11px 12px;font:inherit;font-weight:400;line-height:1.5}
+.task-field input:focus,.task-field textarea:focus,.task-field select:focus,.task-access select:focus{outline:2px solid var(--t-accent);outline-offset:2px}
+.task-field textarea{resize:vertical;max-height:260px;min-height:80px}.task-field small,.task-material p,.task-storage,.task-hint{font-size:12px;font-weight:400;line-height:1.7;color:var(--n-63)}
+.task-source-picker{border:0;padding:0;display:flex;gap:8px;flex-wrap:wrap;margin:0 0 20px}.task-source-picker legend{font-size:13px;font-weight:550;margin-bottom:10px}
+.task-source-picker button{display:flex;align-items:center;gap:7px;padding:10px 12px;border:1px solid var(--n-25);border-radius:7px;font-size:12px;color:var(--n-70)}
+.task-source-picker button.selected{border-color:var(--t-accent);background:color-mix(in oklab,var(--t-accent) 12%,transparent);color:var(--n-95)}
+.task-material{margin-bottom:20px}.task-material p{margin:8px 0}.task-material .attachment-draft{margin-top:10px}.task-material .task-field{margin-bottom:10px}
+.task-access{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:15px 0;border-top:1px solid var(--n-20);border-bottom:1px solid var(--n-20);font-size:12px}.task-access label{display:flex;align-items:center;gap:10px;flex:1;min-width:240px}.task-access select{width:auto;flex:1;padding:8px}.task-access>span{display:flex;align-items:center;gap:5px;color:var(--n-63)}.task-access .task-ready{color:var(--t-accent)}
+.task-storage{margin:14px 0}.task-hint{margin:10px 0;color:var(--t-warn)}.task-start-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+.task-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid color-mix(in oklab,var(--t-accent) 24%,var(--n-20));border-radius:8px;padding:11px 14px;margin-bottom:12px}.task-actions>div{flex:1;min-width:160px}.task-actions strong{display:block;font-size:12px;overflow-wrap:anywhere;max-height:3em;overflow:hidden}.task-actions small{display:block;font-size:11px;color:var(--n-63);margin-top:4px}.task-actions .text-button{font-size:12px}.task-actions button:disabled{opacity:.45;cursor:default}
+.task-prompt-dialog{max-height:90vh;overflow:auto}.task-prompt-dialog>p{font-size:13px;line-height:1.7;margin:12px 0 22px;color:var(--n-63)}.task-prompt-dialog .task-field textarea{max-height:40vh}
+.welcome-task-button{margin-top:18px}.app-shell .chat-page.is-task-setup .chat-scroll{display:block;padding:0;flex:1;min-height:0;overflow:auto}
+@container(max-width:650px){.task-start{padding:22px 18px}.task-start h1{font-size:24px}.task-source-picker button{flex:1 1 40%;justify-content:center}.task-access label{flex-basis:100%}.task-actions{gap:8px}.task-start-actions button{font-size:12px}}

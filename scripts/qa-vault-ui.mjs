@@ -1,0 +1,160 @@
+// Renderer-only security onboarding fixture. Never performs real encryption,
+// exports a certificate, or accepts a user's recovery password.
+import { _electron as electron } from 'playwright';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+const root = process.cwd();
+const output = path.resolve(root, '../vault-ui-qa'); await mkdir(output, { recursive: true });
+const entry = path.join(output, 'fixture.cjs');
+const preload = path.join(output, 'fixture-preload.cjs');
+await writeFile(preload, `const{contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('studio',{invoke:(method,payload)=>ipcRenderer.invoke('qa:invoke',method,payload),onEvent:()=>()=>{}});`);
+await writeFile(entry, `const{app,BrowserWindow,ipcMain}=require('electron');
+app.setPath('userData',process.env.QA_VAULT_PROFILE);
+globalThis.qaVault={status:{protected:false,supported:true,needsRecovery:true,message:'Synthetic protection status.',dataPath:'C:\\\\Synthetic\\\\PrivateData'},calls:[],bootstrapCount:0,cancelExport:true};
+ipcMain.handle('qa:invoke',(_event,method,payload)=>{
+  const q=globalThis.qaVault;q.calls.push(method);
+  if(method==='security.status'){if(q.statusError)throw Error('Synthetic protection status failed');return q.status}
+  if(method==='security.exportRecovery'){
+    q.passwordShapeValid=typeof payload.password==='string'&&payload.password.length>=16;
+    if(q.malformedExport)return{};
+    q.exported=!q.cancelExport;return{saved:q.exported};
+  }
+  if(method==='security.verifyRecovery'){
+    q.verifyShapeValid=typeof payload.password==='string'&&payload.password.length>=1;
+    if(q.failVerify)throw Error('Synthetic recovery key does not match');
+    if(q.malformedVerify)return undefined;
+    if(q.pendingVerify)return new Promise(resolve=>{q.resolveVerify=()=>{q.exported=true;resolve({saved:true})}});
+    q.exported=!q.cancelVerify;return{saved:q.exported};
+  }
+  if(method==='security.protect'){if(!q.exported)throw Error('Missing recovery export');return{restarting:true}}
+  if(method==='bootstrap'){q.bootstrapCount++;return{settings:{provider:'codex',model:'auto',memoryEnabled:true},connections:[],conversations:[],memories:[],tools:[],version:'synthetic'}}
+  if(method==='browser.show')return{};
+  throw Error('Unexpected synthetic IPC method: '+method);
+});
+app.whenReady().then(()=>{const w=new BrowserWindow({width:1024,height:950,webPreferences:{preload:${JSON.stringify(preload)},contextIsolation:true,nodeIntegration:false,sandbox:true}});w.loadFile(${JSON.stringify(path.join(root, 'dist/index.html'))})});app.on('window-all-closed',()=>app.quit());`);
+const env = { ...process.env, QA_VAULT_PROFILE: path.join(output, 'profile-' + randomUUID()) }; delete env.ELECTRON_RUN_AS_NODE;
+const app = await electron.launch({ args: [entry], env, timeout: 30000 });
+try {
+  const page = await app.firstWindow(); page.setDefaultTimeout(10000);
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  const password = page.getByLabel('Recovery file password', { exact: true });
+  const confirmation = page.getByLabel('Confirm password', { exact: true });
+  const save = page.getByRole('button', { name: 'Save recovery key', exact: true });
+  const verify = page.getByRole('button', { name: 'Choose and verify recovery key', exact: true });
+  const recoveryCallCount = () => app.evaluate(() => globalThis.qaVault.calls.filter(method => ['security.exportRecovery', 'security.verifyRecovery'].includes(method)).length);
+  await page.getByRole('heading', { name: 'Protect your workspace', exact: true }).waitFor();
+  assert.equal(await app.evaluate(() => globalThis.qaVault.bootstrapCount), 0);
+  assert.equal(await page.getByRole('button', { name: 'Protect and restart', exact: true }).isDisabled(), true);
+  await page.getByLabel('Recovery file password', { exact: true }).fill('short');
+  await page.getByLabel('Confirm password', { exact: true }).fill('short');
+  assert.equal(await save.isEnabled(), true);
+  await save.click();
+  await page.getByRole('alert').filter({ hasText: 'Use at least 16 characters' }).waitFor();
+  assert.equal(await recoveryCallCount(), 0, 'Invalid credentials must not reach IPC');
+  await page.getByLabel('Recovery file password', { exact: true }).fill('123456789012345');
+  await page.getByLabel('Confirm password', { exact: true }).fill('123456789012345');
+  await save.click();
+  await page.getByRole('alert').filter({ hasText: 'Use at least 16 characters' }).waitFor();
+  assert.equal(await recoveryCallCount(), 0, 'A new backup requires 16 characters');
+  await page.getByLabel('Recovery file password', { exact: true }).fill('synthetic-recovery-password');
+  await confirmation.fill('');
+  await save.click();
+  await page.getByRole('alert').filter({ hasText: 'Enter the same password in Confirm password' }).waitFor();
+  assert.equal(await recoveryCallCount(), 0);
+  await page.getByLabel('Confirm password', { exact: true }).fill('different-synthetic-password');
+  await save.click();
+  await page.getByRole('alert').filter({ hasText: 'The two passwords do not match' }).waitFor();
+  assert.equal(await recoveryCallCount(), 0);
+  await page.getByLabel('Confirm password', { exact: true }).fill('synthetic-recovery-password');
+  await page.getByRole('button', { name: 'Save recovery key', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#recovery-password')?.value === '' && document.querySelector('#recovery-password-confirm')?.value === '');
+  await page.getByRole('status').filter({ hasText: 'Saving was canceled.' }).waitFor();
+  assert.equal(await recoveryCallCount(), 1);
+  assert.equal(await page.getByLabel('Recovery file password', { exact: true }).inputValue(), '');
+  assert.equal(await page.getByLabel('Confirm password', { exact: true }).inputValue(), '');
+  assert.equal(await page.getByRole('button', { name: 'Protect and restart', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: 'Use an existing recovery key', exact: true }).click();
+  assert.equal(await page.getByText(/Saving was canceled/).count(), 0, 'Mode changes clear cancellation feedback');
+  await page.getByRole('button', { name: 'Create a new recovery key', exact: true }).click();
+  await app.evaluate(() => { globalThis.qaVault.cancelExport = false; globalThis.qaVault.malformedExport = true; });
+  await password.fill('synthetic-recovery-password'); await confirmation.fill('synthetic-recovery-password');
+  await save.click();
+  await page.getByRole('alert').filter({ hasText: 'did not confirm whether the recovery file' }).waitFor();
+  assert.equal(await password.inputValue(), '');
+  assert.equal(await page.getByRole('button', { name: 'Protect and restart', exact: true }).isDisabled(), true);
+  await app.evaluate(() => { globalThis.qaVault.malformedExport = false; });
+  await page.getByLabel('Recovery file password', { exact: true }).fill('synthetic-recovery-password');
+  await page.getByLabel('Confirm password', { exact: true }).fill('synthetic-recovery-password');
+  await page.getByRole('button', { name: 'Save recovery key', exact: true }).click();
+  await page.getByText('Recovery backup saved.', { exact: true }).waitFor();
+  assert.equal(await app.evaluate(() => globalThis.qaVault.passwordShapeValid), true);
+  assert.equal(await page.evaluate(() => localStorage.length + sessionStorage.length), 0);
+  await page.screenshot({ path: path.join(output, 'recovery-ready.png') });
+  await page.getByRole('button', { name: 'Protect and restart', exact: true }).click();
+  await page.getByRole('heading', { name: 'Restarting Exomina', exact: true }).waitFor();
+  assert.equal(await app.evaluate(() => globalThis.qaVault.bootstrapCount), 0, 'Protect response must not mount private app before verification');
+  await app.evaluate(() => { Object.assign(globalThis.qaVault.status, { protected: true, needsRecovery: false }); });
+  await page.reload(); await page.getByRole('heading', { name: /^(Good (morning|afternoon|evening)|Up late).$/ }).waitFor();
+  assert.ok(await app.evaluate(() => globalThis.qaVault.bootstrapCount > 0));
+  await app.evaluate(() => { const q=globalThis.qaVault; q.bootstrapCount=0;q.exported=false;q.cancelVerify=true;q.status={protected:false,supported:true,needsRecovery:true,message:'Synthetic status.'}; });
+  await page.reload();
+  await page.getByRole('button', { name: 'Use an existing recovery key', exact: true }).click();
+  assert.equal(await page.locator('input[type=password]').count(), 1);
+  assert.equal(await page.getByLabel('Confirm password', { exact: true }).count(), 0);
+  assert.equal(await verify.isEnabled(), true);
+  const callsBeforeEmptyVerify = await recoveryCallCount();
+  await verify.click();
+  await page.getByRole('alert').filter({ hasText: 'Enter the password for your saved PFX file' }).waitFor();
+  assert.equal(await recoveryCallCount(), callsBeforeEmptyVerify);
+  await page.getByLabel('Recovery file password', { exact: true }).fill('x');
+  await page.getByRole('button', { name: 'Choose and verify recovery key', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#recovery-password')?.value === '');
+  await page.getByRole('status').filter({ hasText: 'File selection was canceled.' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Protect and restart', exact: true }).isDisabled(), true);
+  await app.evaluate(() => { globalThis.qaVault.cancelVerify=false; globalThis.qaVault.failVerify=true; });
+  await page.getByLabel('Recovery file password', { exact: true }).fill('x');
+  await page.getByRole('button', { name: 'Choose and verify recovery key', exact: true }).click();
+  await page.getByText('Synthetic recovery key does not match', { exact: true }).waitFor();
+  assert.equal(await page.getByLabel('Recovery file password', { exact: true }).inputValue(), '');
+  assert.equal(await page.getByRole('button', { name: 'Protect and restart', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: 'Create a new recovery key', exact: true }).click();
+  assert.equal(await page.getByRole('alert').count(), 0, 'Mode changes clear errors');
+  await page.getByRole('button', { name: 'Use an existing recovery key', exact: true }).click();
+  await app.evaluate(() => { globalThis.qaVault.failVerify=false; globalThis.qaVault.malformedVerify=true; });
+  await password.fill('x'); await verify.click();
+  await page.getByRole('alert').filter({ hasText: 'did not confirm whether the recovery file' }).waitFor();
+  assert.equal(await password.inputValue(), '');
+  assert.equal(await page.getByRole('button', { name: 'Protect and restart', exact: true }).isDisabled(), true);
+  await app.evaluate(() => { globalThis.qaVault.malformedVerify=false; globalThis.qaVault.pendingVerify=true; });
+  await page.getByLabel('Recovery file password', { exact: true }).fill('x');
+  await page.getByRole('button', { name: 'Choose and verify recovery key', exact: true }).click();
+  const verifying = page.getByRole('button', { name: 'Verifying recovery key…', exact: true });
+  await verifying.waitFor();
+  assert.equal(await verifying.isDisabled(), true);
+  assert.equal(await password.isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Use an existing recovery key', exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Protect and restart', exact: true }).isDisabled(), true);
+  await page.screenshot({ path: path.join(output, 'recovery-verifying.png') });
+  await app.evaluate(() => { globalThis.qaVault.resolveVerify(); });
+  await page.getByText('Recovery backup verified.', { exact: true }).waitFor();
+  assert.equal(await app.evaluate(() => globalThis.qaVault.verifyShapeValid), true);
+  assert.equal(await app.evaluate(() => globalThis.qaVault.bootstrapCount), 0);
+  assert.equal(await page.evaluate(() => localStorage.length + sessionStorage.length), 0);
+  await page.getByRole('button', { name: 'Protect and restart', exact: true }).click();
+  await page.getByRole('heading', { name: 'Restarting Exomina', exact: true }).waitFor();
+  assert.equal(await app.evaluate(() => globalThis.qaVault.bootstrapCount), 0);
+  for (const scenario of ['error', 'unsupported', 'missing-recovery', 'invalid-status']) {
+    await app.evaluate((_electron, scenario) => { const q = globalThis.qaVault; q.bootstrapCount = 0; q.statusError = scenario === 'error'; q.status = scenario === 'invalid-status' ? { protected: true } : { protected: true, supported: scenario !== 'unsupported', needsRecovery: scenario === 'missing-recovery', message: 'Synthetic status.' }; }, scenario);
+    await page.reload();
+    await page.getByRole('heading', { name: scenario === 'missing-recovery' ? 'Protect your workspace' : 'Check data protection', exact: true }).waitFor();
+    await page.waitForTimeout(50);
+    assert.equal(await app.evaluate(() => globalThis.qaVault.bootstrapCount), 0, `${scenario} must fail closed`);
+  }
+  assert.equal(errors.length, 0, errors.join('\n'));
+  const report = { passed: true, failClosedStatusCases: 4, invalidFormCases: 5, canceledPickers: 2, malformedRecoveryResponses: 2, pendingVerificationFeedback: true, errorsRemainVisible: true, validSaveVerifyRestart: true, secretStorageEmpty: true, realEncryptionPerformed: false, personalProfilesRead: false, screenshots: ['recovery-ready.png', 'recovery-verifying.png'] };
+  await writeFile(path.join(output, 'result.json'), JSON.stringify(report, null, 2));
+  console.log(JSON.stringify({ ...report, output }));
+} finally { await app.close(); }

@@ -1,0 +1,42 @@
+/* Standard: show what a bigger request looks like, then make it one click away. */
+.ambition-ideas{width:100%;margin-top:20px;text-align:left}
+.ambition-ideas-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+.ambition-ideas-head h2{font-size:13px;font-weight:600;letter-spacing:.2px;color:var(--text-2)}
+.ambition-areas{display:flex;gap:4px;flex-wrap:wrap}
+.ambition-areas button{padding:5px 11px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--text-2)}
+.ambition-areas button:hover{color:var(--text)}
+.ambition-areas button.selected{border-color:color-mix(in oklab,var(--t-accent) 60%,var(--line));background:var(--accent-soft);color:var(--text)}
+.ambition-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.ambition-card{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--line);border-radius:16px;background:var(--surface);text-align:left;color:var(--text);transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease}
+.ambition-card:hover{transform:translateY(-2px);border-color:color-mix(in oklab,var(--t-accent) 55%,var(--line));box-shadow:0 10px 26px -16px color-mix(in oklab,var(--t-accent) 60%,transparent)}
+.ambition-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ambition-card small{display:block;font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--text-3);margin-bottom:3px}
+.ambition-before{font-size:12.5px;line-height:1.45;color:var(--text-3);font-style:italic}
+.ambition-after strong{font-size:14px;font-weight:600;line-height:1.4}
+.ambition-card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto}
+.ambition-tag{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px}
+.ambition-use{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2)}
+.ambition-card:hover .ambition-use{color:var(--accent)}
+.standard-from{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;margin-top:16px;font-size:12.5px;color:var(--text-3)}
+.standard-from button{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border:1px solid var(--line);border-radius:999px;font-size:12.5px;color:var(--text-2)}
+.standard-from button:hover{color:var(--text);border-color:color-mix(in oklab,var(--t-accent) 45%,var(--line))}
+.ambition-bar-summary,.ambition-option-buttons,.further-actions{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
+.ambition-bar{padding:2px 0 6px}
+.further-actions>span{font-size:11.5px;color:var(--text-3);margin-right:2px}
+.ambition-bar button,.further-actions button{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--text-2)}
+.ambition-bar button:hover:not(:disabled),.further-actions button:hover{color:var(--text);border-color:color-mix(in oklab,var(--t-accent) 45%,var(--line))}
+.ambition-bar button.selected{border-color:var(--accent);background:var(--accent-soft);color:var(--text)}
+.ambition-bar button:focus-visible,.further-actions button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ambition-trigger[aria-expanded=true]>svg{transform:rotate(180deg)}
+.ambition-count{display:inline-grid;place-items:center;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--accent-soft);color:var(--text);font-size:10px}
+.ambition-options{padding:8px 0 3px}
+.ambition-options p{margin:0 0 7px;font-size:11.5px;line-height:1.5;color:var(--text-3)}
+.ambition-selected>svg:last-child{opacity:.65}
+.ambition-bar button:disabled{opacity:.5}
+.further-actions{margin-top:12px}
+/* Labelled message-box buttons wrap instead of shrinking into "Fi…" and "Mem…". */
+.app-frame[data-interface-view="standard"] .composer .composer-toolbar{flex-wrap:wrap;row-gap:4px}
+.app-frame[data-interface-view="standard"] .composer-toolbar>:is(.composer-chip,.chat-style,.permission-picker,.model-selector){flex-shrink:0}
+@media(max-width:900px){.ambition-cards{grid-template-columns:minmax(0,1fr);gap:8px}.ambition-ideas-head{justify-content:center}.ambition-card{flex-direction:row;align-items:center;padding:10px 14px}.ambition-before,.ambition-after small{display:none}.ambition-after{flex:1}.ambition-card-foot{margin:0}}
+/* On ordinary laptop heights the message box must stay in view below the ideas. */
+@media(max-height:940px){.standard-home .welcome-mark{display:none}.standard-home h1{font-size:30px}.ambition-ideas{margin-top:14px}.ambition-card{gap:8px;padding:12px 14px}.standard-from{margin-top:12px}.standard-home .standard-import{margin-top:6px}}

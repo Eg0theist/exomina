@@ -1,0 +1,23 @@
+import path from 'node:path';
+import {readFile,writeFile,unlink} from 'node:fs/promises';
+import {spawn} from 'node:child_process';
+import assert from 'node:assert/strict';
+import {WindowsVault} from '../desktop/vault.mjs';
+import {createProtectedQaProfile} from './qa-profile.mjs';
+const fixture=await createProtectedQaProfile('vault-startup'),vault=new WindowsVault();
+const {thumbprint}=JSON.parse(await readFile(fixture.profile+'.setup/recovery-backup.json','utf8')),proof={recoveryThumbprint:thumbprint};
+const executable=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),literal=value=>"'"+value.replaceAll("'","''")+"'";
+function ps(command){return new Promise((resolve,reject)=>{const child=spawn(executable,['-NoProfile','-NonInteractive','-Command',"$ErrorActionPreference='Stop';Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security');"+command],{windowsHide:true,stdio:['ignore','pipe','pipe']});let error='';child.stderr.on('data',chunk=>error+=chunk);child.on('error',reject);child.on('close',code=>code?reject(Error(error)):resolve());});}
+const start=performance.now(),baseline=await vault.verifyStartup(fixture.profile,proof),elapsedMs=performance.now()-start;
+assert.equal(baseline.scope,'root');assert.equal(baseline.files,0);assert.equal(baseline.directories,1);assert.equal(baseline.currentCertificateVerified,true);assert.equal(baseline.privateKeyPresent,true);assert.equal(baseline.recoveryRecipientsVerified,false);
+await assert.rejects(vault.verifyStartup(fixture.profile,{recoveryThumbprint:'0'.repeat(40)}),/does not match/);
+const plain=path.join(fixture.profile,'synthetic-plaintext-child.txt');await writeFile(plain,'Synthetic child to distinguish startup from a full audit.');await ps(`[IO.File]::Decrypt(${literal(plain)})`);
+assert.equal((await vault.verifyStartup(fixture.profile,proof)).scope,'root');await assert.rejects(vault.verify(fixture.profile,proof),/not fully protected/);await unlink(plain);
+const rule="[Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'),[Security.AccessControl.FileSystemRights]::Read,[Security.AccessControl.AccessControlType]::Allow)";
+await ps(`$acl=Get-Acl -LiteralPath ${literal(fixture.profile)};$acl.AddAccessRule(${rule});[IO.Directory]::SetAccessControl(${literal(fixture.profile)},$acl)`);
+await assert.rejects(vault.verifyStartup(fixture.profile,proof),/root is not protected/);
+await ps(`$acl=Get-Acl -LiteralPath ${literal(fixture.profile)};$acl.RemoveAccessRuleSpecific(${rule});[IO.Directory]::SetAccessControl(${literal(fixture.profile)},$acl);[IO.File]::Decrypt(${literal(fixture.profile)})`);
+await assert.rejects(vault.verifyStartup(fixture.profile,proof),/root is not protected/);await ps(`[IO.File]::Encrypt(${literal(fixture.profile)})`);
+const final=await vault.verifyStartup(fixture.profile,proof);await fixture.verify();vault.close();
+const report={syntheticOnly:true,profile:fixture.profile,elapsedMs,baseline,currentCertificateMismatchRejected:true,unsafeRootAclRejected:true,unencryptedRootRejected:true,plaintextChildAllowedOnlyByRootCheck:true,plaintextChildRejectedByFullAudit:true,final};
+await writeFile(path.join(fixture.output,'result.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));

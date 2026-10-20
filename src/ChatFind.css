@@ -1,0 +1,34 @@
+.chat-find-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 12px 24px 0;
+  padding: 8px 10px 8px 14px;
+  color: color-mix(in oklab,var(--t-accent) 38%,var(--n-56));
+  background: color-mix(in oklab,var(--t-accent) 7%,var(--n-0));
+  border: 1px solid color-mix(in oklab,var(--t-accent) 28%,var(--n-0));
+  border-radius: 12px;
+}
+.chat-find-bar:focus-within { border-color: color-mix(in oklab,var(--t-accent) 68%,var(--n-0)); box-shadow: 0 0 0 2px color-mix(in oklab,color-mix(in oklab,var(--t-accent) 76%,var(--n-2)) 8%,transparent); }
+.chat-find-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.chat-find-bar input[type="search"] { flex: 1; min-width: 80px; padding: 7px 0; color: color-mix(in oklab,var(--t-accent) 5%,var(--n-98)); background: transparent; border: 0; border-radius: 0; outline: 0; box-shadow: none; font: inherit; font-size: 13px; }
+.chat-find-bar input::placeholder { color: color-mix(in oklab,var(--t-accent) 30%,var(--n-50)); }
+.chat-find-bar input::-webkit-search-cancel-button { display: none; }
+.chat-find-count { flex: 0 0 auto; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chat-find-count.empty { color: color-mix(in oklab,var(--t-warm) 96%,var(--n-92)); }
+.chat-find-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
+.chat-find-actions .icon-button { width: 29px; height: 29px; }
+.chat-find-actions .icon-button:focus-visible { outline: 2px solid color-mix(in oklab,var(--t-accent) 72%,var(--n-33)); outline-offset: 2px; }
+.chat-find-actions .icon-button:disabled { opacity: .3; cursor: default; }
+.message-content mark.chat-match { background: color-mix(in oklab,color-mix(in oklab,var(--t-leaf) 85%,var(--n-0)) 31%,transparent); color: color-mix(in oklab,var(--t-leaf) 16%,var(--n-100)); border-radius: 2px; }
+.message-content mark.chat-match.current { background: color-mix(in oklab,var(--t-leaf) 78%,var(--n-100)); color: color-mix(in oklab,var(--t-leaf) 10%,var(--n-0)); outline: 2px solid color-mix(in oklab,var(--t-leaf) 35%,var(--n-100)); outline-offset: 1px; }
+@media (max-width: 640px) {
+  .chat-find-bar { gap: 7px; margin: 8px 10px 0; padding: 6px 7px 6px 10px; }
+  .chat-find-count { font-size: 11px; }
+  .chat-find-bar > svg { display: none; }
+  .chat-find-bar input[type="search"] { font-size: 16px; min-width: 60px; min-height: 44px; }
+  .chat-find-actions .icon-button { width: 44px; height: 44px; }
+  .topbar-actions > .icon-button.chat-find-trigger { display: flex; min-width: 40px; min-height: 44px; }
+}

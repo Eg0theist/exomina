@@ -1,0 +1,47 @@
+// Hidden real renderer, synthetic backend only: no accounts or model requests.
+import {_electron as electron} from 'playwright';
+import {createServer} from 'vite';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {mkdir,writeFile} from 'node:fs/promises';
+const root=process.cwd(),output=path.resolve('../Workspace/privacy-verification-20261013');await mkdir(output,{recursive:true});
+const server=await createServer({root,server:{port:0,hmr:false},logLevel:'error'});await server.listen();
+const env={...process.env,EXOMINA_DESIGN_QA_URL:`http://localhost:${server.config.server.port}/preview.html`,EXOMINA_DESIGN_QA_DIR:output};delete env.ELECTRON_RUN_AS_NODE;
+const app=await electron.launch({args:[path.join(root,'scripts/qa-design-main.cjs')],env,timeout:30000});
+const report={passed:false,checks:[],errors:[],scope:'Hidden Electron renderer; synthetic backend, no account access or live provider requests.'};
+try{
+ const page=await app.firstWindow();page.on('pageerror',error=>report.errors.push(error.message));
+ await page.getByRole('button',{name:'Start temporary chat',exact:true}).click();
+ await page.getByText('Temporary chat · text only',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'Shared memory',exact:true}).count(),0);
+ assert.equal(await page.getByRole('button',{name:'Attach files',exact:true}).count(),0);
+ assert.equal(await page.locator('.voice-controls').count(),0);
+ report.checks.push('Temporary banner is visible; memory, attachments and voice controls are absent.');
+ await page.getByRole('textbox',{name:'Message',exact:true}).fill('PRIVATE_UI_MARKER');
+ await page.getByRole('button',{name:'Send message',exact:true}).click();
+ await page.waitForFunction(()=>window.__exominaPreviewCalls.some(c=>c.method==='chat.send'&&c.payload.private===true));
+ await page.locator('.messages').getByText('PRIVATE_UI_MARKER',{exact:true}).waitFor();
+ assert.equal(await page.locator('.chat-open').filter({hasText:'Temporary chat'}).count(),0);
+ assert.equal(await page.getByRole('button',{name:'Edit & branch',exact:true}).count(),0);
+ assert.equal(await page.locator('.topbar-actions .data-export').count(),0);
+ await page.screenshot({path:path.join(output,'temporary-chat.png')});
+ report.checks.push('First send carries the private flag; the chat is absent from the sidebar and cannot be branched.');
+ await page.getByRole('button',{name:'End temporary chat',exact:true}).click();
+ await page.waitForFunction(()=>window.__exominaPreviewCalls.some(c=>c.method==='conversations.discard'));
+ await page.waitForFunction(async()=>!(await window.studio.invoke('bootstrap')).conversations.some(c=>c.private===true));
+ assert.equal(await page.getByRole('textbox',{name:'Message',exact:true}).inputValue(),'');
+ report.checks.push('Ending a streaming temporary chat discards it and clears its draft.');
+ await page.getByRole('button',{name:'Start temporary chat',exact:true}).click();
+ await page.getByRole('textbox',{name:'Message',exact:true}).fill('UNSENT_PRIVATE_MARKER');
+ await page.getByRole('button',{name:'Connections',exact:true}).click();
+ await page.locator('[data-provider="claude"] .provider-privacy summary').click();
+ await page.getByRole('button',{name:'Open Claude privacy settings',exact:true}).waitFor();
+ assert.ok((await page.locator('[data-provider="claude"] .provider-privacy').textContent()).includes('cannot verify'));
+ await page.screenshot({path:path.join(output,'privacy-controls.png')});
+ await page.locator('.new-chat-button').click();
+ await page.getByRole('button',{name:'Start temporary chat',exact:true}).click();
+ assert.equal(await page.getByRole('textbox',{name:'Message',exact:true}).inputValue(),'');
+ report.checks.push('Leaving clears unsent temporary text; official privacy links and unknown account status are visible.');
+ assert.deepEqual(report.errors,[]);report.passed=true;
+}catch(error){report.failure=error.stack;throw error;}finally{await writeFile(path.join(output,'result.json'),JSON.stringify(report,null,2));await app.close();await server.close();}
+console.log(JSON.stringify(report));

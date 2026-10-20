@@ -1,0 +1,30 @@
+import {_electron as electron} from 'playwright';
+import {createServer} from 'vite';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {mkdir,writeFile} from 'node:fs/promises';
+const root=process.cwd(),output=path.resolve('../Workspace/privacy-verification-20261013/lifecycle');await mkdir(output,{recursive:true});
+const server=await createServer({root,server:{port:0,hmr:false},logLevel:'error'});await server.listen();
+const env={...process.env,EXOMINA_DESIGN_QA_URL:`http://localhost:${server.config.server.port}/preview.html`,EXOMINA_DESIGN_QA_DIR:output};delete env.ELECTRON_RUN_AS_NODE;
+const app=await electron.launch({args:[path.join(root,'scripts/qa-design-main.cjs')],env,timeout:30000}),report={passed:false,checks:[],errors:[]};
+try{
+ const page=await app.firstWindow();page.on('pageerror',e=>report.errors.push(e.message));
+ await page.getByRole('button',{name:'Start temporary chat',exact:true}).click();
+ await page.evaluate(()=>window.__exominaPreviewSendDelay=600);
+ await page.getByRole('textbox',{name:'Message',exact:true}).fill('PRIVATE_PENDING_MARKER');
+ await page.getByRole('button',{name:'Send message',exact:true}).click();
+ await page.getByRole('button',{name:'Connections',exact:true}).click();
+ await page.waitForFunction(()=>window.__exominaPreviewCalls.some(c=>c.method==='conversations.discard'));
+ await page.waitForFunction(async()=>!(await window.studio.invoke('bootstrap')).conversations.some(c=>c.private));
+ await page.getByRole('heading',{name:'Connect your accounts',exact:true}).waitFor();
+ report.checks.push('Navigating away before a first send resolves discards the late-created chat and preserves navigation.');
+ await page.evaluate(()=>window.__exominaPreviewSendDelay=0);
+ await page.getByRole('button',{name:'Start temporary chat',exact:true}).click();
+ await page.getByRole('textbox',{name:'Message',exact:true}).fill('PRIVATE_WINDOW_CLOSE_MARKER');
+ await page.evaluate(()=>window.__exominaPreviewEmit({type:'chat.temporary.closed'}));
+ await page.waitForFunction(()=>!document.querySelector('.temporary-chat-banner'));
+ assert.equal(await page.getByRole('textbox',{name:'Message',exact:true}).inputValue(),'');
+ report.checks.push('The window-close notification clears unsent temporary text and mode.');
+ assert.deepEqual(report.errors,[]);report.passed=true;
+}catch(e){report.failure=e.stack;throw e;}finally{await writeFile(path.join(output,'result.json'),JSON.stringify(report,null,2));await app.close();await server.close();}
+console.log(JSON.stringify(report));

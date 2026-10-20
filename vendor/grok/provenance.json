@@ -1,0 +1,11 @@
+{
+  "package": "@xai-official/grok-win32-x64",
+  "version": "1.0.46",
+  "platform": "win32",
+  "arch": "x64",
+  "license": "Apache-2.0",
+  "source": "https://www.npmjs.com/package/@xai-official/grok-win32-x64/v/1.0.46",
+  "sha256": "47ad7fbc51767b8b301714111a1e452acc2c89912c08be260e1779a383302a4c",
+  "transformation": "Brotli decompression only; official executable bytes are unchanged.",
+  "installation": "Bundled directly. The npm launcher and its home-directory postinstall are not run."
+}

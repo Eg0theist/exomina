@@ -1,0 +1,67 @@
+/* Subscription usage (Usage.jsx). Tokens only; see theme.css. */
+.usage-sidebar{position:relative;margin:0 0 6px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface)}
+.usage-summary{display:flex;align-items:center;flex-wrap:wrap;gap:6px;width:100%;padding:7px 9px;color:var(--text-3);font-size:12px;text-align:left}
+.usage-summary:hover{color:var(--text-2)}
+.usage-chip{color:var(--text-2)}
+.usage-chip b{font-weight:600;font-variant-numeric:tabular-nums}
+.usage-chip.level-mid b{color:var(--warn)}.usage-chip.level-high b{color:var(--danger)}
+.usage-details{position:absolute;bottom:calc(100% + 6px);left:-1px;right:-1px;z-index:60;padding:2px 10px 10px;display:flex;flex-direction:column;gap:10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:0 12px 40px color-mix(in oklab,var(--t-shadow) 40%,transparent);max-height:min(70vh,calc(100dvh - 160px));overflow-y:auto;overscroll-behavior:contain}
+.usage-details h3{display:flex;align-items:baseline;gap:6px;margin:8px 0 4px;font-size:12px;font-weight:600;color:var(--text)}
+.usage-details h3 small{font-weight:400;color:var(--text-3);text-transform:capitalize}
+.usage-details p{margin:4px 0 0;font-size:11px;color:var(--text-3)}
+.usage-window{margin-top:6px}
+.usage-window-head{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--text-2)}
+.usage-window-head strong{font-weight:600;font-variant-numeric:tabular-nums}
+.usage-window small{display:block;margin-top:3px;font-size:10.5px;color:var(--text-3)}
+.usage-bar{height:5px;margin-top:4px;border-radius:999px;background:var(--surface-3);overflow:hidden}
+.usage-bar span{display:block;height:100%;border-radius:inherit;background:var(--accent);transition:width .4s ease}
+.usage-window.level-mid .usage-bar span{background:var(--warn)}.usage-window.level-high .usage-bar span{background:var(--danger)}
+.usage-banner{display:flex;align-items:flex-start;gap:11px;margin:0 0 10px;padding:11px 12px;border-radius:var(--radius);border:1px solid color-mix(in oklab,var(--t-warn) 38%,var(--n-12));background:var(--warn-soft);color:var(--text-2);font-size:13px}
+.usage-banner>svg{flex-shrink:0;margin-top:2px;color:var(--warn)}
+.usage-banner>div{flex:1;min-width:0}
+.usage-banner strong{display:block;color:var(--text);font-weight:600}
+.usage-banner p{margin:3px 0 0;line-height:1.45}
+.usage-banner.is-out{border-color:color-mix(in oklab,var(--t-danger) 40%,var(--n-12));background:var(--danger-soft)}
+.usage-banner.is-out>svg{color:var(--danger)}
+.usage-banner .secondary-button{flex-shrink:0;align-self:center}
+.usage-chip.is-stale b{color:var(--text-3)}
+.usage-details .is-stale .usage-bar span{background:var(--text-3)}
+.usage-details .usage-error{color:var(--warn)}
+.usage-refresh-row{display:flex;align-items:center;justify-content:space-between;padding-top:8px;font-size:11px;color:var(--text-3)}
+.usage-refresh-row button{display:flex;align-items:center;gap:4px;color:var(--accent)}
+.usage-reset{display:grid;gap:5px;margin:8px 0}.usage-reset>small,.usage-reset-result{font-size:11px;line-height:1.55;color:var(--text-3)}.usage-reset>.secondary-button{justify-self:start}.usage-manage{font-size:11px;margin:7px 0}.usage-reset-result{border-top:1px solid var(--line);padding-top:9px}
+.usage-details .text-button.usage-inline-link{display:inline;min-height:0;padding:0;margin:0;font-size:11px;color:var(--accent)}
+.usage-details .text-button.usage-manage{min-height:0;padding:0;font-size:11px;justify-content:flex-start}
+.settings-section .settings-row.usage-settings-provider{display:grid;grid-template-columns:minmax(0,1fr);align-items:stretch;gap:10px}.usage-settings-provider>p{margin:0;font-size:12.5px;color:var(--text-3)}
+.usage-settings-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.usage-settings-head small{margin-left:7px;font-weight:400;font-size:12px;color:var(--text-3);text-transform:capitalize}
+.usage-settings-window{max-width:520px}.usage-settings-window>small{display:block;margin-top:2px;font-size:11px;color:var(--text-3)}
+.usage-credits h3{margin:4px 0 6px;font-size:12.5px;font-weight:600;color:var(--text-2)}.usage-credits p{margin:4px 0;font-size:12.5px;color:var(--text-3)}
+.usage-credits ul{list-style:none;margin:0;padding:0;display:grid;gap:6px;max-width:620px}
+.usage-credits li{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius);font-size:12.5px;color:var(--text-2)}
+.usage-credits li small{display:block;color:var(--text-3);font-size:11.5px}.usage-credits li em{font-style:normal;color:var(--text-3)}
+.usage-credits li.is-soon>span:last-child{color:var(--warn)}
+.usage-credits h4{margin:4px 0 2px;font-size:12.5px;font-weight:600;color:var(--text-2)}
+.usage-credits .usage-credit-list{max-width:680px;gap:7px;margin:5px 0}.usage-credits .usage-credit-list li{display:block;padding:10px 12px}.usage-credit-choice{display:flex;align-items:flex-start;gap:10px;cursor:pointer;min-width:0}.usage-credit-choice>input[type=radio]{appearance:auto;flex:none;width:14px;height:14px;min-height:0;margin:3px 0 0;padding:0;accent-color:var(--accent)}.usage-credit-choice>span{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}.usage-credit-choice strong{font-size:12.5px;font-weight:600}.usage-credit-choice .usage-credit-status{color:var(--text-2)}.usage-credit-expiry{display:block;font-size:11.5px;line-height:1.6;color:var(--text-3)}.usage-credit-expiry em{font-style:normal;white-space:normal}.usage-credit-list li.is-selected{border-color:var(--accent);background:var(--accent-soft)}.usage-credit-list li.is-unavailable{color:var(--text-3)}.usage-credit-list li.is-unavailable .usage-credit-choice{cursor:default}.usage-credit-list li.is-soon .usage-credit-expiry{color:var(--warn)}.usage-credit-action{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:4px 0}.usage-credit-action>span{font-size:12px;color:var(--text-2);overflow-wrap:anywhere}.usage-reset>small{display:block}.usage-credit-earliest{line-height:1.6}.usage-credit-detail-notice{line-height:1.6}
+.usage-details .usage-credit-list li{padding:8px}.usage-details .usage-credit-choice{gap:7px}.usage-details .usage-credit-choice strong{font-size:11.5px}.usage-details .usage-credit-choice small,.usage-details .usage-credit-expiry{font-size:10.5px}.usage-details .usage-credit-action{display:grid;gap:7px}.usage-details .usage-credit-action>span{font-size:11px}.usage-details .usage-credit-action button{justify-self:start}.usage-details .usage-credit-list{max-width:100%}.usage-details .usage-credit-earliest{font-size:10.5px}.usage-details .usage-credit-earliest span{display:block}
+.usage-refresh-row>span{margin-right:auto}.usage-refresh-row{gap:10px}
+.usage-details h3 .usage-stale-tag{color:var(--warning,#d9a441);text-transform:none}
+.usage-manage-icon{display:grid;place-items:center;margin-left:auto;width:20px;height:20px;border-radius:4px;color:var(--text-3);align-self:center}
+.usage-manage-icon:hover,.usage-manage-icon:focus-visible{color:var(--text);background:var(--surface-2)}
+.usage-credits-compact{margin:4px 0 2px;font-size:11.5px;color:var(--text-3)}
+.usage-credits-compact>summary{cursor:pointer;padding:3px 0;list-style-position:inside}
+.usage-credits-compact>summary:hover{color:var(--text-2)}
+.usage-credits-compact.is-soon>summary{color:var(--warning,#d9a441)}
+.usage-credits-compact[open]>summary{color:var(--text-2)}
+.usage-credits-compact .usage-reset{margin-top:4px}
+.usage-credits-compact .usage-reset>h4{display:none}
+
+.safety-limits .settings-toggle-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; }
+.safety-limit-row { align-items: center; gap: 16px; }
+.safety-limit-inputs { display: flex; gap: 12px; flex-wrap: wrap; }
+.safety-limit-inputs label { display: grid; gap: 4px; font-size: 12px; color: var(--text-3); }
+.safety-limit-inputs input { width: 96px; }
+.safety-limit-used { margin: 10px 0; font-size: 12.5px; line-height: 1.5; color: var(--text-3); }
+.safety-limit-used p { margin: 2px 0; }
+.safety-limit-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+.connection-signout, .connection-signout-confirm { margin-top: 6px; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.connection-signout-confirm span { color: var(--text-3); }

@@ -1,0 +1,1 @@
+{"id":"/remote","name":"Exomina Phone","short_name":"Exomina","description":"Your own Exomina computer on your phone.","start_url":"/remote","scope":"/","display":"standalone","background_color":"#171d19","theme_color":"#171d19","icons":[{"src":"/icons/icon.png","sizes":"512x512","type":"image/png","purpose":"any"}]}

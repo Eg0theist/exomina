@@ -1,0 +1,46 @@
+/* Extensions on the Tools page, and the GitHub sign-in code. Rows reuse the tool-list look. */
+.extensions-panel { margin-top: 28px; }
+.extensions-hint { display: flex; align-items: flex-start; gap: 13px; padding: 16px 18px; margin-bottom: 14px; border: 1px solid color-mix(in oklab, var(--t-leaf) 28%, var(--n-2)); border-radius: 8px; background: color-mix(in oklab, color-mix(in oklab, var(--t-leaf) 15%, var(--n-0)) 47%, transparent); }
+.extensions-hint p { margin: 0; line-height: 1.5; }
+.extension-list { border: 1px solid color-mix(in oklab, var(--t-leaf) 31%, var(--n-0)); border-radius: 8px; overflow: hidden; }
+.extension-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid color-mix(in oklab, var(--t-leaf) 28%, var(--n-0)); }
+.extension-row:last-child { border-bottom: 0; }
+.extension-row > div { flex: 1; min-width: 0; }
+.extension-row p { margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.extension-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; }
+.extension-confirm { display: inline-flex; align-items: center; gap: 8px; }
+.github-device-code { display: grid; gap: 10px; }
+.github-code-row { display: flex; align-items: center; gap: 8px; }
+.github-code-row code { font-size: 22px; letter-spacing: 0.14em; font-weight: 600; padding: 8px 12px; border-radius: 6px; background: color-mix(in oklab, var(--t-leaf) 15%, var(--n-0)); user-select: all; }
+.github-device-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* Connections: more cards per row, billing text tucked away. */
+.connections-page .connection-grid { grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); align-items: start; }
+.connection-billing { margin-top: 6px; }
+.connection-billing summary { cursor: pointer; font-size: 12px; opacity: 0.75; list-style: none; }
+.connection-billing summary::-webkit-details-marker { display: none; }
+.connection-billing summary::before { content: '▸ '; }
+.connection-billing[open] summary::before { content: '▾ '; }
+.connection-billing summary:hover { opacity: 1; }
+.provider-catalog-search + .provider-group, .connections-page .github-connection { margin-top: 8px; }
+
+/* Tools: the long capability list is reference material. */
+.tool-details > summary { cursor: pointer; list-style: none; }
+.tool-details > summary::-webkit-details-marker { display: none; }
+.tool-details > summary h2::before { content: '▸ '; opacity: 0.7; }
+.tool-details[open] > summary h2::before { content: '▾ '; }
+.tool-details > .connection-small { margin: 10px 0 12px; }
+.tool-details { margin-top: 28px; }
+.extensions-panel { margin-top: 24px; margin-bottom: 8px; }
+.connection-types { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:20px; padding:5px; border:1px solid var(--border); border-radius:10px; width:fit-content; }
+.connection-types button { padding:9px 15px; border:0; border-radius:6px; background:transparent; color:var(--n-85); font:inherit; cursor:pointer; }
+.connection-types button.selected { background:var(--raised); color:var(--n-99); box-shadow:0 1px 4px color-mix(in oklab,var(--t-shadow) 15%,transparent); }
+.connections-page [hidden] { display:none!important; }
+@media(max-width:760px) { .extension-row { flex-wrap:wrap; } .extension-row > div { flex-basis:calc(100% - 50px); } .extension-row .tool-state { margin-left:29px; } .connections-page .connection-grid { grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr)); } }
+
+/* Worth knowing: reviewed projects that are not built in. */
+.recommendations .recommendation-row { align-items: flex-start; }
+.recommendations .recommendation-text { white-space: normal; overflow: visible; line-height: 1.45; }
+.recommendations .recommendation-text.muted { opacity: 0.72; font-size: 12px; }
+.recommendations .tag { margin-left: 6px; vertical-align: 1px; }
+.recommendation-discover { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; }

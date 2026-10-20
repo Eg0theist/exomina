@@ -1,0 +1,9 @@
+.update-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0}
+#settings-updates progress{display:block;width:min(420px,100%);height:8px;margin:12px 0;accent-color:var(--accent)}
+.update-notes,.update-source{margin-top:20px;color:var(--text-2);font-size:13px}
+.update-notes summary,.update-source summary{cursor:pointer;color:var(--text);padding:6px 0}
+.update-notes p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65}
+.update-source form{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0}
+.update-source label{width:100%;color:var(--text-2)}
+.update-source input{flex:1;min-width:180px;padding:10px 12px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:8px}
+.app-update-button.update-ready{color:var(--accent)}

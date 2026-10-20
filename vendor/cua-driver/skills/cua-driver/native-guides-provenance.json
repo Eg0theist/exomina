@@ -1,0 +1,10 @@
+{
+  "version": "0.33.4",
+  "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.33.4/cua-driver-rs-v0.33.4-skills.tar.gz",
+  "archiveSha256": "5f33bb04b06b5abf4f95266eeb0ed5bbdd020155eb40f737081e6ac5f31b8246",
+  "files": {
+    "MACOS.md": "55859dfe38367e87be000629c224ba8cacef50b679162d60252c114df10f92f9",
+    "LINUX.md": "98535c92944e753a5d2b3d98fe772d0ef44af4c2aae136de39f5f4d7ad38a1fe"
+  },
+  "license": "MIT; full Cua LICENSE and THIRD_PARTY_NOTICES are retained in vendor/cua-driver."
+}

@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "purpose": "Build-time Windows interop; no runtime compiler",
+  "files": [
+    {
+      "name": "Vault",
+      "file": "Vault.dll",
+      "source": "Vault.cs",
+      "sourceSha256": "6882d23a636b3e0c825ec793cce9ceea96239ac11d46045be4a9d2c8e8f1fe8e",
+      "sha256": "dadd21f0948265d10485bca79156d9a03c7a48ac93677b64782cfa7d023c7fb7"
+    },
+    {
+      "name": "Desktop",
+      "file": "Desktop.dll",
+      "source": "Desktop.cs",
+      "sourceSha256": "798d55b510a75cc01334ab716d1913ba1cfc6a64b7705c3b68a022e6f1b07638",
+      "sha256": "42333aa05c691cabfdb40a7fb6b7e6eebb418b68402c65d255c8dd46fa0e1cfc"
+    },
+    {
+      "name": "Speech",
+      "file": "Speech.dll",
+      "source": "Speech.cs",
+      "sourceSha256": "2e6fb4ec27d15418bd539483065391df3ed09e78892633d54706aaf3c9b8baf1",
+      "sha256": "4917f0e8a5d86481b50922769b51a8c3834d91e349b2bfd2b8038c94848226e3"
+    },
+    {
+      "name": "Busy",
+      "file": "Busy.dll",
+      "source": "Busy.cs",
+      "sourceSha256": "f06ebabfd5f16fe5b66c721d5659bc38d3d310a85378f964cede6d3f18406a11",
+      "sha256": "5a16a3974ed7f19e85df2f53e136cf80dd103e3e65735bc037638fc3d4a8e792"
+    },
+    {
+      "name": "Scan",
+      "file": "Scan.dll",
+      "source": "Scan.cs",
+      "sourceSha256": "0d606c194d75edd743319339abf88566a319f46c6cc7107c4aef9d13c8e361cc",
+      "sha256": "0c30e73d8fd1dc4085d31aae8e1b825ce0df03b8bebf2f46826fea147ab6caaf"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+.memory-evidence,.library-backup{margin:20px 0;padding:20px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.memory-evidence summary{font-weight:600;cursor:pointer}.memory-evidence p,.library-backup p{line-height:1.55;color:var(--text-2)}
+.memory-evidence form{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}.memory-evidence input{flex:1;min-width:160px}
+.memory-evidence input,.messaging-paired select{background:var(--ground);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit;max-width:100%;box-sizing:border-box}
+.memory-evidence article{padding:16px 0;border-top:1px solid var(--line)}.memory-evidence article small{color:var(--text-3)}
+.memory-evidence button:not(.text-button){color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;margin:4px 6px 4px 0}
+.memory-evidence button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.memory-evidence button:disabled{opacity:.5;cursor:default}
+.library-backup h3{margin-top:0}.library-backup [role=status]{overflow-wrap:anywhere}
+.messaging-paired li>div{min-width:0}.messaging-paired label{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+@media(max-width:720px){.memory-evidence,.library-backup{padding:14px}.memory-evidence .modal-actions{align-items:stretch}.memory-evidence .modal-actions button{white-space:normal}.memory-evidence input{min-width:0;width:100%}}

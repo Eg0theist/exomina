@@ -1,0 +1,52 @@
+import { _electron as electron } from 'playwright';
+import { createServer } from 'vite';
+import { mkdir, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+const output = path.resolve('../Workspace/qa-live-followups');
+await mkdir(output, { recursive: true });
+const server = await createServer({ server: { port: 5195 }, logLevel: 'error' }); await server.listen();
+const env = { ...process.env, EXOMINA_DESIGN_QA_URL: `http://localhost:${server.config.server.port}/preview.html`, EXOMINA_DESIGN_QA_DIR: path.join(output, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
+const report = { scope: 'Real renderer with synthetic streams and isolated profile. No account stores or model calls.', errors: [], checks: {} }; let app;
+try {
+  app = await electron.launch({ args: ['scripts/qa-design-main.cjs'], env }); const page = await app.firstWindow();
+  page.on('pageerror', e => report.errors.push(e.message));
+  await page.getByLabel('Message', { exact: true }).fill('Run the build and continue the original task.');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await page.getByRole('button', { name: 'Allow once', exact: true }).waitFor();
+  await page.getByLabel('Message', { exact: true }).fill('What does the bundle warning mean?');
+  await page.getByRole('button', { name: 'Send follow-up', exact: true }).click();
+  await page.locator('.live-followup[data-status="answered"]').waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Stop this reply', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Allow once', exact: true }).count(), 1);
+  assert.equal(await page.locator('.queued-item').count(), 0);
+  assert.match(await page.locator('.live-followup-answer').innerText(), /original build task is still running/);
+  report.checks.answerBeforeTaskCompletes = true;
+  await page.screenshot({ path: path.join(output, 'answer-during-work.png') });
+  await page.evaluate(() => { window.__exominaPreviewFollowupDelay = 5000; });
+  await page.getByLabel('Message', { exact: true }).fill('A second question I want to stop.');
+  await page.getByRole('button', { name: 'Send follow-up', exact: true }).click();
+  await page.getByRole('button', { name: 'Stop this follow-up answer', exact: true }).click();
+  await page.locator('.live-followup[data-status="failed"]').waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Stop this reply', exact: true }).count(), 1);
+  report.checks.sideReplyStopPreservesOriginalTask = true;
+  await page.getByRole('button', { name: 'Allow once', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('[aria-label="Stop this reply"]'), null, { timeout: 30000 });
+  await page.locator('.activity-head').first().click();
+  assert.equal(await page.locator('.live-followup[data-status="answered"]').count(), 1);
+  assert.equal(await page.locator('.activity-steps .live-followup[data-task-status="handled"]').count(), 1);
+  assert.equal(await page.locator('.message-body>.live-followups .live-followup[data-task-status="handled"]').count(), 0);
+  assert.match(await page.locator('.messages').innerText(), /All 3 bundles compiled/);
+  report.checks.originalTaskCompletesAndAnswerPersists = true;
+  report.checks.handledFollowupMovesIntoTimeline = true;
+  await page.screenshot({ path: path.join(output, 'task-finished.png') });
+  await page.evaluate(async () => {
+    const chat = (await window.studio.invoke('bootstrap')).conversations.find(c => c.messages.some(m => m.followups?.length));
+    const message = chat.messages.find(m => m.followups?.length);
+    window.__exominaPreviewEmit({ type: 'chat.followup', conversationId: chat.id, messageId: message.id, followup: { id: 'native-followup', text: 'Keep the original task active.', provider: 'codex', mode: 'live', status: 'delivered' } });
+  });
+  await page.getByText('Delivered to the active task · work continues', { exact: true }).waitFor();
+  report.checks.nativeDeliveryLabel = true;
+  assert.deepEqual(report.errors, []); report.passed = true;
+} catch (error) { report.failure = error.stack; process.exitCode = 1; }
+finally { await writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2)); await app?.close(); await server.close(); }

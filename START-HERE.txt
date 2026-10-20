@@ -1,0 +1,55 @@
+EXOMINA PRIVATE BETA 0.5.0-beta.94
+
+1. Install the file for your computer.
+   Windows 10/11 x64, including Home: run the Windows Setup.exe.
+   Mac with Apple Silicon: open the macos-arm64.dmg; drag Exomina Beta to Applications.
+   Mac with Intel: use the macos-x64.dmg instead.
+   Debian/Ubuntu Linux: install the amd64.deb (x64) or arm64.deb with your package manager.
+   Node.js, npm and developer tools are not needed. Windows installation is per user.
+
+2. Open Exomina Beta. Fresh profiles start in Standard view.
+   Choose Connect your AI, then follow the connection card.
+   ChatGPT and Grok clients are included. Claude is off until you turn it on; it uses
+   your own official Claude Code installation and can install it from Anthropic.
+   Gemini uses Google's separately installed Antigravity CLI. Muse uses your own
+   official Muse Code client. Their cards explain missing installation or access.
+   Provider account requirements, allowances and charges apply. An API key is
+   separately billed by its provider. No subscription or API key is included.
+   Local models need their own server and model download; configure them in Advanced.
+
+3. Review tools and access, then try a small question.
+   Ask lets you approve actions. Broader access is available beside Send.
+   Try: "Explain what Exomina can help me do in everyday language."
+   Keep talking in the same chat, or return to it from the sidebar.
+
+4. Choose Learn Exomina on the home screen.
+   Your first conversation comes first. Other walkthroughs cover files, permissions,
+   memory, backup/restore, automatic work plans, phone access and voice.
+   Settings > Appearance & audio > Appearance includes Interface size, high contrast
+   and reduced motion. Ctrl/Cmd + plus or minus zooms; Ctrl/Cmd + 0 resets.
+   Tab moves through controls; the first link skips to main content.
+
+UPDATES AND DATA
+Install a newer release over this one. Updates and uninstall preserve app data and
+project files. Settings > Privacy & data > Export & transfer can back up the library.
+Restore creates a separate library, resets access to Ask and requires sign-in again.
+Project folders outside the library need copying separately.
+
+Fresh installs do not require EFS or a recovery-key setup. Saved keys require protected
+OS storage. Chats and some provider sign-in files rely on user permissions and device
+disk encryption. Existing encrypted Windows profiles retain their recovery checks.
+
+KNOWN LIMITS
+Windows builds are unsigned. Mac builds use ad-hoc signing without notarization.
+Trusted publisher status and antivirus acceptance have not been established.
+System dictation and spoken replies require Windows. Realtime voice needs eligible account\naccess; live microphone/audio behavior has not been qualified for this beta.
+Phone access requires your computer and Exomina to stay running, plus a private relay.
+Native analysis supports Windows x86/x64 EXE files with separately installed Ghidra\nand a full JDK. DLLs and inspection of running applications are unsupported.
+
+DOWNLOADS AND FEEDBACK
+https://github.com/Eg0theist/exomina/releases/tag/v0.5.0-beta.94
+GitHub downloads require an invited GitHub account. If the owner sends you the actual
+installer and this guide directly, you do not need GitHub to install or use them.
+Report problems with OS, processor, app version, exact steps, expected result and what
+happened. Remove credentials and private conversations before sharing screenshots.
+https://github.com/Eg0theist/exomina/issues

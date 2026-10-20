@@ -1,0 +1,72 @@
+import {_electron as electron} from 'playwright';
+import {createProtectedQaProfile} from './qa-profile.mjs';
+import {Store} from '../desktop/store.mjs';
+import {mkdir,writeFile,readFile} from 'node:fs/promises';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {extractFile} from '@electron/asar';
+
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),runtimeRoot=path.resolve(process.env.EXOMINA_QA_RUNTIME_ROOT||root);
+const fixture=await createProtectedQaProfile('user-questions'),{profile,output}=fixture;
+const workspace=path.join(output,'workspace');await mkdir(workspace);
+const store=new Store(profile,{workspace});await store.init();
+Object.assign(store.state.settings,{workspace,autoTitle:false,autoUpdate:false,closeToTray:false,memoryEnabled:false,chatMemorySummaries:false,browserEnabled:false,desktopEnabled:false,permissionMode:'ask',routing:'tools'});
+const chat=store.create('codex');chat.title='Question QA';chat.titleSource='manual';const other=store.create('codex');other.title='Other chat';other.titleSource='manual';
+const restored=store.create('codex');restored.title='Recovered answer QA';restored.titleSource='manual';
+restored.messages.push({id:'interrupted-reply',role:'assistant',provider:'codex',content:'Earlier work was interrupted.',questions:[{id:'interrupted-card',status:'answered',deliveryState:'sending',createdAt:new Date().toISOString(),questions:[{id:'saved',question:'Which saved answer should I send?',options:[]}],answers:{saved:{answers:['Keep my saved answer']}}}]});await store.save();
+const expectedVersion=JSON.parse(runtimeRoot.endsWith('.asar')?extractFile(runtimeRoot,'package.json'):await readFile(path.join(runtimeRoot,'package.json'),'utf8')).version;
+const moduleUrl=name=>JSON.stringify(pathToFileURL(path.join(runtimeRoot,name)).href);
+const launcher=path.join(output,'launcher.cjs');await writeFile(launcher,`const {app,BrowserWindow,session,dialog}=require('electron');
+BrowserWindow.prototype.show=function(){};app.commandLine.appendSwitch('mute-audio');dialog.showErrorBox=(title,message)=>{console.error(title,message);app.exit(1)};app.getVersion=()=>${JSON.stringify(expectedVersion)};
+globalThis.qaQuestions={calls:[],turns:0,directions:[],permissionCalls:0};
+(async()=>{await app.whenReady();for(const partition of [session.defaultSession,session.fromPartition('persist:exomina-browser')])partition.webRequest.onBeforeRequest((details,callback)=>callback({cancel:/^https?:/.test(details.url)}));
+const {ProviderManager}=await import(${moduleUrl('desktop/providers.mjs')});const {PROVIDER_CATALOG}=await import(${moduleUrl('desktop/provider-catalog.mjs')});
+ProviderManager.prototype.status=async function({onStatus}={}){const rows=PROVIDER_CATALOG.filter(item=>item.mode==='subscription').map(item=>({id:item.id,installed:true,connected:item.id==='codex',available:true,checking:false,detail:'Synthetic QA connection.'}));for(const row of rows)onStatus?.(row);return rows};
+ProviderManager.prototype.subscriptionModels=async()=>({});ProviderManager.prototype.modelsFor=async()=>[];ProviderManager.prototype.codexUsage=async()=>null;ProviderManager.prototype.claudeUsage=async()=>null;ProviderManager.prototype.steer=async(_id,request)=>{globalThis.qaQuestions.directions.push(request.prompt);return true};
+ProviderManager.prototype.getCodex=async()=>{throw Error('Native account/runtime access prohibited in question QA')};
+ProviderManager.prototype.run=async function(request){const qa=globalThis.qaQuestions;qa.calls.push({conversationId:request.conversationId,prompt:request.prompt,noTools:request.noTools});
+ if(request.conversationId!==${JSON.stringify(chat.id)})return {text:'Your answer is tracked while the task continues.',sessionId:'side'};
+ const turn=++qa.turns;
+ if(turn===1){
+  this.emit({type:'chat.delta',conversationId:request.conversationId,text:'I am preparing the question and checking independent work.',block:'progress'});
+  qa.first=await this.requestUserInput(request.conversationId,{questions:[{id:'tone',question:'Which tone should I use?',options:[{label:'Warm',description:'Friendly language.'},{label:'Formal',description:'More reserved language.'}]}]});
+  qa.second=JSON.parse((await this.callTool('request_user_input_async',{questions:[{id:'colour',question:'Which colour should I use?',options:['Blue','Green']}],wait_seconds:10},request.conversationId)).content[0].text);
+  qa.third=JSON.parse((await this.callTool('request_user_input_async',{questions:[{id:'size',question:'Which size should I use?',options:['Small','Large']}]},request.conversationId)).content[0].text);
+  this.emit({type:'chat.delta',conversationId:request.conversationId,text:'Independent work is complete; the question cards remain available.',block:'progress2'});
+  await new Promise(resolve=>qa.release=resolve);return {text:'Independent work is complete.',sessionId:'question-thread'};
+ }
+ if(turn===2){const tail=request.prompt.split('Follow-ups:\\n').at(-1),items=JSON.parse(tail.split('\\nVisible work checkpoint:')[0]);for(const item of items)await this.callTool('followup_update',{id:item.id,status:'handled',summary:'The colour answer was received and checked in this synthetic task.'},request.conversationId);return {text:'The colour answer was received while work continued.',sessionId:'question-thread'};}
+ return {text:'Your late size answer has been received.',sessionId:'question-thread'};
+};await import(${moduleUrl('desktop/main.mjs')});})().catch(error=>{console.error(error);app.exit(1)});`);
+const env={...process.env,EXOMINA_DATA_DIR:profile,TEMP:output,TMP:output,TMPDIR:output};delete env.ELECTRON_RUN_AS_NODE;
+for(const key of Object.keys(env))if(/(?:token|secret|password|api_?key|credential|authorization)/i.test(key))delete env[key];
+let app,page;const report={runtimeRoot,output,scope:'Real production question tools, native callback, response timer, renderer, late-answer follow-ups and reload in an encrypted synthetic profile. No live account access or model calls.',checks:{},errors:[]};
+const reportDir=path.resolve(root,'../Workspace/questions-verification');await mkdir(reportDir,{recursive:true});
+try{
+ app=await electron.launch({args:[launcher],cwd:root,env,timeout:30000});page=await app.firstWindow();page.setDefaultTimeout(20000);page.on('pageerror',error=>report.errors.push(error.message));
+ await page.locator('.chat-open').filter({hasText:chat.title}).click();await page.evaluate(id=>window.studio.invoke('chat.send',{conversationId:id,provider:'codex',text:'Ask QA questions and continue independent work.',mode:'tools'}),chat.id);
+ const tone=page.locator('.question-card').filter({hasText:'Which tone should I use?'});await tone.waitFor();assert.match(await tone.textContent(),/Response window: \d+s/);assert.equal(await app.evaluate(()=>globalThis.qaQuestions.first),undefined);
+ await tone.getByLabel('Write my own answer').check();await tone.getByLabel('Your answer: Which tone should I use?').fill('Warm with concise detail');await tone.getByRole('button',{name:'Send answer',exact:true}).click();
+ const colour=page.locator('.question-card').filter({hasText:'Which colour should I use?'}),size=page.locator('.question-card').filter({hasText:'Which size should I use?'});
+ await size.waitFor();assert.deepEqual(await app.evaluate(()=>globalThis.qaQuestions.first.answers),{tone:{answers:['Warm with concise detail']}});assert.equal(await page.locator('.approval-card').count(),0);
+ await size.getByRole('button',{name:'Continue while I decide'}).click();await size.locator('.question-timer').filter({hasText:'Work continues.'}).waitFor();
+ await page.locator('.chat-open').filter({hasText:other.title}).click();assert.equal(await page.locator('.question-card').count(),0);await page.locator('.chat-open').filter({hasText:chat.title}).click();
+ await colour.locator('.question-timer').filter({hasText:'response window has ended'}).waitFor();assert.equal(await colour.getAttribute('data-status'),'open');
+ await colour.getByLabel('Green',{exact:true}).check();await colour.getByRole('button',{name:'Send answer',exact:true}).click();await page.getByText('Your answer is tracked while the task continues.',{exact:true}).waitFor();
+ const directions=await app.evaluate(()=>globalThis.qaQuestions.directions);assert.equal(directions.length,1);assert.match(directions[0],/Which colour.*User answer: Green/s);
+ await app.evaluate(()=>globalThis.qaQuestions.release());await page.getByText('Question still awaiting your answer',{exact:true}).waitFor();await page.locator('.message-content').filter({hasText:'Questions still awaiting your answer:'}).waitFor();
+ const state=await page.evaluate(()=>window.studio.invoke('bootstrap')),message=state.conversations.find(c=>c.id===chat.id).messages.at(-1);assert.match(message.content,/Which size should I use/);assert.doesNotMatch(message.content,/Questions still awaiting your answer:[\s\S]*Which colour/);assert.equal(message.followups[0].taskStatus,'handled');assert.equal(message.followups[0].questionId,message.questions.find(group=>group.questions[0].id==='colour').id);
+ await page.screenshot({path:path.join(reportDir,runtimeRoot===root?'source-questions.png':'packaged-questions.png')});
+ await page.reload();await page.locator('.chat-open').filter({hasText:chat.title}).click();const late=page.locator('.question-card').filter({hasText:'Which size should I use?'});await late.waitFor();
+ await late.getByRole('button',{name:/Question still awaiting/}).click();await late.getByRole('button',{name:/Question still awaiting/}).click();await late.getByLabel('Large',{exact:true}).check();await late.getByRole('button',{name:'Send answer',exact:true}).click();await page.getByText('Your late size answer has been received.',{exact:true}).waitFor();
+ const calls=await app.evaluate(()=>globalThis.qaQuestions.calls);assert.match(calls.at(-1).prompt,/Which size should I use.*User answer: Large/s);assert.equal(calls.at(-1).conversationId,chat.id);
+ await page.reload();await page.locator('.chat-open').filter({hasText:chat.title}).click();assert.equal(await page.locator('.question-card[data-status="answered"]').count(),3);
+ const answeredState=await page.evaluate(()=>window.studio.invoke('bootstrap')),answeredChat=answeredState.conversations.find(c=>c.id===chat.id),sizeGroup=answeredChat.messages.flatMap(m=>m.questions||[]).find(group=>group.questions[0].id==='size');assert.ok(answeredChat.messages.some(m=>m.role==='user'&&m.questionId===sizeGroup.id));
+ await page.locator('.chat-open').filter({hasText:restored.title}).click();const retry=page.locator('.question-card[data-question-id="interrupted-card"]');await retry.getByRole('button',{name:'Your answer',exact:false}).click();await retry.getByText(/app closed before sending your saved answer was confirmed/).waitFor();assert.equal((await app.evaluate(()=>globalThis.qaQuestions.calls)).some(call=>call.conversationId===restored.id),false);
+ await retry.getByRole('button',{name:'Retry sending answer'}).click();await page.getByText('Your answer is tracked while the task continues.',{exact:true}).waitFor();assert.equal(await retry.getByRole('button',{name:'Retry sending answer'}).count(),0);
+ await app.evaluate(({app})=>app.exit(0));await app.close();app=null;
+ app=await electron.launch({args:[launcher],cwd:root,env,timeout:30000});page=await app.firstWindow();page.setDefaultTimeout(20000);page.on('pageerror',error=>report.errors.push(error.message));await page.locator('.chat-open').filter({hasText:chat.title}).click();assert.equal(await page.locator('.question-card[data-status="answered"]').count(),3);assert.equal((await app.evaluate(()=>globalThis.qaQuestions.calls)).length,0);
+ report.checks={nativeQuestionWaitsForRealAnswer:true,default60SecondWindowVisible:true,optionsAndCustomInput:true,noPermissionGrantedByQuestion:true,independentWorkContinues:true,continueWhileDeciding:true,realTimerExpiryRetainsCard:true,cardsIsolatedAcrossChatSwitches:true,lateActiveAnswerTrackedAndHandled:true,questionAnswerReceiptsPersist:true,relevantUnansweredCompletionReminder:true,noReminderForAnsweredQuestion:true,clickableAfterReload:true,lateCompletedAnswerReturnsToOriginalChat:true,answersPersistAcrossReload:true,interruptedDeliveryKeepsAnswerAndRequiresExplicitRetry:true,realAppRestartRetainsAnswersWithoutResending:true};
+ assert.deepEqual(report.errors,[]);report.passed=true;report.protection=await fixture.verify();
+}catch(error){report.error=error.stack;if(page)await page.screenshot({path:path.join(reportDir,'question-qa-failure.png')}).catch(()=>{});throw error;}finally{if(app){await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});}await writeFile(path.join(reportDir,runtimeRoot===root?'source-questions-qa.json':'packaged-questions-qa.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));}

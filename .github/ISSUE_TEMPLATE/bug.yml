@@ -1,0 +1,21 @@
+name: Bug report
+description: Report a private beta problem
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include expected behavior and steps to reproduce. Remove private content.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Exomina version and Windows edition
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Connection, model and error
+      description: Do not include keys, login codes, account folders or recovery material.

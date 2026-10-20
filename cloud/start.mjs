@@ -1,0 +1,22 @@
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {preparePrivateTemporaryStorage} from './storage-guard.mjs';
+import {CloudAuth} from './auth.mjs';
+import {DeviceStore} from './devices.mjs';
+import {CloudService} from './service.mjs';
+import {createCloudServer} from './server.mjs';
+process.umask(0o077);
+const configuredDataDir=process.env.EXOMINA_DATA_DIR;
+if(!configuredDataDir||!path.isAbsolute(configuredDataDir))throw Error('Configure an absolute EXOMINA_DATA_DIR on encrypted storage.');
+const {storage}=await preparePrivateTemporaryStorage(configuredDataDir);
+const dataDir=storage.dataDir;
+const auth=new CloudAuth({dataDir,publicUrl:process.env.EXOMINA_PUBLIC_URL,ownerEmail:process.env.EXOMINA_OWNER_EMAIL,clientId:process.env.EXOMINA_GOOGLE_CLIENT_ID,clientSecret:process.env.EXOMINA_GOOGLE_CLIENT_SECRET});
+await auth.init();auth.ensureConfigured();
+const devices=new DeviceStore({dataDir,scope:auth.scope});await devices.init();
+const service=new CloudService({dataDir,vaultKey:process.env.EXOMINA_VAULT_KEY,codexPath:process.env.EXOMINA_CODEX_PATH,claudePath:process.env.EXOMINA_CLAUDE_PATH});await service.init();
+const distDir=fileURLToPath(new URL('../dist/',import.meta.url));
+const server=createCloudServer({service,auth,devices,distDir});
+const port=Number(process.env.EXOMINA_PORT||4178);if(!Number.isSafeInteger(port)||port<1024||port>65535)throw Error('Invalid local service port.');
+server.listen(port,'127.0.0.1',()=>process.stdout.write('Exomina private service is ready on loopback.\n'));
+let closing=false;async function close(){if(closing)return;closing=true;server.close();await service.close();auth.close();devices.close();process.exit(0);}
+process.on('SIGINT',close);process.on('SIGTERM',close);

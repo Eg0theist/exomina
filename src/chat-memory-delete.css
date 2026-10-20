@@ -1,0 +1,4 @@
+.chat-delete-memories{display:flex;align-items:flex-start;gap:10px;margin-top:20px;padding:13px 14px;border:1px solid var(--n-25);border-radius:7px;font-size:13px;line-height:1.6;cursor:pointer}
+.chat-delete-memories>input{flex:0 0 auto;margin-top:4px;accent-color:var(--t-accent)}
+.chat-delete-memories strong{display:block;font-weight:550}.chat-delete-memories small{display:block;font-size:12px;color:var(--n-63);margin-top:4px}
+.chat-delete-memory-limit{font-size:12px;line-height:1.7;color:var(--n-63);margin-top:12px}

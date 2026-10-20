@@ -1,0 +1,27 @@
+.sidebar .new-chat-button{min-height:36px;margin-bottom:8px;padding:7px 10px}
+.sidebar .sidebar-navigation{display:grid;grid-template-columns:minmax(0,.86fr) minmax(0,1.14fr);gap:2px 4px;flex-shrink:0}
+.sidebar-navigation .nav-utility{position:relative;min-width:0;min-height:32px;padding:6px 8px;gap:7px;font-size:12.5px;font-weight:450}
+.sidebar-navigation .nav-utility>span:not(.nav-dot){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar-navigation .nav-utility .nav-dot{position:absolute;left:19px;top:6px;margin:0;width:6px;height:6px}
+.sidebar .chat-sidebar{margin-top:10px;min-height:110px}
+.sidebar-navigation [aria-label="Storage"]{grid-column:1/-1}
+.chat-search-row{display:flex;gap:4px;margin:0 0 6px}
+.chat-search-row .chat-search-field{flex:1;min-width:0}
+.sidebar .chat-search-row .chat-search-field{margin:0;padding:6px 8px;min-height:32px}
+.chat-archive-toggle{flex:0 0 32px;display:grid;place-items:center;border:1px solid var(--line);border-radius:7px;color:var(--text-3);background:transparent;cursor:pointer}
+.chat-archive-toggle:hover{color:var(--text);border-color:var(--line-strong)}
+.chat-archive-toggle[aria-pressed="true"]{color:var(--text);background:var(--accent-soft);border-color:color-mix(in oklab,var(--accent) 32%,var(--line))}
+.sidebar .chat-group-heading{margin:7px 8px 3px;padding:3px 0;letter-spacing:.65px;line-height:14px}
+.sidebar .chat-list-group:first-child .chat-group-heading,.sidebar .chat-search-results .chat-group-heading{margin-top:2px}
+.sidebar .chat-list-entry{margin:1px 0}
+.sidebar .chat-open{min-height:32px;padding:6px 5px;gap:6px}
+.sidebar .chat-row-text strong{font-size:13px}
+.sidebar .chat-more{width:28px;flex-basis:28px;height:30px}
+.sidebar .sidebar-bottom{padding-top:7px;margin-top:5px;flex-shrink:0}
+.sidebar-bottom>.nav-item{min-height:32px;padding:6px 8px}
+/* The window bar carries the brand, so the sidebar starts with the action. */
+.app-frame.has-window-toolbar .sidebar{padding-top:12px}
+.app-frame.has-window-toolbar .sidebar>.brand{display:none}
+@media(min-width:861px){.app-shell.sidebar-collapsed>.sidebar{display:none}}
+@media(max-height:750px){.sidebar{padding-top:10px}.sidebar .chat-sidebar{margin-top:8px}}
+@media(max-width:640px){.sidebar-navigation .nav-utility{min-height:40px}.sidebar .new-chat-button,.sidebar .chat-open,.sidebar .chat-more{min-height:44px}.sidebar .chat-search-row .chat-search-field{min-height:42px}.chat-archive-toggle{flex-basis:42px}}

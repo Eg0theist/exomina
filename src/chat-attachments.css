@@ -1,0 +1,12 @@
+.attachment-draft{margin-bottom:10px;display:flex;flex-wrap:wrap;gap:6px}
+.attachment-chip{display:inline-flex;align-items:center;gap:7px;max-width:100%;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--text-2);font-size:12px}
+.attachment-chip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
+.attachment-chip>svg,.attachment-chip>button{flex-shrink:0}
+.attachment-chip>small{color:var(--text-3);white-space:nowrap}
+.attachment-chip>button{display:flex;color:var(--text-3)}
+.attachment-chip>button:hover{color:var(--danger)}
+.attachment-draft .message-images{flex-basis:100%;display:flex;overflow-x:auto;gap:8px;margin:0}
+.attachment-draft .message-image{width:120px;flex:0 0 120px;margin:0}
+.attachment-draft .message-image img{height:90px;object-fit:contain}
+.attachment-draft .message-image figcaption,.attachment-draft .image-save-status{display:none}
+.message-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}

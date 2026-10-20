@@ -1,0 +1,16 @@
+.new-chat-actions { display:flex; gap:6px; align-items:stretch; }
+.new-chat-actions .new-chat-button { flex:1; min-width:0; }
+.temporary-chat-start { display:flex; align-items:center; justify-content:center; width:36px; flex-shrink:0; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--text-2); cursor:pointer; }
+.temporary-chat-start:hover,.temporary-chat-start[aria-pressed="true"] { color:var(--text); background:var(--surface-2); }
+.temporary-chat-banner { display:flex; align-items:flex-start; gap:10px; margin:12px 20px 0; padding:12px 14px; border:1px solid var(--line); border-radius:10px; color:var(--text-2); font-size:12px; }
+.temporary-chat-banner svg { flex-shrink:0; margin-top:2px; }
+.temporary-chat-banner strong { color:var(--text); }
+.temporary-chat-banner p { margin:4px 0 0; line-height:1.5; }
+.temporary-chat-banner button { margin-left:auto; flex-shrink:0; }
+.temporary-chat-chip { display:inline-flex; gap:5px; align-items:center; padding:4px 7px; border:1px solid var(--line); border-radius:6px; color:var(--text-2); font-size:11px; }
+.provider-privacy { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); font-size:12px; }
+.provider-privacy summary { display:flex; align-items:center; gap:6px; cursor:pointer; }
+.provider-privacy p { margin:9px 0; line-height:1.55; }
+.provider-privacy .text-button { margin:3px 12px 3px 0; }
+.composer-caption .privacy-caption { max-width:72%; line-height:1.5; }
+@media(max-width:700px) { .temporary-chat-banner { margin:8px 10px 0; flex-wrap:wrap; } .composer-caption .privacy-caption { max-width:100%; } }

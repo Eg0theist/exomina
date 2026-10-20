@@ -1,0 +1,12 @@
+.browser-tabs{display:flex;align-items:flex-end;gap:3px;padding:6px 11px 0;flex:0 0 36px;min-width:0;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid color-mix(in oklab,var(--t-accent) 23%,var(--n-0))}
+.browser-tabs::-webkit-scrollbar{display:none}
+.browser-tab{display:flex;align-items:center;flex:0 1 170px;min-width:64px;height:29px;border:1px solid transparent;border-bottom:0;border-radius:6px 6px 0 0;color:var(--text-3);background:color-mix(in oklab,var(--t-accent) 7%,var(--n-0))}
+.browser-tab:hover{color:var(--text-2)}
+.browser-tab.active{color:var(--text);background:color-mix(in oklab,var(--t-accent) 15%,var(--n-0));border-color:color-mix(in oklab,var(--t-accent) 33%,var(--n-0))}
+.browser-tab>button[role=tab]{display:flex;align-items:center;gap:5px;flex:1;min-width:0;height:100%;padding:0 4px 0 9px;background:transparent;color:inherit;font-size:11px;text-align:left}
+.browser-tab>button[role=tab]>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.browser-tab-close{display:grid;place-items:center;flex:0 0 20px;height:20px;margin-right:4px;border-radius:4px;background:transparent;color:inherit;opacity:.7}
+.browser-tab-close:hover,.browser-tab-close:focus-visible{opacity:1;background:color-mix(in oklab,var(--t-accent) 22%,var(--n-0))}
+.browser-tab-add{display:grid;place-items:center;flex:0 0 26px;height:26px;margin:0 0 2px 2px;border-radius:5px;background:transparent;color:var(--text-3)}
+.browser-tab-add:hover:not(:disabled){color:var(--text);background:color-mix(in oklab,var(--t-accent) 15%,var(--n-0))}
+.browser-tab-add:disabled{opacity:.4}

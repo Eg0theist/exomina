@@ -1,0 +1,53 @@
+.memory-page .local-notes-heading{margin-bottom:12px}
+.memory-page .memory-review-toolbar{margin-bottom:12px}
+.memory-page .section-toolbar{margin-bottom:17px}
+.memory-notes{scroll-margin-top:16px}
+.memory-notes-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:32px;margin:0 2px 9px}
+.memory-note-range{font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums}
+.memory-notes .memory-review-all{font-size:12px;min-height:32px}
+.memory-note-list{border:1px solid var(--line-strong);border-radius:10px;background:color-mix(in oklab,var(--surface) 85%,transparent)}
+.memory-page .memory-card.memory-note-row{display:block;min-height:0;padding:0;margin:0;border:0;border-left:2px solid transparent;border-bottom:1px solid var(--line);border-radius:0;background:transparent;box-shadow:none}
+.memory-page .memory-card.memory-note-row:first-child{border-top-left-radius:9px;border-top-right-radius:9px}
+.memory-page .memory-card.memory-note-row:last-child{border-bottom:0;border-bottom-left-radius:9px;border-bottom-right-radius:9px}
+.memory-page .memory-card.memory-note-row.is-new{border-left-color:var(--t-accent);background:color-mix(in oklab,var(--accent-soft) 40%,transparent)}
+.memory-page .memory-card.memory-note-row.is-expanded{background:var(--surface-2)}
+.memory-note-summary{display:flex;align-items:center;min-height:56px;gap:4px;padding-right:12px}
+.memory-note-toggle{display:flex;align-items:center;gap:11px;flex:1;min-width:0;min-height:56px;padding:12px 14px;text-align:left;border-radius:5px;color:var(--text)}
+.memory-note-toggle:hover{background:color-mix(in oklab,var(--text) 3%,transparent)}
+.memory-note-toggle:focus-visible{outline-offset:-3px}
+.memory-note-caret{flex:0 0 auto;color:var(--text-3);transition:transform .15s}
+.is-expanded .memory-note-caret{transform:rotate(90deg)}
+.memory-note-preview{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:1.6}
+.is-expanded .memory-note-preview{color:var(--text-3);font-size:12px}
+.memory-note-date{flex:0 0 auto;white-space:nowrap;color:var(--text-3);font-size:11px;font-variant-numeric:tabular-nums}
+.memory-notes .memory-new-label{margin:0;font-size:10px;padding:2px 5px}
+.memory-note-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.memory-notes .memory-review-note{margin:0;min-height:32px;font-size:11.5px;gap:4px}
+.memory-notes .memory-delete{width:30px;height:30px;min-width:30px;min-height:30px}
+.memory-note-details{padding:0 48px 19px 40px}
+.memory-page .memory-note-details>p{font-size:13.5px;line-height:1.8;margin:0 0 14px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text)}
+.memory-note-details .memory-card-bottom{gap:6px;font-size:11px;line-height:1.5;flex-wrap:wrap;color:var(--text-3)}
+.memory-note-details .memory-card-bottom>span{min-width:0;white-space:normal;overflow-wrap:anywhere}
+.memory-note-details .memory-card-bottom>span:last-child{margin-left:auto;white-space:nowrap}
+.memory-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:13px}
+.memory-pagination>span{font-size:12px;color:var(--text-3);font-variant-numeric:tabular-nums}
+.memory-page-button{display:flex;align-items:center;gap:6px;min-height:34px;padding:6px 10px;font-size:12px;color:var(--text-2);border:1px solid var(--line-strong);border-radius:6px;background:var(--surface)}
+.memory-page-button:not(:disabled):hover{border-color:var(--accent);color:var(--text)}
+@media(max-width:640px){
+  .content-page.memory-page{padding:26px 20px calc(28px + env(safe-area-inset-bottom))}
+  .memory-page .search-field input{font-size:16px}
+  .memory-notes-heading{flex-wrap:wrap;gap:4px 12px}
+  .memory-note-summary{padding-right:7px;gap:0}
+  .memory-note-toggle{min-height:64px;padding:12px 9px;gap:7px;flex-wrap:wrap}
+  .memory-note-preview{flex-basis:calc(100% - 25px);font-size:13px}
+  .memory-note-date{margin-left:22px;order:3;font-size:10px}
+  .memory-notes .memory-new-label{order:4;margin-left:0}
+  .memory-note-actions{gap:0}
+  .memory-notes .memory-review-note{width:38px;min-height:44px;justify-content:center}
+  .memory-note-actions .memory-review-note>span{display:none}
+  .memory-notes .memory-delete{min-width:38px;min-height:44px}
+  .memory-note-details{padding:0 15px 17px 31px}
+  .memory-note-details .memory-card-bottom>span:nth-child(2){max-width:calc(100% - 22px)}
+  .memory-note-details .memory-card-bottom>span:last-child{margin-left:18px}
+  .memory-page-button{min-height:44px;padding:8px 10px}
+}
