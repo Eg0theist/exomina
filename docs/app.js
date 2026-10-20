@@ -34,7 +34,7 @@ function selectTab(tab, focus = false) {
   if (focus) tab.focus();
 }
 tabs.forEach((tab,index) => {
-  tab.addEventListener('click', () => selectTab(tab));
+  tab.addEventListener('click', () => selectTab(tab, true));
   tab.addEventListener('keydown', event => {
     let next;
     if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.length;
