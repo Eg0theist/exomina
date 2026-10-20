@@ -1,22 +1,92 @@
 # Exomina beta
 
-Your AI tools in one desktop app, with continuing chats, shared memory, a visible browser and tools for getting work done.
+**One desktop workspace for your AI conversations and the work that follows.** Connect ChatGPT, Claude, Gemini, Grok and other providers, continue the same conversation across models, and give them shared memory, files, a browser and tools you control.
 
-**Exomina is open source, and you are encouraged to build upon it.** Explore the code, modify it, fork it, and create and distribute your own versions, including commercial projects, under the [Apache License 2.0](LICENSE). Contributions back are welcome, but optional. Preserve the required licence, copyright and attribution notices. Third-party components retain their own licences and service terms.
+Exomina brings practical work into the conversation: read and edit project files, run commands, research a website, inspect an application, follow a work plan, or pick up a chat from your phone. Your chat library stays on your computer. Content you send to a cloud provider is processed by that provider.
 
-**Start with the [quick-start guide](START-HERE.txt)** or [download the current beta](https://github.com/Eg0theist/exomina/releases/tag/v0.5.0-beta.94). Install on Windows 10/11 x64 including Home, Intel or Apple Silicon Macs, and Debian/Ubuntu x64 or ARM64. Node.js and developer tools are not needed.
+**[Download the current beta](https://github.com/Eg0theist/exomina/releases/tag/v0.5.0-beta.94)** · [Quick start](START-HERE.txt) · [Installation](BETA.md) · [Platform support](SUPPORT.md)
 
-Fresh profiles open in Standard view. Connect an AI, review tools and access, then try a small task. **Learn Exomina** is on the home screen in both views, beginning with your first conversation. Advanced view exposes additional controls without changing permissions.
+Open source under [Apache-2.0](LICENSE). Forks, modifications and your own versions are welcome.
 
-The current beta includes library backup and restore, memory corrections and source dates, automatic work plans, phone and Discord workflows, character controls, and interface scaling. A local model is an option after separately installing its server and model files. Provider account access, plans and API charges remain your own.
+## Start with a new conversation
 
-Windows builds are unsigned; Macs are not notarized. Read the exact release's **VALIDATION.md** for checks and remaining limits. Phone access needs the computer, app and relay online.
+1. Install Exomina and open **Connections**.
+2. Connect the provider you want to use and complete its setup or official sign-in.
+3. Review tools and access, then send your first message.
 
-- [Installation and data](BETA.md)
-- [Platform support](SUPPORT.md)
-- [Feedback](FEEDBACK.md)
+**You do not need to import conversations, context or memories.** Start with an empty library; importing earlier material is optional. Fresh profiles open in Standard view, with **Learn Exomina** on the home screen. Its 13 walkthroughs begin with your first conversation. Advanced view adds controls for models, tools and workflows without changing your permissions.
+
+Installers are available for Windows 10/11 x64 including Home, Intel and Apple Silicon Macs, and Debian/Ubuntu x64 or ARM64. You do not need Node.js or developer tools to use the app. ChatGPT and Grok clients are included. Claude is an opt-in connection through your own official Claude Code client; Gemini and Muse need their clients installed separately. Provider access, plans, limits and API charges apply to your own account. Local models need a separate server and model download.
+
+## What you can do
+
+### Continue across providers without starting over
+
+Switch the model or provider inside a conversation and keep working with its saved history, attachments and project context. Use subscription connections, separately billed API connections, or a supported local model server. Check available models and reported usage in the app, and choose the level of reasoning appropriate to the task.
+
+Long conversations have a memory tree with compact summaries and links back to the original messages. The AI can search earlier work, open the source and check dates instead of relying on a short recap. Shared saved notes carry useful facts and decisions between chats when sharing is enabled. Review, correct or delete those notes, and keep particular chats private.
+
+### Work on files, code and local projects
+
+Give a chat a workspace and let the AI inspect files, propose changes, edit code and run commands under the access level you choose. Use the integrated terminal for interactive work, including sessions you and the AI can both see. Keep related chats and instructions together in projects, attach supporting files, and return to the result later.
+
+For example: ask it to investigate a bug, make the change, run the relevant checks and explain what was actually verified. Commands run with your operating-system account's access, so choose the workspace and permissions accordingly.
+
+### Research and act in a visible browser
+
+Open websites alongside the conversation. The AI can read pages, follow links, fill fields and inspect the page's loaded HTML, JavaScript and CSS through the enabled browser tools. Use the built-in browser or a supported connected browser, with the existing sharing and approval controls.
+
+This supports tasks such as comparing information from several pages, investigating how a website works, or carrying out an approved web workflow while you can see the page.
+
+### Inspect applications and storage
+
+App analysis can inspect JavaScript/Electron applications, .NET metadata and supported native Windows executables. Native Windows x86/x64 EXE inspection and persistent Ghidra projects require a separate Ghidra installation and full Java JDK. Static analysis does not launch the selected executable; supported formats and analysis limits are described in [Provider tools](PROVIDER-TOOLS.md#app-analysis-with-rea).
+
+The Storage view shows large folders and files, file types, ages and cleanup candidates. Review an AI's proposed cleanup or select items yourself. Deletion uses a confirmation step and defaults to the Recycle Bin where supported.
+
+### Let a task continue while you steer
+
+Work plans help break a larger task into steps and track its progress. Ask follow-up questions or add a direction while a reply is still running. Persistent question cards and approval controls keep decisions visible, and scheduled tasks can run supported work while the computer and app are available.
+
+Optional computer-control tools can interact with supported desktop applications. Available actions and required system permissions depend on the platform. Tool access remains configurable per chat; browser content, files and imported text are treated as source material rather than instructions that override your decisions.
+
+### Use voice and create media
+
+On Windows, dictate a message or have replies read aloud. Eligible ChatGPT connections can use Realtime voice. Ask supported ChatGPT models for image generation or editing, or use Grok Imagine for images, edits and videos when your account and client support them. Returned media appears in the conversation and can be saved.
+
+These features depend on the provider, plan, client and operating system. See the [provider capability guide](PROVIDER-TOOLS.md) for the distinctions, including image input, generation and voice support.
+
+### Pick up work from your phone or Discord
+
+Phone access lets you continue a conversation, steer work and respond to supported questions or approvals through a paired browser. Discord has its own paired-account access level and a `/help` command. Your computer, Exomina and the relevant relay or messaging connection must remain online.
+
+### Keep the workspace yours
+
+Choose themes, interface and text size, reduced motion, keyboard controls, and personality, avatar or companion settings. Back up and restore your actual chat library, memories and attachments. Import supported earlier conversation archives when you want them, with no import requirement for ordinary use.
+
+## Your data and access
+
+Conversations and app data are stored locally. A connected cloud model receives the messages, attachments and tool results shared with it. Local-model connections are available for workflows that use your own model server.
+
+Start with **Ask** if you want to review actions before they happen. Adjust a chat's access, turn individual tools on or off, and control which notes, files and browser content are shared. Standard and Advanced views change the interface, not the permission level.
+
+Fresh profiles use private user permissions and protected operating-system storage for supported saved connection keys. Standard mode does not encrypt every chat or provider-runtime file. Read [Installation and data](BETA.md#your-data) for storage locations, optional Windows encryption and backup guidance.
+
+## Beta status
+
+Exomina is in active development. Windows builds are unsigned and Mac builds are not notarized. Some features require a compatible provider account, separately installed tools or platform permissions. The exact release's **VALIDATION.md** records the checks performed and remaining limits, including live-account, audio and physical-device testing.
+
+- [Installation and updates](BETA.md)
+- [Platform support and troubleshooting](SUPPORT.md)
+- [Provider tools and capabilities](PROVIDER-TOOLS.md)
+- [Terminal usage](TERMINAL.md)
+- [Feedback and bug reports](FEEDBACK.md)
 - [Build from source](BUILDING.md)
 - [Third-party notices](THIRD-PARTY-NOTICES.txt)
+
+## Open source
+
+**You are encouraged to build upon Exomina.** Explore the code, modify it, fork it, and create and distribute your own versions, including commercial projects, under the [Apache License 2.0](LICENSE). Contributions back are welcome, but optional. Preserve the required licence, copyright and attribution notices. Third-party components retain their own licences and service terms.
 
 ## Acknowledgements
 
