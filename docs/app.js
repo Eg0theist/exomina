@@ -55,25 +55,36 @@ if ('IntersectionObserver' in window) {
   revealed.forEach(element => observer.observe(element));
 } else revealed.forEach(element => element.classList.add('is-visible'));
 
-// Card spotlight
-document.querySelectorAll('.spot').forEach(card => card.addEventListener('pointermove', event => {
-  const box = card.getBoundingClientRect();
-  card.style.setProperty('--mx', `${event.clientX - box.left}px`);
-  card.style.setProperty('--my', `${event.clientY - box.top}px`);
-}));
+// Small looping details only run while they are on screen
+document.querySelectorAll('.prompt-bar, .mini-plan, .final-orb').forEach(element => onVisible(element, visible => element.classList.toggle('in-view', visible), {threshold: 0}));
 
-// Starfield
+// Card spotlight (at most one update per frame)
+document.querySelectorAll('.spot').forEach(card => {
+  let pending = 0, x = 0, y = 0;
+  card.addEventListener('pointermove', event => {
+    x = event.clientX; y = event.clientY;
+    if (pending) return;
+    pending = requestAnimationFrame(() => {
+      pending = 0;
+      const box = card.getBoundingClientRect();
+      card.style.setProperty('--mx', `${x - box.left}px`);
+      card.style.setProperty('--my', `${y - box.top}px`);
+    });
+  });
+});
+
+// Starfield: drawn once and again after resizing, never animated per frame
 const canvas = document.querySelector('.starfield');
 if (canvas && canvas.getContext) {
   const context = canvas.getContext('2d');
-  let stars = [], width = 0, height = 0, frame = 0, running = false;
+  let stars = [], width = 0, height = 0;
   const resize = () => {
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     width = canvas.clientWidth; height = canvas.clientHeight;
     canvas.width = width * ratio; canvas.height = height * ratio;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     const count = Math.round(Math.min(90, width * height / 16000));
-    stars = Array.from({length: count}, () => ({x: Math.random() * width, y: Math.random() * height, r: Math.random() * 1.3 + .3, vx: (Math.random() - .5) * .12, vy: (Math.random() - .5) * .12, a: Math.random() * .6 + .2}));
+    stars = Array.from({length: count}, () => ({x: Math.random() * width, y: Math.random() * height, r: Math.random() * 1.3 + .3, a: Math.random() * .6 + .2}));
     draw();
   };
   const draw = () => {
@@ -88,27 +99,10 @@ if (canvas && canvas.getContext) {
       context.beginPath(); context.arc(s.x, s.y, s.r, 0, Math.PI * 2); context.fill();
     }
   };
-  const tick = () => {
-    if (!running) return;
-    for (const s of stars) {
-      s.x += s.vx; s.y += s.vy;
-      if (s.x < -10) s.x = width + 10; if (s.x > width + 10) s.x = -10;
-      if (s.y < -10) s.y = height + 10; if (s.y > height + 10) s.y = -10;
-    }
-    draw();
-    frame = requestAnimationFrame(tick);
-  };
-  const sync = () => {
-    const shouldRun = motionAllowed() && !document.hidden;
-    if (shouldRun && !running) { running = true; frame = requestAnimationFrame(tick); }
-    if (!shouldRun && running) { running = false; cancelAnimationFrame(frame); }
-  };
   resize();
-  let resizeTimer;
-  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 150); });
-  document.addEventListener('visibilitychange', sync);
-  motionListeners.push(sync);
-  sync();
+  let resizeTimer, lastWidth = innerWidth;
+  // Mobile browsers fire resize while scrolling as toolbars collapse; only redraw when the width changes.
+  window.addEventListener('resize', () => { if (innerWidth === lastWidth && stars.length) return; lastWidth = innerWidth; clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 150); });
 }
 
 // Typing prompt bar
