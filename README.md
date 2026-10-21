@@ -1,6 +1,10 @@
 # Exomina beta
 
-**Make the software you wish existed.** Exomina brings ChatGPT, Claude, Gemini, Grok and local models into one free, open-source desktop workspace that remembers your work, edits your real files, browses the web and keeps going when one AI runs out of messages.
+**The age of personal software is here. Make the software you wish existed.**
+
+Build ambitious personal applications, replace SaaS workflows and adapt existing software and games around the way you work and play. The feature you keep wishing for, the tools that should be one, the app nobody would build for an audience of one: these can become projects you develop, test and keep improving.
+
+Exomina brings ChatGPT, Claude, Gemini, Grok and local models into one free, open-source desktop workspace that remembers your work, edits your real files, browses the web and keeps going when one AI runs out of messages. Your idea can grow across sessions, models and revisions, with the code and context kept together.
 
 - **Stop re-explaining yourself.** Long conversations keep a memory with links back to the original messages, and shared notes carry your preferences and decisions into new chats.
 - **Stop copy-pasting between AIs.** Switch the model or provider inside a conversation; the history, attachments and project context stay where they are.
@@ -15,12 +19,15 @@ Open source under [Apache-2.0](LICENSE). Forks, modifications and your own versi
 
 ## What could you make?
 
-- **Build software around your own habits.** A writing tracker, a personal dashboard or a desktop utility, with the screens and behavior you actually want.
-- **Rethink a subscription.** Build a focused alternative to the parts of a SaaS product you use, where practical. Start small, test it and account for data, integrations and maintenance before relying on it.
+- **Build a complete personal system.** A writing studio that connects chapters, characters, timelines, research and revision history. A dashboard that combines your data with imports, search and automation. Develop the interface, storage and workflows together, then adapt them as your needs change.
+- **Replace a SaaS workflow.** Build your own workspace for clients, quotes, invoices and follow-ups, or combine several paid tools into one application. Map the requirements, migrate data, connect services and test each workflow before depending on it. Hosting, APIs and maintenance can still have costs.
+- **Adapt existing software.** Investigate an application, understand its data and behaviour, and find a route to a missing feature. Source analysis and reverse engineering can inform an extension, integration, patch or companion tool, depending on the software and available access. For example, add a batch export or connect an app to another workflow.
 - **Research and decide.** Let it read the pages in a browser you can watch, collect what matters for your question with sources, and give a recommendation you can check.
-- **Change your game.** Develop a mod for a supported game: adjust a mechanic, test it locally and refine how it feels.
+- **Reshape a game.** Develop changes to movement, inventory, interfaces or other mechanics, using the game's available modding tools and accessible files. Playtest each stage, refine the behaviour and keep a way to roll changes back.
 
-These are projects to develop and check, rather than a promise that any idea works in one prompt. The same workspace also supports writing, file work, browser tasks and other everyday work.
+**Keep changing it as you use it.** Ask for a new view, a different workflow, an import or an integration while the project is in progress. Exomina gives the connected AI the tools and context to investigate, implement and check the next change.
+
+Start with your imagination, then work through what the project needs. Feasibility depends on the software, access, integrations and available tools. Larger applications need testing, security, deployment and ongoing care. The same workspace also supports writing, file work, browser tasks and other everyday work.
 
 ## Start with a new conversation
 
@@ -52,9 +59,13 @@ Open websites alongside the conversation. The AI can read pages, follow links, f
 
 This supports tasks such as comparing information from several pages, investigating how a website works, or carrying out an approved web workflow while you can see the page.
 
-### Inspect applications and storage
+### Reverse engineer applications and plan adaptations
 
 App analysis can inspect JavaScript/Electron applications, .NET metadata and supported native Windows executables. Native Windows x86/x64 EXE inspection and persistent Ghidra projects require a separate Ghidra installation and full Java JDK. Static analysis does not launch the selected executable; supported formats and analysis limits are described in [Provider tools](PROVIDER-TOOLS.md#app-analysis-with-rea).
+
+Use those findings to understand a file format, trace behaviour, diagnose a limitation or plan an adaptation. App analysis provides evidence; implementation uses the available project files, extension points or other development tools. Native analysis is experimental, and inspecting a binary does not make every application modifiable.
+
+### Understand and clean up storage
 
 The Storage view shows large folders and files, file types, ages and cleanup candidates. Review an AI's proposed cleanup or select items yourself. Deletion uses a confirmation step and defaults to the Recycle Bin where supported.
 

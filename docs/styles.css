@@ -223,6 +223,7 @@ h1 em{font-family:var(--serif);font-style:italic;font-weight:500;letter-spacing:
 .stop-num{position:absolute;right:24px;top:20px;font-family:var(--mono);font-size:13px;color:var(--faint)}
 .stop-icon{display:grid;place-items:center;width:54px;height:54px;border-radius:16px;background:linear-gradient(140deg,rgba(180,140,255,.25),rgba(255,122,200,.12));border:1px solid rgba(220,198,255,.25);color:var(--lilac)}
 .stop-icon .icon{width:26px;height:26px}
+.possibility-note{max-width:85ch;margin-top:24px;font-size:14px;color:var(--muted);line-height:1.65}
 
 /* make */
 .make-demo{display:grid;grid-template-columns:300px minmax(0,1fr);gap:22px}
@@ -250,6 +251,11 @@ h1 em{font-family:var(--serif);font-style:italic;font-weight:500;letter-spacing:
 .pg-title{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:18px;letter-spacing:-.02em;margin-bottom:14px}
 .pg-title span{color:#8e5cf0}
 .pg-live .icon{width:20px;height:20px}
+.adaptation-stages{display:grid;gap:14px}
+.adaptation-stages li{display:flex;gap:12px;align-items:flex-start}
+.adaptation-num{flex:none;font-family:var(--mono);font-size:12px;color:#654098;border:1px solid #d8c8f0;border-radius:8px;padding:5px 7px}
+.adaptation-stages strong{font-size:15px}
+.adaptation-stages p{font-size:14px;line-height:1.5;color:#5f4f7a;margin-top:3px}
 .pg-status{font-size:14px;color:#5f4f7a;min-height:1.4em;margin-top:12px}
 .pg-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-top:14px}
 .pg-actions .pg-status{margin-top:0}
