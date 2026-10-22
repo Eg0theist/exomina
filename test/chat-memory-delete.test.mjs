@@ -7,7 +7,7 @@ import {MemoryStore} from '../desktop/memory.mjs';
 import {Store} from '../desktop/store.mjs';
 import {portablePayload} from '../desktop/cloud-client.mjs';
 import {ChatDeletionCoordinator,deleteSavedConversation,finishPendingChatMemoryDeletes} from '../desktop/delete-conversation.mjs';
-const fixtureRoot=path.resolve('C:/Program Files/Exomina/Workspace/chat-memory-delete-20261013');
+const fixtureRoot=os.tmpdir();
 async function fixture(t){const dir=await mkdtemp(path.join(fixtureRoot,'fixture-')),memory=new MemoryStore(dir),store=new Store(dir);await memory.init();await store.init();t.after(async()=>{await store.queue;memory.close();assert.ok(path.resolve(dir).startsWith(fixtureRoot+path.sep+'fixture-'));await rm(dir,{recursive:true,force:true});});return {dir,memory,store};}
 const saved=(memory,text,id)=>memory.call('memory_note',{text},async()=>true,id);
 

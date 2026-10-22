@@ -22,6 +22,10 @@ jobs:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.validate_only)
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      TEMP: ${{ github.workspace }}/.ci-test-temp
+      TMP: ${{ github.workspace }}/.ci-test-temp
+      TMPDIR: ${{ github.workspace }}/.ci-test-temp
     steps:
       - name: Checkout exact candidate without signing credentials
         shell: pwsh
@@ -45,6 +49,7 @@ jobs:
       - name: Prepare runtimes, build and test candidate
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
           node -e "if(Number(process.versions.node.split('.')[0])<24)throw Error('The runner needs Node.js 24 or newer. Configure its trusted runtime before enabling this job.')"
           if ($LASTEXITCODE) { throw 'Unsupported runner Node runtime.' }
           npm ci --ignore-scripts
