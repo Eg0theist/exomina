@@ -105,7 +105,14 @@ $target = [IO.Path]::GetFullPath($request.path).TrimEnd('\\')
 if (-not $target.StartsWith($root + '\\',[StringComparison]::OrdinalIgnoreCase)) { throw 'The target escaped its fresh synthetic fixture' }
 $item = Get-Item -LiteralPath $target -Force
 if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or @(Get-ChildItem -LiteralPath $target -Force).Count -ne 0) { throw 'Only an empty real program fixture may be prepared' }
-if ((Get-Acl -LiteralPath $target).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) { throw 'The synthetic program fixture has another owner' }
+$acl = Get-Acl -LiteralPath $target
+$currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+$owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+if ($owner -notin @($currentSid.Value,'S-1-5-32-544')) { throw 'The synthetic program fixture has another owner' }
+# Elevated runners can assign Administrators as the default owner. Normalize
+# only this newly-created, empty, non-link fixture and preserve its access rules.
+if ($owner -eq 'S-1-5-32-544') { $acl.SetOwner($currentSid); Set-Acl -LiteralPath $target -AclObject $acl }
+if ((Get-Acl -LiteralPath $target).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $currentSid.Value) { throw 'The synthetic program fixture owner could not be verified' }
 if (($item.Attributes -band [IO.FileAttributes]::Encrypted) -ne 0) { [IO.File]::Decrypt($target) }
 if (([IO.File]::GetAttributes($target) -band [IO.FileAttributes]::Encrypted) -ne 0) { throw 'The empty synthetic program fixture is still encrypted' }
 Add-Type -TypeDefinition @'
@@ -114,9 +121,9 @@ public static class ExominaInstalledStartupTempQA { [DllImport("kernel32.dll",Ch
 '@
 $buffer = New-Object Text.StringBuilder 32768
 if ([ExominaInstalledStartupTempQA]::GetShortPathName($request.temp,$buffer,[uint32]$buffer.Capacity) -eq 0) { throw 'The explicit QA temp short path could not be resolved' }
-@{ emptyProgramDirectory = $true; encrypted = $false; tempPath = $buffer.ToString() } | ConvertTo-Json -Compress
+@{ emptyProgramDirectory = $true; encrypted = $false; ownerVerified = $true; ownerNormalized = ($owner -eq 'S-1-5-32-544'); tempPath = $buffer.ToString() } | ConvertTo-Json -Compress
 `,{root:output,path:installDir,temp:qaBase});
-  assert.equal(prepared.emptyProgramDirectory,true);assert.equal(prepared.encrypted,false);
+  assert.equal(prepared.emptyProgramDirectory,true);assert.equal(prepared.encrypted,false);assert.equal(prepared.ownerVerified,true);
   assert.ok(same(await realpath(prepared.tempPath),qaReal),'The temp alias must resolve to the explicit QA root.');
   assert.ok(prepared.tempPath.length<=limits.maxTempRootChars,'The explicit QA root must have a safe NSIS temp path.');tempRoot=prepared.tempPath;
   report.checks.ordinaryOwnedProgramFixture={emptyBeforeInstall:true,noExistingDataDecrypted:true,tempAliasVerified:true};
