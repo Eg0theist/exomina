@@ -12,9 +12,11 @@ import {fileURLToPath} from 'node:url';
 import {distributionMetadataDirectory} from '../desktop/app-paths.mjs';
 import {assertLinuxQaSocketLength} from './native-qa-paths.mjs';
 import {probeOwnedBrowser} from './native-qa-cdp.mjs';
+import {prepareWindowsQaOwner} from './native-qa-windows-owner.mjs';
 
 const option=name=>{const index=process.argv.indexOf(name);return index<0?undefined:process.argv[index+1];};
 if(!option('--executable'))throw Error('Pass the exact native packaged executable with --executable.');
+const windowsQaOwner=await prepareWindowsQaOwner();
 const executable=await realpath(path.resolve(option('--executable')));
 const output=path.resolve(option('--output')||path.join(os.tmpdir(),'exomina-native-desktop-report'));
 await mkdir(output,{recursive:true});
@@ -71,7 +73,8 @@ assert.ok(!entries.some(name=>/(?:theme-art[\/]|voice-previews[\/]|voice-preview
 const report={platform:process.platform,arch:process.arch,executable,version:stamp.version,buildId:stamp.id,
  startedAt:new Date().toISOString(),scope:'Exact native packaged UI, fresh synthetic profile, signed-out runtimes. No account sign-in, model inference, microphone, desktop capture/input or external navigation. OS installer and physical hardware behavior are not covered.',checks:{manualBetaMarker:true,programOnlyArchive:true},errors:[]};
 if(socketLength)report.checks.linuxSingletonSocketPathBound=socketLength;
-let child,browser,endpoint,childStderr='',childStdout='',childExit=null;
+if(windowsQaOwner)report.checks.windowsQaProcessOwner=windowsQaOwner;
+let child,browser,endpoint,page,childStderr='',childStdout='',childExit=null;
 async function stop(){
  if(!child)return;
  const owned=child;child=null;
@@ -101,13 +104,16 @@ try{
   assert.ok(!argumentsUsed.some(argument=>/^--(?:no-sandbox|disable-setuid-sandbox)(?:=|$)/.test(argument)),'The installed launcher must preserve the Chromium sandbox.');
   report.checks.chromiumSandboxRetained=true;
  }
- let page;const deadline=Date.now()+30000;
+ const deadline=Date.now()+30000;
  while(Date.now()<deadline){page=browser.contexts().flatMap(context=>context.pages()).find(item=>/\/dist\/index\.html(?:\?|$)/.test(item.url()));if(page)break;await new Promise(resolve=>setTimeout(resolve,100));}
  assert.ok(page,'Exact packaged renderer must load.');page.setDefaultTimeout(20000);
  page.on('pageerror',error=>report.errors.push(error.message.slice(0,1000)));
  await page.getByRole('button',{name:'Exomina home',exact:true}).waitFor();
  assert.equal(await page.getByRole('combobox',{name:'Interface view',exact:true}).inputValue(),'standard');
- assert.equal(await page.getByRole('button',{name:/Learn Exomina/}).count(),1);
+ const tutorial=page.getByRole('button',{name:/Learn Exomina/}),tutorialWaitStarted=Date.now();
+ await tutorial.waitFor({state:'visible'});
+ assert.equal(await tutorial.count(),1);
+ report.checks.tutorialReadyWaitMs=Date.now()-tutorialWaitStarted;
  report.checks.standardFirstUseAndTutorialEntry=true;
  const security=await page.evaluate(()=>window.studio.invoke('security.status'));
  assert.equal(security.ready,true,'Fresh ordinary user must be ready without mandatory EFS/recovery export.');
@@ -179,6 +185,12 @@ try{
  report.passed=true;
 }catch(error){
  report.passed=false;report.failure=String(error.message).slice(0,2000);
+ if(page&&!page.isClosed()){
+  try{
+   report.failureUi={text:(await page.locator('body').innerText({timeout:2000})).slice(0,10000)};
+   await page.screenshot({path:path.join(output,'native-beta-failure.png'),timeout:3000});
+  }catch(captureError){report.failureUiCaptureError=String(captureError.message).slice(0,500);}
+ }
  // This is exclusively the child above, with an empty synthetic profile and
  // credential environment removed. Retain bounded diagnostic lines, never
  // provider output or the profile itself, so CI startup failures are reviewable.
