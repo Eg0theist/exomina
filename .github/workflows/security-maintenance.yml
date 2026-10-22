@@ -23,9 +23,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
-      TEMP: ${{ github.workspace }}/.ci-test-temp
-      TMP: ${{ github.workspace }}/.ci-test-temp
-      TMPDIR: ${{ github.workspace }}/.ci-test-temp
+      TEMP: ${{ runner.temp }}
+      TMP: ${{ runner.temp }}
+      TMPDIR: ${{ runner.temp }}
     steps:
       - name: Checkout exact candidate without signing credentials
         shell: pwsh
