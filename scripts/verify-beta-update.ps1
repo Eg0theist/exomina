@@ -12,7 +12,7 @@ try {
   $root = [IO.Path]::GetFullPath($App).TrimEnd('\')
   if ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked beta installation.' }
   $manifestPath = Join-Path $root 'exomina.release-integrity.json'
-  if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'This older beta has no verified baseline. Install the new beta in a different empty folder, preserving this copy for review.' }
+  if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'This older beta has no verified baseline. Preserve its program files and source before uninstalling it, then install the new beta in an empty folder.' }
   $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
   $stamp = [IO.File]::ReadAllText((Join-Path $root 'exomina.build.json')) | ConvertFrom-Json
   if ($manifest.format -ne 1 -or $manifest.buildId -ne $stamp.id) { throw 'Invalid beta baseline.' }
