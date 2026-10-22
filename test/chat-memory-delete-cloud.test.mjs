@@ -6,7 +6,7 @@ import path from 'node:path';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {CloudService} from '../cloud/service.mjs';
 import {finishPendingChatMemoryDeletes} from '../desktop/delete-conversation.mjs';
-const fixtureRoot=path.resolve('C:/Program Files/Exomina/Workspace/chat-memory-delete-20261013');
+const fixtureRoot=os.tmpdir();
 async function fixture(t){const dir=await mkdtemp(path.join(fixtureRoot,'cloud-fixture-'));const service=new CloudService({dataDir:dir,vaultKey:randomBytes(32).toString('base64'),providerFactory:options=>({status:async()=>[{id:'codex',connected:true,installed:true}],subscriptionModels:async()=>({codex:[]}),cancel(){},close(){},run:async input=>{await options.callTool('memory_note',{text:'Reusable synthetic preference'},input.conversationId);return {text:'Synthetic reply'};}})});await service.init();t.after(async()=>{await service.close();assert.ok(path.resolve(dir).startsWith(fixtureRoot+path.sep+'cloud-fixture-'));await rm(dir,{recursive:true,force:true});});return service;}
 async function send(service){const response=await service.invoke('chat.send',{provider:'codex',text:'Synthetic request'},{requestId:randomUUID()});await Promise.all([...service.active.values()].map(run=>run.promise));return response.conversationId;}
 test('server deletion preserves reused notes and publishes precise deletion and provenance updates',async t=>{

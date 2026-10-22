@@ -32,6 +32,9 @@ jobs:
     timeout-minutes: 45
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      TEMP: ${{ github.workspace }}/.ci-test-temp
+      TMP: ${{ github.workspace }}/.ci-test-temp
+      TMPDIR: ${{ github.workspace }}/.ci-test-temp
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -43,6 +46,7 @@ jobs:
       - name: Prepare pinned runtimes, build and test
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
           npm ci --ignore-scripts
           if ($LASTEXITCODE) { throw 'Dependency preparation failed.' }
           foreach ($entry in @('node_modules/electron/install.js','scripts/prepare-beta-vendor.mjs','scripts/prepare-grok-runtime.mjs','scripts/prepare-analysis-node.mjs','scripts/prepare-taskbar-icon.mjs','scripts/prepare-windows-interop.mjs')) {
