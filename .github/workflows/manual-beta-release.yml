@@ -32,13 +32,14 @@ jobs:
     timeout-minutes: 45
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+      - name: Use canonical Windows temporary paths
+        shell: pwsh
+        run: |
+          foreach ($name in @('TEMP','TMP','TMPDIR')) { "$name=$env:RUNNER_TEMP" >> $env:GITHUB_ENV }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24.22.1'
