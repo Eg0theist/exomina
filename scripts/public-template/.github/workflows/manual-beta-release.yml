@@ -1,0 +1,126 @@
+name: Qualified manual beta release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact package version to release as a manual beta
+        required: true
+        default: '0.6.0'
+permissions:
+  contents: read
+concurrency:
+  group: manual-beta-release
+  cancel-in-progress: false
+jobs:
+  source:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify the requested version
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: node -e "const fs=require('fs'); const version=JSON.parse(fs.readFileSync('package.json','utf8')).version; if(!/^\d+\.\d+\.\d+$/.test(version)||version!==process.env.REQUESTED_VERSION)throw Error('Choose the exact current package version.'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'version='+version+'\n');"
+  windows:
+    needs: source
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Use canonical Windows temporary paths
+        shell: pwsh
+        run: |
+          foreach ($name in @('TEMP','TMP','TMPDIR')) { "$name=$env:RUNNER_TEMP" >> $env:GITHUB_ENV }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.22.1'
+          cache: npm
+      - name: Prepare pinned runtimes, build and test
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE) { throw 'Dependency preparation failed.' }
+          foreach ($entry in @('node_modules/electron/install.js','scripts/prepare-beta-vendor.mjs','scripts/prepare-grok-runtime.mjs','scripts/prepare-analysis-node.mjs','scripts/prepare-taskbar-icon.mjs','scripts/prepare-windows-interop.mjs')) {
+            node $entry
+            if ($LASTEXITCODE) { throw "Runtime preparation failed: $entry" }
+          }
+          npm run build
+          if ($LASTEXITCODE) { throw 'Production build failed.' }
+          npm test
+          if ($LASTEXITCODE) { throw 'Source tests failed.' }
+      - name: Build the manual beta installer
+        shell: pwsh
+        run: |
+          node node_modules/electron-builder/cli.js --config scripts/private-beta-installer-config.mjs --win nsis --x64 --publish never
+          if ($LASTEXITCODE) { throw 'Manual beta packaging failed.' }
+          & ./scripts/decrypt-package.ps1 -Directory release/win-unpacked
+          if ($LASTEXITCODE) { throw 'Packaged program encryption check failed.' }
+          node --input-type=module -e "import {verifyVendorBinaries} from './scripts/verify-vendor-binaries.mjs'; const r=await verifyVendorBinaries('release/win-unpacked',process.cwd()); if(!r.passed)throw Error('Vendor verification failed'); console.log('Verified '+r.files.length+' unchanged vendor binaries.');"
+          if ($LASTEXITCODE) { throw 'Packaged vendor verification failed.' }
+      - name: Qualify exact Windows installer and packaged approval UI
+        shell: pwsh
+        env:
+          EXOMINA_QA_RUNTIME_ROOT: ${{ github.workspace }}/release/win-unpacked/resources/app.asar
+        run: |
+          node scripts/qa-beta-installer.mjs
+          if ($LASTEXITCODE) { throw 'Install, reinstall or uninstall qualification failed.' }
+          node scripts/qa-windows-installed-startup.mjs
+          if ($LASTEXITCODE) { throw 'Installed GUI startup qualification failed.' }
+          node scripts/qa-connector-forms.mjs
+          if ($LASTEXITCODE) { throw 'Packaged no-HUD connector input qualification failed.' }
+          $destination = New-Item -ItemType Directory -Path release/qualification
+          $qaRoot = Join-Path (Split-Path $PWD -Parent) '.exomina-qa-temp'
+          $install = @(Get-ChildItem -LiteralPath $qaRoot -Filter report.json -File -Recurse)
+          $startup = @(Get-ChildItem -LiteralPath $qaRoot -Filter installed-startup-report.json -File -Recurse)
+          $forms = @(Get-ChildItem -Path '.verification/qa-connector-forms-*/result.json' -File)
+          if ($install.Count -ne 1 -or $startup.Count -ne 1 -or $forms.Count -ne 1) { throw 'Exact Windows qualification reports are ambiguous.' }
+          Copy-Item -LiteralPath $install[0].FullName -Destination (Join-Path $destination 'windows-install.json')
+          Copy-Item -LiteralPath $startup[0].FullName -Destination (Join-Path $destination 'windows-startup.json')
+          Copy-Item -LiteralPath $forms[0].FullName -Destination (Join-Path $destination 'windows-connector.json')
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exomina-beta-windows-x64-installer
+          path: release/*-windows-x64-Setup.exe
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exomina-beta-windows-x64-qa
+          path: release/qualification/*.json
+          if-no-files-found: error
+  native:
+    needs: source
+    uses: ./.github/workflows/native-packages.yml
+    with:
+      native_family: all
+  publish:
+    needs: [source, windows, native]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.22.1'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: exomina-beta-*
+          path: .candidate-artifacts
+      - name: Verify all five exact installers and publish the manual beta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.source.outputs.version }}
+        run: node scripts/publish-manual-beta.mjs --artifacts .candidate-artifacts --version "$RELEASE_VERSION" --commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" --publish
