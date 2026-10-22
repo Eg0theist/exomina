@@ -49,8 +49,8 @@ async function main(){
  const tag='v'+version;
  try{await gh('api',`repos/${repository}/releases/tags/${tag}`);throw Error('This release already exists. Inspect it before publishing.');}
  catch(error){if(!String(error.stderr||'').includes('(HTTP 404)'))throw error;}
- const releases=JSON.parse((await gh('api','--paginate',`repos/${repository}/releases?per_page=100`,'--jq','[.[] | {tag_name,draft}]','--slurp')).stdout).flat();
- if(releases.some(release=>release.tag_name===tag))throw Error('An existing release or draft requires review before publication.');
+ const releaseTags=(await gh('api','--paginate',`repos/${repository}/releases?per_page=100`,'--jq','.[].tag_name')).stdout.split(/\r?\n/);
+ if(releaseTags.includes(tag))throw Error('An existing release or draft requires review before publication.');
  try{await gh('api',`repos/${repository}/git/ref/tags/${tag}`);throw Error('This version tag already exists. Inspect it before publishing.');}
  catch(error){if(!String(error.stderr||'').includes('(HTTP 404)'))throw error;}
  const output=path.resolve('.verification','manual-beta-publication');await mkdir(output,{recursive:true});
