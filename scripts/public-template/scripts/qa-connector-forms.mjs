@@ -1,0 +1,77 @@
+// Real production host/renderer/native browser, isolated synthetic profiles and provider messages.
+import {_electron as electron} from 'playwright';
+import {createProtectedQaProfile} from './qa-profile.mjs';
+import {Store} from '../desktop/store.mjs';
+import {access,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {extractFile} from '@electron/asar';
+import http from 'node:http';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),runtimeRoot=path.resolve(process.env.EXOMINA_QA_RUNTIME_ROOT||root);
+const fixture=await createProtectedQaProfile('connector-forms'),{profile,output}=fixture,workspace=path.join(output,'workspace');await mkdir(workspace);
+const server=http.createServer((_request,response)=>{response.setHeader('Content-Type','text/html');response.end('<title>Synthetic connection page</title><input id="field" value="Unchanged">');});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const url='http://127.0.0.1:'+server.address().port+'/fixture';
+const store=new Store(profile,{workspace});await store.init();Object.assign(store.state.settings,{workspace,autoTitle:false,autoUpdate:false,closeToTray:false,memoryEnabled:false,chatMemorySummaries:false,browserEnabled:true,desktopEnabled:false,permissionMode:'ask',routing:'tools'});
+const chat=store.create('codex');chat.title='Connector form QA';chat.titleSource='manual';await store.save();
+const version=JSON.parse(runtimeRoot.endsWith('.asar')?extractFile(runtimeRoot,'package.json'):await readFile(path.join(runtimeRoot,'package.json'),'utf8')).version,moduleUrl=name=>JSON.stringify(pathToFileURL(path.join(runtimeRoot,name)).href);
+const input={mode:'form',serverName:'Synthetic connector',threadId:'synthetic-root',turnId:'synthetic-turn',message:'Provide settings to continue.',requestedSchema:{type:'object',properties:{label:{type:'string',title:'Project label',minLength:2},limit:{type:'integer',title:'Item limit',minimum:0,maximum:10},enabled:{type:'boolean',title:'Enable optional work',default:true},choice:{type:'string',title:'Output format',enum:['text','json'],enumNames:['Text','JSON']},tags:{type:'array',title:'Include sections',items:{anyOf:[{const:'notes',title:'Notes'},{const:'files',title:'Files'}]},minItems:1,maxItems:2}},required:['label','limit','enabled','choice','tags']}};
+const launcher=path.join(output,'launcher.cjs');await writeFile(launcher,`const {app,BrowserWindow,session,dialog}=require('electron');
+app.setPath('userData',${JSON.stringify(profile)});app.setPath('sessionData',${JSON.stringify(path.join(profile,'browser-data'))});BrowserWindow.prototype.show=function(){};app.commandLine.appendSwitch('mute-audio');app.getVersion=()=>${JSON.stringify(version)};dialog.showErrorBox=(title,message)=>{console.error(title,message);app.exit(1)};
+globalThis.qaConnector={pages:new Set(),results:[],live:true};
+(async()=>{await app.whenReady();for(const partition of [session.defaultSession,session.fromPartition('persist:exomina-browser')])partition.webRequest.onBeforeRequest((details,callback)=>callback({cancel:/^https?:/.test(details.url)&&!details.url.startsWith(${JSON.stringify(new URL('/',url).href)})}));
+const {BrowserPage}=await import(${moduleUrl('desktop/browser.mjs')});const show=BrowserPage.prototype.show;BrowserPage.prototype.show=function(visible){globalThis.qaConnector.pages.add(this);return show.call(this,visible)};
+const {ProviderManager}=await import(${moduleUrl('desktop/providers.mjs')});const {PROVIDER_CATALOG}=await import(${moduleUrl('desktop/provider-catalog.mjs')});
+ProviderManager.prototype.status=async function({onStatus}={}){const rows=PROVIDER_CATALOG.filter(item=>item.mode==='subscription').map(item=>({id:item.id,installed:true,connected:item.id==='codex',available:true,checking:false,detail:'Synthetic isolated connection.'}));for(const row of rows)onStatus?.(row);return rows};ProviderManager.prototype.subscriptionModels=async()=>({});ProviderManager.prototype.modelsFor=async()=>[];ProviderManager.prototype.codexUsage=async()=>null;ProviderManager.prototype.claudeUsage=async()=>null;ProviderManager.prototype.getCodex=async()=>{throw Error('Native account access prohibited in QA')};
+ProviderManager.prototype.run=async function(request){const qa=globalThis.qaConnector;await new Promise(resolve=>qa.begin=resolve);for(let index=0;index<4;index++){const form=${JSON.stringify(input)};if(index===3){form.message='Allow the synthetic connector operation?';form.requestedSchema={type:'object',properties:{},additionalProperties:false};}const result=await this.requestElicitation(request.conversationId,form,{isActive:()=>qa.live});qa.results.push(result);if(index<3)await new Promise(resolve=>qa.next=resolve);}qa.writeResult=await this.callTool('workspace_write',{path:'scoped.txt',text:'SYNTHETIC_SHOULD_NOT_BE_WRITTEN'},request.conversationId,{nativeThreadId:'synthetic-helper',nativeTurnId:'synthetic-turn',isActive:()=>qa.live});await new Promise(resolve=>qa.finish=resolve);return {text:'Synthetic connector checks finished.',sessionId:'synthetic'};};ProviderManager.prototype.cancel=function(){globalThis.qaConnector.live=false};await import(${moduleUrl('desktop/main.mjs')});})().catch(error=>{console.error(error);app.exit(1)});`);
+const env={...process.env,EXOMINA_DATA_DIR:profile,TEMP:output,TMP:output,TMPDIR:output};delete env.ELECTRON_RUN_AS_NODE;for(const key of Object.keys(env))if(/(?:token|secret|password|api_?key|credential|authorization)/i.test(key))delete env[key];
+const report={runtimeRoot,output,scope:'Hidden production Electron, real native browser and connector IPC. Synthetic native form schema. No account/profile access, sign-in or model calls.',checks:{},errors:[]};let app,page;
+const attached=()=>app.evaluate(()=>[...globalThis.qaConnector.pages].filter(item=>item.window.contentView.children.includes(item.view)).length);
+async function until(read,predicate=Boolean){const end=Date.now()+15000;for(;;){const value=await read();if(predicate(value))return value;if(Date.now()>end)throw Error('Connector QA timed out');await new Promise(resolve=>setTimeout(resolve,60));}}
+const popup=()=>page.getByRole('dialog',{name:'Synthetic connector needs your input',exact:true});
+try{
+  app=await electron.launch({args:[launcher],cwd:root,env,timeout:30000});page=await app.firstWindow();page.setDefaultTimeout(15000);page.on('pageerror',error=>report.errors.push(error.message));
+  await page.locator('.chat-open').filter({hasText:chat.title}).click();await page.getByRole('button',{name:'Browser',exact:true}).click();await until(attached);
+  await page.evaluate(({url,id})=>window.studio.invoke('browser.navigate',{url,conversationId:id}),{url,id:chat.id});
+  await page.evaluate(id=>window.studio.invoke('chat.send',{conversationId:id,provider:'codex',text:'Synthetic connector form check.',mode:'tools'}),chat.id);await until(()=>app.evaluate(()=>typeof globalThis.qaConnector.begin==='function'));
+  await page.keyboard.press('Control+Shift+H');assert.equal(await page.locator('.app-frame').getAttribute('data-hud'),'hidden');
+  await app.evaluate(()=>globalThis.qaConnector.begin());await popup().waitFor();await until(attached,value=>value===0);
+  assert.equal(await popup().isVisible(),true);await page.keyboard.press('Control+Shift+H');assert.equal(await popup().isVisible(),true);
+  assert.equal(await page.locator('.app-frame').evaluate(element=>element.inert),true);assert.equal(await popup().evaluate(element=>!!element.closest('[inert]')),false);
+  assert.equal(await popup().getByLabel('Enable optional work *',{exact:true}).inputValue(),'');assert.equal(await page.locator('.approval-card').count(),0);
+  const request=await page.evaluate(async()=>{const state=await window.studio.invoke('bootstrap');return state.connectorForms[0]});
+  const invalid=await page.evaluate(async id=>{try{await window.studio.invoke('connector.respond',{id,action:'accept',content:{label:'ok',limit:100,enabled:false,choice:'json',tags:['notes']}});return ''}catch(error){return error.message}},request.id);assert.match(invalid,/valid number/);assert.equal(await popup().count(),1);
+  await popup().getByLabel('Project label *',{exact:true}).fill('SYNTHETIC_PRIVATE_ANSWER');await popup().getByLabel('Item limit *',{exact:true}).fill('0');await popup().getByLabel('Enable optional work *',{exact:true}).selectOption('false');await popup().getByLabel('Output format *',{exact:true}).selectOption('json');
+  const row=popup().locator('.connector-choice').filter({hasText:'Notes'}),bounds=await row.boundingBox();await page.mouse.click(bounds.x+bounds.width-12,bounds.y+bounds.height/2);assert.equal(await row.locator('input').isChecked(),true);
+  await page.screenshot({path:path.join(output,'connector-form.png')});await popup().getByRole('button',{name:'Send answers',exact:true}).click();await popup().waitFor({state:'hidden'});await until(()=>app.evaluate(()=>globalThis.qaConnector.results.length));await until(attached,value=>value===1);
+  assert.deepEqual(await app.evaluate(()=>globalThis.qaConnector.results[0]),{action:'accept',content:{label:'SYNTHETIC_PRIVATE_ANSWER',limit:0,enabled:false,choice:'json',tags:['notes']}});
+  const chatState=await page.evaluate(id=>window.studio.invoke('conversations.get',{id}),chat.id);assert.ok(!JSON.stringify(chatState).includes('SYNTHETIC_PRIVATE_ANSWER'));assert.equal(await page.locator('.app-frame').evaluate(element=>element.inert),false);
+  await app.evaluate(()=>globalThis.qaConnector.next());await popup().waitFor();await page.reload();await popup().waitFor();await until(attached,value=>value===0);await popup().getByRole('button',{name:'Decline',exact:true}).click();await until(()=>app.evaluate(()=>globalThis.qaConnector.results.length),n=>n===2);assert.deepEqual(await app.evaluate(()=>globalThis.qaConnector.results[1]),{action:'decline'});
+  await page.locator('.chat-open').filter({hasText:chat.title}).click();await page.getByRole('button',{name:'Browser',exact:true}).click();await until(attached,value=>value===1);
+  await app.evaluate(()=>globalThis.qaConnector.next());await popup().waitFor();await page.keyboard.press('Escape');
+  assert.equal(await popup().isVisible(),true);assert.equal((await page.evaluate(()=>window.studio.invoke('bootstrap'))).connectorForms.length,1);
+  assert.equal(await app.evaluate(()=>globalThis.qaConnector.results.length),2);await popup().getByRole('button',{name:'Cancel',exact:true}).click();
+  await until(()=>app.evaluate(()=>globalThis.qaConnector.results.length),n=>n===3);assert.deepEqual(await app.evaluate(()=>globalThis.qaConnector.results[2]),{action:'cancel'});
+  await popup().waitFor({state:'hidden'});await until(attached,value=>value===1);
+  await app.evaluate(()=>globalThis.qaConnector.next());
+  const confirmation=page.getByRole('dialog',{name:'Permission needed',exact:true});await confirmation.waitFor();
+  assert.equal(await confirmation.getByRole('button',{name:'Allow',exact:true}).count(),1);
+  assert.equal(await confirmation.getByRole('button',{name:'Send answers',exact:true}).count(),0);
+  assert.equal(await confirmation.evaluate(element=>document.activeElement===element),true);
+  await page.keyboard.press('Enter');assert.equal(await app.evaluate(()=>globalThis.qaConnector.results.length),3);
+  await page.keyboard.press('Escape');assert.equal(await confirmation.isVisible(),true);
+  await page.keyboard.press('Control+Shift+H');assert.equal(await confirmation.isVisible(),true);
+  await page.keyboard.press('Control+Shift+H');
+  await confirmation.getByRole('button',{name:'Allow',exact:true}).click();
+  await until(()=>app.evaluate(()=>globalThis.qaConnector.results.length),n=>n===4);
+  assert.deepEqual(await app.evaluate(()=>globalThis.qaConnector.results[3]),{action:'accept',content:{}});
+  assert.equal((await page.evaluate(()=>window.studio.invoke('bootstrap'))).connectorForms.length,0);
+  await confirmation.waitFor({state:'hidden'});await until(attached,value=>value===1);
+  const browserValue=await app.evaluate(async()=>[...globalThis.qaConnector.pages].find(item=>item.visible).wc.executeJavaScript('document.querySelector("input").value'));assert.equal(browserValue,'Unchanged');
+  const approval=page.locator('.approval-card');await approval.waitFor();await app.evaluate(()=>globalThis.qaConnector.live=false);await approval.getByRole('button',{name:'Allow once',exact:true}).click();await until(()=>app.evaluate(()=>globalThis.qaConnector.writeResult));
+  const staleWrite=await app.evaluate(()=>globalThis.qaConnector.writeResult);assert.equal(staleWrite.isError,true);assert.match(JSON.stringify(staleWrite),/originating native agent or turn has ended/);await assert.rejects(access(path.join(workspace,'scoped.txt')));await approval.waitFor({state:'hidden'});assert.equal(await page.locator('.approval-card').count(),0);
+  await app.evaluate(()=>globalThis.qaConnector.finish());await page.getByText('Synthetic connector checks finished.',{exact:true}).waitFor();assert.deepEqual(report.errors,[]);
+  report.checks={nativeBrowserDetachedBeforeInput:true,backgroundInertAndPopupInteractive:true,defaultsRemainUnselected:true,invalidIPCSubmissionLeavesFormOpen:true,pendingFormRestoredAfterReload:true,trustedWholeRowClickSelectsCheckbox:true,typedValuesZeroAndFalseReturnedExactly:true,submittedContentAbsentFromChatHistory:true,declineReturnsNoContent:true,noHudTogglePreservesForm:true,escapePreservesPendingForm:true,explicitCancelReturnsNoContent:true,allTransientFormsResolved:true,browserFocusAndContentPreserved:true,revokedNativeChildApprovalPreventsWrite:true};report.passed=true;report.protection=await fixture.verify();
+}catch(error){report.passed=false;report.error=error.stack;process.exitCode=1;if(page)await page.screenshot({path:path.join(output,'connector-failure.png')}).catch(()=>{});}
+finally{if(app){await app.evaluate(({app})=>app.exit(0)).catch(()=>{});await app.close().catch(()=>{});}await new Promise(resolve=>server.close(resolve));await writeFile(path.join(output,'result.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));}

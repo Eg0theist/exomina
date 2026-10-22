@@ -9,17 +9,19 @@ on:
       validate_only:
         type: boolean
         default: false
+  # This is the required branch-protection check, so every PR must produce it,
+  # including documentation-only and website-only changes.
   pull_request:
-    paths: ['package.json', 'package-lock.json', 'scripts/**', 'desktop/**', 'src/**', 'test/**', '.github/**']
 permissions:
   contents: read
 concurrency:
   group: security-maintenance-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   validate:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.validate_only)
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout exact candidate without signing credentials
         shell: pwsh
@@ -27,6 +29,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          foreach ($name in @('TEMP','TMP','TMPDIR')) {
+            [Environment]::SetEnvironmentVariable($name, $env:RUNNER_TEMP)
+            "$name=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          }
           gh repo clone $env:GITHUB_REPOSITORY . -- --filter=blob:none --no-checkout
           if ($LASTEXITCODE) { throw 'Checkout failed.' }
           if ($env:PR_NUMBER) {
@@ -43,6 +49,7 @@ jobs:
       - name: Prepare runtimes, build and test candidate
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
           node -e "if(Number(process.versions.node.split('.')[0])<24)throw Error('The runner needs Node.js 24 or newer. Configure its trusted runtime before enabling this job.')"
           if ($LASTEXITCODE) { throw 'Unsupported runner Node runtime.' }
           npm ci --ignore-scripts

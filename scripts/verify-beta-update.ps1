@@ -30,7 +30,10 @@ try {
     foreach ($entry in Get-ChildItem -LiteralPath $pending.Pop() -Force) {
       if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked beta program files require manual review.' }
       if ($entry.PSIsContainer) { $pending.Push($entry.FullName) }
-      elseif (-not $seen.Contains($entry.FullName) -and $entry.Name -ne 'exomina.release-integrity.json' -and $entry.Name -ne 'Uninstall Exomina Beta.exe') { throw 'Added beta program files require manual review.' }
+      elseif (-not $seen.Contains($entry.FullName)) {
+        $generatedAtRoot = $entry.DirectoryName -ieq $root -and $entry.Name -in @('exomina.release-integrity.json','Uninstall Exomina.exe','Uninstall Exomina Beta.exe','debug.log')
+        if (-not $generatedAtRoot) { throw 'Added beta program files require manual review.' }
+      }
     }
   }
   exit 0

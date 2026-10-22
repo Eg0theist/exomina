@@ -20,7 +20,7 @@ async function fixture(directory,name,files){
 }
 
 test('public path policy allows source and docs while excluding credential and output paths',()=>{
- for(const relative of ['desktop/main.mjs','scripts/package-cross-platform.mjs','docs/de/index.html','build/entitlements.mac.plist','LICENSE'])assert.equal(publicPathAllowed(relative),true,relative);
+ for(const relative of ['desktop/main.mjs','scripts/package-cross-platform.mjs','scripts/release-windows.mjs','docs/release-notes.md','docs/de/index.html','build/entitlements.mac.plist','LICENSE'])assert.equal(publicPathAllowed(relative),true,relative);
  for(const relative of ['accounts/key.json','desktop/accounts/key.json','data/chats.json','node_modules/tool/index.js','scripts/.env','scripts/signing.pem','scripts/output/key.json','src/assets/theme-art/a.png','../desktop/main.mjs','release-linux/app','unknown-root.txt'])assert.equal(publicPathAllowed(relative),false,relative);
 });
 
@@ -61,6 +61,9 @@ test('public export includes build and test inputs, Apache notices and platform 
  assert.equal(receipt.profile,'public');assert.equal(pkg.version,JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version);
  assert.equal(pkg.license,'Apache-2.0');assert.match(await readFile(path.join(output,'LICENSE'),'utf8'),/Apache License/);
  assert.match(await readFile(path.join(output,'NOTICE'),'utf8'),/Victor Taelin/);
+ assert.ok(pkg.build.files.includes('!desktop/agent-spending.mjs'));
+ assert.doesNotMatch(await readFile(path.join(output,'desktop/main.mjs'),'utf8'),/SPENDING_TOOLS|spending_preview|case 'spending\./);
+ assert.doesNotMatch(await readFile(path.join(output,'src/App.jsx'),'utf8'),/AgentSpending/);
  assert.match(pkg.scripts['package:mac'],/package-cross-platform/);assert.match(pkg.scripts['package:linux'],/package-cross-platform/);
  assert.equal(pkg.dependencies['@xai-official/grok-win32-x64'],undefined);assert.equal(Object.keys(pkg.optionalDependencies).filter(name=>name.startsWith('@xai-official/grok-')).length,6);
  assert.deepEqual(lock.packages[''].optionalDependencies,pkg.optionalDependencies);assert.deepEqual(lock.packages[''].dependencies,pkg.dependencies);
