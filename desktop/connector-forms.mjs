@@ -114,7 +114,12 @@ export class ConnectorForms{
     const id=randomUUID(),request={id,conversationId,...form};
     return new Promise(resolve=>{
       const item={request,run,isActive,resolve,threadId:params.threadId};this.pending.set(id,item);
-      item.timer=this.setTimer(()=>this.finish(item,{action:'cancel'}),this.timeoutMs);item.timer?.unref?.();
+      // A missed popup is not a user cancellation. Keep the request pending
+      // while its originating run is live, including across HUD toggles/reloads.
+      item.timer=this.setTimer(()=>{
+        if(!this.live(item)){this.finish(item,{action:'cancel'});return;}
+        this.emit({type:'chat.notice',conversationId,text:form.serverName+' is still waiting for your input. Review its open request to continue, or choose Cancel.'});
+      },this.timeoutMs);item.timer?.unref?.();
       this.emit({type:'connector.form',request});
     });
   }

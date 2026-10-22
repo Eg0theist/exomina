@@ -17,6 +17,6 @@ test('manual beta installer refuses changed program files and missing legacy bas
  await mkdir(path.join(app,'resources'));await writeFile(path.join(app,'Exomina.exe'),'synthetic never executed');await writeFile(path.join(app,'exomina.build.json'),JSON.stringify({id:'synthetic-beta'}));
  const check=()=>runProcess('powershell.exe',['-NoProfile','-NonInteractive','-WindowStyle','Hidden','-File',path.resolve('scripts/verify-beta-update.ps1'),'-App',app]);
  assert.notEqual((await check()).code,0);
- const files=await new UpdateMerge({}).programTree(app);await writeFile(path.join(app,'exomina.release-integrity.json'),JSON.stringify({format:1,buildId:'synthetic-beta',files}));assert.equal((await check()).code,0);
+ const files=await new UpdateMerge({}).programTree(app);await writeFile(path.join(app,'exomina.release-integrity.json'),JSON.stringify({format:1,buildId:'synthetic-beta',files}));const verified=await check();assert.equal(verified.code,0,verified.stdout+'\n'+verified.stderr);
  await writeFile(path.join(app,'Exomina.exe'),'changed after release');const refused=await check();assert.notEqual(refused.code,0);assert.match(refused.stdout,/Customized beta file/);
 });

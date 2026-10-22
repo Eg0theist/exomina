@@ -25,11 +25,11 @@ for(const file of [python,cua,path.join(root,'vendor','python','lib','python3.13
  const info=await stat(file);if(!(info.mode&0o004))throw Error('Bundled program files are not readable to ordinary installed users.');
 }
 const version=await run(python,['-I','--version']);
-if(!/^Python 3\.13\.7\b/.test(version.stdout))throw Error('Native Python did not report its pinned version.');
+if(!/^Python 3\.13\.17\b/.test(version.stdout))throw Error('Native Python did not report its pinned version.');
 const archive=path.join(profile,'synthetic-export.zip');
 await run(python,['-I','-c','import sys, zipfile, zlib, bz2, sqlite3\nwith zipfile.ZipFile(sys.argv[1],"w",zipfile.ZIP_DEFLATED) as archive:\n archive.writestr("conversations.json","[{\\"synthetic\\":true}]")',archive]);
 const imported=await readExportFile(archive);
 if(imported.inputs.length!==1||imported.inputs[0].text!=='[{"synthetic":true}]')throw Error('The bundled native importer did not read the synthetic ZIP correctly.');
 const driver=await run(cua,['--version']);
 if(!/\b0\.33\.4\b/.test(driver.stdout))throw Error('Native Cua did not report its pinned version.');
-console.log(JSON.stringify({platform:process.platform,arch:process.arch,python:'3.13.7',cua:'0.33.4',syntheticZipImport:true,publicProgramPermissions:true,bundledSkillRetained:true,isolatedProfile:true,desktopPermissionTested:false}));
+console.log(JSON.stringify({platform:process.platform,arch:process.arch,python:'3.13.17',cua:'0.33.4',syntheticZipImport:true,publicProgramPermissions:true,bundledSkillRetained:true,isolatedProfile:true,desktopPermissionTested:false}));

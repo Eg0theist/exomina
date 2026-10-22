@@ -5,9 +5,9 @@ Muse Code SDK 1.4.6 (MIT), and xAI Grok 1.0.46 (Apache-2.0).
 Provider accounts, access and
 billing remain subject to each provider's service terms. Exomina is independent.
 
-Python 3.13.7 Windows embeddable runtime: PSF license, vendor/python/LICENSE.txt.
-Official source: https://www.python.org/ftp/python/3.13.7/python-3.13.7-embed-amd64.zip
-SHA-256: f6cca216a359be84797cabb54149ce5e062afb16cc7567eb7fc51cacb2d86b65
+Python 3.13.17 Windows embeddable runtime: PSF license, vendor/python/LICENSE.txt.
+Official source: https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd64.zip
+SHA-256: 9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38
 
 CUA Driver 0.33.4: MIT, vendor/cua-driver/LICENSE.md. Public source:
 https://github.com/trycua/cua/releases/tag/cua-driver-rs-v0.33.4
@@ -35,9 +35,9 @@ user's own unmodified Claude Code, installed from Anthropic with Anthropic's
 official installer. Anthropic's terms govern that software and the user's Claude
 account.
 
-Native macOS/Linux Python 3.13.7 standalone builds: PSF and retained bundled
+Native macOS/Linux Python 3.13.17 standalone builds: PSF and retained bundled
 component licenses. Public source astral-sh/python-build-standalone release
-20250918. Exact archive URLs and SHA-256 hashes are in
+20261021. Exact archive URLs and SHA-256 hashes are in
 scripts/native-vendor-config.mjs and the packaged runtime provenance.
 
 Native CUA Driver 0.33.4 for macOS/Linux: MIT, full upstream app/program tree
