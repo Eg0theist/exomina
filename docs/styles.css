@@ -389,21 +389,11 @@ h1 em{font-family:var(--serif);font-style:italic;font-weight:500;letter-spacing:
 .optional-note{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:28px;color:var(--muted);font-size:15px;text-align:center}
 .optional-note .icon{color:var(--green)}
 
-/* release update */
-.release-update .section-head{max-width:760px;margin-bottom:32px}
-.release-update .bento p{color:var(--muted);margin-top:10px}
-.release-status{margin-top:28px;padding:24px;border:1px solid var(--line2);border-radius:20px;background:var(--panel)}
-.release-status p{color:var(--muted);max-width:850px}
-.release-status strong{color:var(--ink)}
-.release-status .duo-actions{margin-top:18px;flex-wrap:wrap}
-
 /* download */
 .download{background:radial-gradient(80% 60% at 50% 0%,rgba(180,140,255,.14),transparent 70%)}
 .download-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:40px}
 .release-pill{display:inline-flex;align-items:center;gap:10px;text-decoration:none;font-size:14px;color:var(--muted);border:1px solid var(--line2);padding:9px 16px;border-radius:999px}
 .release-pill strong{color:var(--ink)}
-.installer-status{color:var(--muted);margin:-16px 0 32px;max-width:850px}
-.installer-status a{color:var(--lilac);text-underline-offset:3px}
 .download-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
 .download-card{position:relative;display:flex;flex-direction:column;gap:8px;text-decoration:none;padding:24px 20px 20px;border-radius:20px;background:var(--panel);border:1px solid var(--line);transition:transform .3s var(--ease),border-color .3s,box-shadow .3s}
 .download-card:hover{transform:translateY(-5px);border-color:rgba(220,198,255,.45);box-shadow:0 24px 60px -24px #b48cff88}
