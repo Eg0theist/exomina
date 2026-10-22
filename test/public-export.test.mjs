@@ -68,7 +68,7 @@ test('public export includes build and test inputs, Apache notices and platform 
  assert.equal(pkg.dependencies['@xai-official/grok-win32-x64'],undefined);assert.equal(Object.keys(pkg.optionalDependencies).filter(name=>name.startsWith('@xai-official/grok-')).length,6);
  assert.deepEqual(lock.packages[''].optionalDependencies,pkg.optionalDependencies);assert.deepEqual(lock.packages[''].dependencies,pkg.dependencies);
  for(const name of Object.keys(pkg.optionalDependencies).filter(name=>name.startsWith('@xai-official/grok-')))assert.equal(lock.packages[`node_modules/${name}`].optional,true);
- for(const relative of ['scripts/check-changes.mjs','scripts/public-export.mjs','scripts/public-template/LICENSE','scripts/package-cross-platform.mjs','scripts/native-package-preflight.mjs','scripts/qa-native-install.mjs','build/entitlements.mac.plist','docs/index.html','.github/workflows/native-packages.yml'])await access(path.join(output,relative));
+ for(const relative of ['scripts/check-changes.mjs','scripts/public-export.mjs','scripts/public-template/LICENSE','scripts/private-beta-installer-config.mjs','scripts/package-cross-platform.mjs','scripts/native-package-preflight.mjs','scripts/qa-native-install.mjs','build/entitlements.mac.plist','docs/index.html','.github/workflows/native-packages.yml'])await access(path.join(output,relative));
  for(const command of Object.values(pkg.scripts))for(const match of command.matchAll(/node scripts\/([^\s]+)/g))await access(path.join(output,'scripts',match[1]));
  await assert.rejects(access(path.join(output,'PRIVATE-BETA.md')),{code:'ENOENT'});
  for(const relative of ['data','Private','accounts','node_modules','release','scripts/beta-docs'])await assert.rejects(access(path.join(output,relative)),{code:'ENOENT'});
