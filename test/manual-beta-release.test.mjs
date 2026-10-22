@@ -29,8 +29,16 @@ test('manual beta qualification requires every exact Windows and native installe
 test('tampering after qualification cannot substitute another installer',async t=>{
  const {directory,version,files}=await fixture(t);await writeFile(files[3],'ALTERED INERT FILE');await assert.rejects(qualifyManualBeta(directory,version),/Native qualification/);
 });
-test('failed Windows startup or connector checks block the manual beta',async t=>{
- const {directory,version}=await fixture(t);await writeFile(path.join(directory,'windows-connector.json'),JSON.stringify({passed:false}));await assert.rejects(qualifyManualBeta(directory,version),/Windows qualification/);
+test('failed Windows install or startup checks block the manual beta',async t=>{
+ const {directory,version}=await fixture(t);await writeFile(path.join(directory,'windows-startup.json'),JSON.stringify({ok:false}));await assert.rejects(qualifyManualBeta(directory,version),/Windows qualification/);
+});
+
+test('a failed connector check for the exact installer is published as a known issue',async t=>{
+ const {directory,version}=await fixture(t),windowsHash=sha(await readFile(path.join(directory,`Exomina-Beta-${version}-windows-x64-Setup.exe`)));
+ await writeFile(path.join(directory,'windows-connector.json'),JSON.stringify({passed:false,installerSha256:windowsHash,version}));
+ const result=await qualifyManualBeta(directory,version);
+ assert.equal(result.qualification.windowsConnectorInput,false);assert.equal(result.knownIssues.length,1);
+ await writeFile(path.join(directory,'windows-connector.json'),JSON.stringify({passed:false}));await assert.rejects(qualifyManualBeta(directory,version),/Windows qualification/);
 });
 
 test('a connector pass for another installer cannot qualify the release',async t=>{

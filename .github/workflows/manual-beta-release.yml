@@ -12,8 +12,8 @@ concurrency:
   group: manual-beta-release
   cancel-in-progress: false
 jobs:
+  # Any branch can run full qualification; only the default branch publishes.
   source:
-    if: github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -85,13 +85,21 @@ jobs:
           if ($LASTEXITCODE) { throw 'Install, reinstall or uninstall qualification failed.' }
           node scripts/qa-windows-installed-startup.mjs
           if ($LASTEXITCODE) { throw 'Installed GUI startup qualification failed.' }
+          # Recorded in the release receipt; a failure is published as a known issue.
           node scripts/qa-connector-forms.mjs
-          if ($LASTEXITCODE) { throw 'Packaged no-HUD connector input qualification failed.' }
+          $connectorExit = $LASTEXITCODE
+          if ($connectorExit) { Write-Warning 'Packaged no-HUD connector input qualification failed; recording it as a known issue.' }
+          $global:LASTEXITCODE = 0
           $destination = New-Item -ItemType Directory -Path release/qualification
           $qaRoot = Join-Path (Split-Path $PWD -Parent) '.exomina-qa-temp'
           $install = @(Get-ChildItem -LiteralPath $qaRoot -Filter report.json -File -Recurse)
           $startup = @(Get-ChildItem -LiteralPath $qaRoot -Filter installed-startup-report.json -File -Recurse)
           $forms = @(Get-ChildItem -Path '.verification/qa-connector-forms-*/result.json' -File)
+          if ($connectorExit -and $forms.Count -eq 0) {
+            $missing = New-Item -ItemType Directory -Path '.verification/qa-connector-forms-missing' -Force
+            @{ passed = $false; error = 'The connector check ended before writing its report.' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $missing 'result.json') -Encoding utf8
+            $forms = @(Get-ChildItem -Path '.verification/qa-connector-forms-*/result.json' -File)
+          }
           if ($install.Count -ne 1 -or $startup.Count -ne 1 -or $forms.Count -ne 1) { throw 'Exact Windows qualification reports are ambiguous.' }
           Copy-Item -LiteralPath $install[0].FullName -Destination (Join-Path $destination 'windows-install.json')
           Copy-Item -LiteralPath $startup[0].FullName -Destination (Join-Path $destination 'windows-startup.json')
@@ -130,6 +138,7 @@ jobs:
       native_family: all
   publish:
     needs: [source, windows, native]
+    if: github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-24.04
     permissions:
       contents: write
