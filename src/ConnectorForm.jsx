@@ -3,6 +3,7 @@ import {createPortal} from 'react-dom';
 import './connector-forms.css';
 
 export default function ConnectorForm({request,chatTitle,onRespond}){
+  const confirmation=request.fields.length===0;
   const [values,setValues]=useState({}),[busy,setBusy]=useState(false),[error,setError]=useState(''),[escapeHint,setEscapeHint]=useState(false);
   const dialog=useRef(null);
   useLayoutEffect(()=>{
@@ -38,9 +39,9 @@ export default function ConnectorForm({request,chatTitle,onRespond}){
     if(event.shiftKey&&(document.activeElement===first||!dialog.current.contains(document.activeElement))){event.preventDefault();last?.focus();}else if(!event.shiftKey&&(document.activeElement===last||!dialog.current.contains(document.activeElement))){event.preventDefault();first?.focus();}
   };
   return createPortal(<div className="modal-backdrop connector-backdrop"><section ref={dialog} tabIndex={-1} className="modal connector-modal" role="dialog" aria-modal="true" aria-labelledby="connector-title">
-    <h2 id="connector-title">{request.serverName} needs your input</h2>
+    <h2 id="connector-title">{confirmation?'Permission needed':request.serverName+' needs your input'}</h2>
     <p className="connector-chat">{chatTitle||'Active task'}</p><p className="connector-message">{request.message}</p>
-    <p className="connector-transfer">Send these answers to {request.serverName} to continue.</p>
+    <p className="connector-transfer">{confirmation?'Review the request above. Allow continues this action; Decline refuses it.':'Send these answers to '+request.serverName+' to continue.'}</p>
     {escapeHint&&<p role="status">This request is still waiting. Choose an action below, or use Cancel to dismiss it.</p>}
     <form onSubmit={event=>{event.preventDefault();respond('accept');}}>
       <div className="connector-fields">{request.fields.map((field,index)=>{
@@ -51,7 +52,7 @@ export default function ConnectorForm({request,chatTitle,onRespond}){
           <input id={id} disabled={busy} value={value} required={field.required} aria-describedby={field.description?id+'-description':undefined} type={['number','integer'].includes(field.type)?'number':field.format==='email'?'email':field.format==='date'?'date':'text'} min={field.minimum} max={field.maximum} step={field.type==='integer'?1:'any'} maxLength={field.type==='string'?8000:undefined} onChange={event=>change(field.name,event.target.value)}/>}</div>;
       })}</div>
       {error&&<p className="inline-error" role="alert">{error}</p>}
-      <div className="modal-actions"><button type="button" className="secondary-button" disabled={busy} onClick={()=>respond('cancel')}>Cancel</button><button type="button" className="secondary-button" disabled={busy} onClick={()=>respond('decline')}>Decline</button><button className="primary-button" disabled={busy}>{busy?'Sending…':'Send answers'}</button></div>
+      <div className="modal-actions"><button type="button" className="secondary-button" disabled={busy} onClick={()=>respond('cancel')}>Cancel</button><button type="button" className="secondary-button" disabled={busy} onClick={()=>respond('decline')}>Decline</button><button className="primary-button" disabled={busy}>{busy?'Sending…':confirmation?'Allow':'Send answers'}</button></div>
     </form>
   </section></div>,document.body);
 }
