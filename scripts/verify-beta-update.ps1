@@ -1,5 +1,13 @@
 param([Parameter(Mandatory)][string]$App)
 $ErrorActionPreference = 'Stop'
+function Get-BetaFileSha256([string]$File) {
+  # Use the OS cryptography API even when a PowerShell 7 parent supplied a
+  # module path that hides Windows PowerShell's Get-FileHash command.
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  $stream = [IO.File]::OpenRead($File)
+  try { return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-','').ToLowerInvariant() }
+  finally { $stream.Dispose(); $algorithm.Dispose() }
+}
 try {
   $root = [IO.Path]::GetFullPath($App).TrimEnd('\')
   if ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked beta installation.' }
@@ -15,7 +23,7 @@ try {
     $cursor = [IO.Path]::GetDirectoryName($file)
     while ($cursor -eq $root -or $cursor.StartsWith($root + '\',[StringComparison]::OrdinalIgnoreCase)) { if ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked beta program directory.' }; if ($cursor -eq $root) { break }; $cursor=[IO.Path]::GetDirectoryName($cursor) }
     $info = Get-Item -LiteralPath $file -Force
-    if ($info.PSIsContainer -or ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $info.Length -ne $entry.size -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256) { throw "Customized beta file: $($entry.path). Preserve this installation and port these changes into source before updating." }
+    if ($info.PSIsContainer -or ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $info.Length -ne $entry.size -or (Get-BetaFileSha256 $file) -cne $entry.sha256) { throw "Customized beta file: $($entry.path). Preserve this installation and port these changes into source before updating." }
   }
   $pending = [Collections.Generic.Stack[string]]::new(); $pending.Push($root)
   while ($pending.Count) {
