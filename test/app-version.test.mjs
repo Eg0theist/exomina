@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm,readdir} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {nextBuildVersion,prepareVersion} from '../scripts/prepare-version.mjs';
+import {nextBuildVersion,nextReleaseVersion,prepareVersion} from '../scripts/prepare-version.mjs';
 import {compareVersions} from '../desktop/public-updates.mjs';
 
 async function fixture(t,version='0.5.0-beta.4') {
@@ -15,7 +15,7 @@ async function fixture(t,version='0.5.0-beta.4') {
   return root;
 }
 
-test('packaging advances beta revisions and stable patches with semantic ordering', () => {
+test('legacy explicit version advances retain semantic ordering', () => {
   for (const [version,next] of [['0.5.0-beta.4','0.5.0-beta.5'],['0.5.0-beta.9','0.5.0-beta.10'],['1.2.3','1.2.4'],['0.5.0-rc','0.5.0-rc.1']]) {
     assert.equal(nextBuildVersion(version),next);
     assert.ok(compareVersions(next,version)>0);
@@ -23,7 +23,7 @@ test('packaging advances beta revisions and stable patches with semantic orderin
   for (const version of ['0.5','0.5.0-beta.01','0.5.0+metadata','-1.2.3','1.2.9007199254740991']) assert.throws(() => nextBuildVersion(version));
 });
 
-test('renderer builds keep the version and packaged builds synchronize all manifests', async t => {
+test('ordinary preparation keeps the version and deliberate releases synchronize manifests', async t => {
   const root=await fixture(t);
   assert.equal(await prepareVersion(root),'0.5.0-beta.4');
   assert.equal(await prepareVersion(root),'0.5.0-beta.4');
@@ -37,6 +37,21 @@ test('renderer builds keep the version and packaged builds synchronize all manif
   assert.equal(JSON.parse(await readFile(path.join(root,'desktop','app-version.json'),'utf8')).version,manifest.version);
   assert.equal(await prepareVersion(root,{advance:true}),'0.5.0-beta.6');
   assert.ok(!(await readdir(root)).some(file => file.includes('.version-')||file.endsWith('.lock')));
+});
+
+test('release choices distinguish feature, fix and breaking releases without long preview counters',async t=>{
+  assert.equal(nextReleaseVersion('0.5.0-beta.117','minor'),'0.6.0');
+  assert.equal(nextReleaseVersion('0.6.0','patch'),'0.6.1');
+  assert.equal(nextReleaseVersion('0.6.9','minor'),'0.7.0');
+  assert.equal(nextReleaseVersion('0.6.9','major'),'1.0.0');
+  assert.equal(nextReleaseVersion('0.7.0-rc.2','patch'),'0.7.0');
+  assert.throws(()=>nextReleaseVersion('0.6.0','automatic'));
+  const root=await fixture(t),selected=await prepareVersion(root,{setVersion:'0.6.0'});
+  assert.equal(selected,'0.6.0');
+  for(let i=0;i<3;i++)assert.equal(await prepareVersion(root),'0.6.0');
+  assert.equal(await prepareVersion(root,{release:'patch'}),'0.6.1');
+  assert.equal(JSON.parse(await readFile(path.join(root,'package-lock.json'),'utf8')).packages[''].version,'0.6.1');
+  await assert.rejects(prepareVersion(root,{advance:true,release:'minor'}),/one version operation/);
 });
 
 test('a concurrent version writer fails closed without changing the manifests', async t => {

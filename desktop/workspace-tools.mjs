@@ -72,9 +72,9 @@ export class WorkspaceTools {
     checkCancelled();
     if(typeof args.command!=='string'||!args.command.trim()||args.command.length>16000)throw Error('Provide a command of up to 16,000 characters.');
     const cwd=await realpath(this.getSettings().workspace);
+    const shell=workspaceShell(this.platform,args.command);
     if(expectedWorkspace&&!sameDirectory(cwd,expectedWorkspace))throw Error('The workspace changed after this terminal command was submitted. Retry in the selected folder.');
     await this.excludePrivate(cwd);
-    const shell=workspaceShell(this.platform,args.command);
     const approval=this.approve({title:'Allow terminal command?',detail:`Runs in ${shell.label} with your account permissions and can access beyond this folder.\n\nWorking folder: ${cwd}\n\n${args.command}`,conversationId,action:{kind:'execute',tool:'workspace_shell',target:args.command},input:{command:args.command,cwd},...(signal?{signal}:{})});
     let abortApproval;
     const approved=await(signal?Promise.race([approval,new Promise((_resolve,reject)=>{abortApproval=()=>reject(Object.assign(Error('This terminal command was stopped.'),{code:'TERMINAL_CANCELLED'}));signal.addEventListener('abort',abortApproval,{once:true});if(signal.aborted)abortApproval();})]).finally(()=>signal.removeEventListener('abort',abortApproval)):approval);

@@ -16,7 +16,7 @@ export const DEFAULT_THEME = 'verdigris';
 export const DEFAULT_APPEARANCE = { theme: DEFAULT_THEME, lightTheme: 'paper', darkTheme: DEFAULT_THEME, readingFont: 'sans', textSize: 'default', uiScale: 1, chatWidth: 'default', glow: false, motion: 'system', textColor: '', hiddenThemes: [], borderless: true, companionEnabled: false, companionAvatar: 'fox', companionColor: '#b2c9bb', companionLabel: '', companionAnimate: true,companionExpressive:true,companionDesign:DEFAULT_COMPANION_DESIGN,companionArtwork:null };
 
 export const READING_FONTS = [
-  { id: 'sans', name: 'Sans', stack: "'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif" },
+  { id: 'sans', name: 'Sans', stack: "'Bahnschrift','DIN Alternate','Aptos','Segoe UI Variable Text','Segoe UI',system-ui,sans-serif" },
   { id: 'serif', name: 'Serif', stack: "'Sitka Text','Iowan Old Style','Palatino Linotype','Book Antiqua',Georgia,serif" },
   { id: 'mono', name: 'Mono', stack: "'Cascadia Code','Cascadia Mono',Consolas,'SFMono-Regular',monospace" },
 ];

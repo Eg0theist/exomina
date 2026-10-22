@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ChatMemoryBackfill, backfillEnabled, backfillCap, backfillChoice, backfillUsageCeiling, backfillUsageBlock, chooseBackfillModel, localDay, BACKFILL_DAILY_CAP } from '../desktop/chat-memory-backfill.mjs';
 import { ChatMemoryCompactor } from '../desktop/chat-memory-compactor.mjs';
+import { ChatMemoryTree } from '../desktop/chat-memory-tree.mjs';
 import { RequestGuard } from '../desktop/request-guard.mjs';
 
 const NOW = Date.parse('2026-10-20T12:00:00');
@@ -14,6 +15,49 @@ const models = [
   { provider: 'codex', model: 'gpt-6.1-sol', role: 'balanced', available: true, defaultEffort: 'low', efforts: ['low', 'medium'] },
   { provider: 'codex', model: 'gpt-6-luna', role: 'light', available: true, defaultEffort: 'medium', efforts: ['low', 'medium', 'high'] }
 ];
+
+test('two parallel catch-up requests share hourly and daily accounting without dispatching past the guard', async () => {
+  const f = await setup({ settings: { chatMemoryBackfillDailyCap: 3 } });
+  const guard = new RequestGuard({ now: () => NOW, getLimits: () => ({}), getCatchUpLimit: () => 2 });
+  f.backfill.getRequestAvailability = provider => guard.availability({ provider, kind: 'catchup' });
+  const tree = await new ChatMemoryTree(path.join(f.dir, 'real-queue')).init();
+  await tree.sync('a', Array.from({ length: 4 }, (_, id) => ({ key: String(id), role: 'user', kind: 'message', text: `Synthetic decision ${id}. ` + 'Detailed context. '.repeat(60) })));
+  let calls = 0;
+  const worker = new ChatMemoryCompactor({ tree, concurrency: 2, available: () => models, chooseModel: list => f.backfill.choose(list), beforeRequest: (job, model) => f.backfill.reserve(job, model), summarize: async () => { await guard.checkAndPersist({ provider: 'codex', kind: 'catchup' }); calls++; await new Promise(resolve => setImmediate(resolve)); return 'Retained decision.'; } });
+  try {
+    worker.notify('*'); await worker.drain();
+    assert.equal(calls, 2); assert.equal(worker.stats().completed, 2); assert.ok(f.backfill.status().requests >= calls && f.backfill.status().requests <= 3, 'A reservation racing the hourly gate stays conservatively counted, without dispatch.'); assert.equal(guard.view().used.codex.catchup.hour, 2);
+    assert.equal(guard.availability({ provider: 'codex', kind: 'catchup' }).blocked, true); assert.ok(['safety-hour', 'daily-cap'].includes(f.backfill.status().reason)); assert.equal((await tree.stats('a')).pendingJobs, 2); assert.equal((await tree.stats('a')).jobs.running, 0); assert.equal((await tree.audit('a')).valid, true);
+  } finally { await worker.close(); await tree.close(); await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test('recommended retries Luna once then uses verified Sol for that source and returns to Luna for the next', async () => {
+  const f = await setup();
+  const jobs = [0, 1].map(id => ({ id, count: 1, chatId: 'a', sourceHash: String(id), state: 'ready' }));
+  const used = [];
+  const tree = {
+    async readyJobs(limit) { return jobs.filter(job => job.state === 'ready').slice(0, limit).map(job => { job.state = 'running'; return { ...job, token: String(job.id) }; }); },
+    async sourceTask() { return { source: [{ text: 'User corrected the path; verification is pending.' }], prefix: '[user/text]' }; },
+    async commitSummary(job) { jobs[job.id].state = 'built'; return { committed: true }; },
+    async failJob(job) { jobs[job.id].state = 'failed'; }
+  };
+  const worker = new ChatMemoryCompactor({ tree, concurrency: 1, available: () => models,
+    chooseModel: list => f.backfill.choose(list), chooseFallback: (list, current) => f.backfill.fallback(list, current),
+    beforeRequest: (job, model) => f.backfill.reserve(job, model),
+    summarize: async ({ model, job }) => { used.push(model.model); return job.id === 0 && model.model === 'gpt-6-luna' ? 'x'.repeat(600) : 'Correction retained; verification pending.'; }
+  });
+  try {
+    worker.notify('*'); await worker.drain();
+    assert.deepEqual(used, ['gpt-6-luna', 'gpt-6-luna', 'gpt-6.1-sol', 'gpt-6-luna']);
+    assert.equal(f.backfill.status().requests, 4); assert.equal(worker.stats().completed, 2);
+    const luna = { ...chooseBackfillModel(models), backfill: true };
+    f.state.settings.chatMemoryBackfillModel = { provider: 'codex', model: 'gpt-6-luna', effort: 'high' };
+    assert.equal(f.backfill.fallback(models, luna), null, 'An explicit choice cannot silently switch.');
+    delete f.state.settings.chatMemoryBackfillModel;
+    assert.equal(f.backfill.fallback(models.filter(model => model.model !== 'gpt-6.1-sol'), luna), null);
+    f.state.usage = fresh(90); assert.equal(f.backfill.fallback(models, luna), null, 'Fallback keeps the usage guard.');
+  } finally { await worker.close(); await rm(f.dir, { recursive: true, force: true }); }
+});
 
 test('catch-up waits before reserving at the real global safety limit and recovers when its window expires', async () => {
   let now = NOW;

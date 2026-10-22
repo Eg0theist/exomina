@@ -4,9 +4,9 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
-export const ANALYSIS_NODE_VERSION='24.13.0';
-export const ANALYSIS_NODE_SHA256='d14ba95cdce1ef7dc9ad3ac74949ca5db38b27378ee30f30a23cf26f9e875a11';
-export const ANALYSIS_NODE_LICENSE_SHA256='b4c7840e841ab8f14543646bd941d01a459fb0f8ce1249244341b2a63272ca79';
+export const ANALYSIS_NODE_VERSION='24.22.1';
+export const ANALYSIS_NODE_SHA256='d702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5';
+export const ANALYSIS_NODE_LICENSE_SHA256='ed34dd8e3f0a78dbaf00d0444ce8e285b015b765379c2e17880455f70370f8e9';
 const bundledDirectory=fileURLToPath(new URL('../vendor/analysis-node/',import.meta.url)).replace(/app\.asar(?=[\\/])/u,'app.asar.unpacked');
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const samePath=(a,b)=>path.resolve(a).toLowerCase()===path.resolve(b).toLowerCase();

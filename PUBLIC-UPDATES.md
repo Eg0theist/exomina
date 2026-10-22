@@ -1,109 +1,173 @@
 # Publishing Exomina updates
 
-The desktop Update button opens Settings → Updates. With automatic downloading
-enabled, Exomina checks at startup and every six hours, downloads a new Windows
-x64 package, verifies it, and waits for **Apply update**. Applying requires an
-idle app and uses the installed updater and Windows administrator prompt.
-There is no public release server configured in this preview.
+## Distribution channels
 
-## Release source
+Authenticated automatic delivery in this document targets signed Windows x64
+installations. macOS/Linux packages and existing per-user Windows beta packages
+retain their manual update process and separate native qualification workflows.
+The public source release alone does not activate automatic delivery or migrate
+an existing beta profile into the signed Windows installation layout.
 
-Before packaging a public build, set `feedUrl` in `build/update-channel.json` to
-the HTTPS address where customers will find `latest.json`. The address ships
-inside the application, so customers do not have to enter it. This preview's
-Settings → Updates → Update source can override it. An empty override uses the
-address shipped with the app.
+Exomina discovers signed releases at startup and every six hours. With automatic
+downloads enabled, it downloads and verifies new packages in the background.
+Installation requires the user's choice, an idle app and Windows administrator
+consent. Customized installations prepare and verify a separate three-way merge.
 
-A static website/CDN can serve the JSON and ZIP. GitHub Releases can also host
-both files: use `https://github.com/OWNER/REPO/releases/latest/download/latest.json`
-as the feed, and a tagged release's `/releases/download/TAG/` as the download
-base below. Exomina follows HTTPS redirects without using account credentials.
+The client, publisher tools and GitHub workflows are implemented in source.
+Live distribution requires a repository, publisher identities, protected release
+environment and installation qualification. Empty configuration fails closed.
+A local build does not activate a public channel.
 
-## Create a release
+## Publisher configuration
 
-1. Configure the feed. `npm run package` advances the version automatically:
-   `0.5.0-beta.4` becomes `0.5.0-beta.5`; a stable `0.5.0` becomes `0.5.1`.
-   It synchronizes `package.json`, the root package lock and desktop metadata
-   before packaging. Ordinary `npm run build` and QA keep the version.
-   Major and minor release lines are chosen deliberately. For example, set
-   `0.6.0-beta.0` in the manifest to start the next beta line; packaging advances
-   it to `0.6.0-beta.1` and synchronizes the other metadata for you.
-   A failed package attempt may leave a skipped version number; retrying gets
-   another number so distinct update attempts are never mislabeled as the same version.
-2. Run `npm test` and the relevant QA. Local customization uses `npm run package`.
-   Public distribution uses `npm run package:public` (or `npm run package:official`),
-   with a trusted signing identity supplied through the build environment.
-3. Run:
+Release versions follow major.minor.patch. Feature releases advance the minor
+number, compatible fixes and security maintenance advance the patch number,
+and incompatible changes advance the major number. Local builds and retries
+keep that version and receive unique build IDs. Choose a release deliberately
+with `node scripts/prepare-version.mjs --release patch`, `minor` or `major`;
+use `--set VERSION` to name a preview such as 0.7.0-rc.1 when a separate test
+channel is useful. A public tag must match the selected package version.
 
-   ```powershell
-   npm run release:update -- --base-url https://YOUR-HOST/releases/0.4.1/ --notes-file release-notes.txt
-   ```
+Set package.json `homepage` to the public GitHub repository. Bundle
+`build/update-channel.json` with format 2, an HTTPS `feedUrl`, a `channel`
+such as `stable`, and `trustedKeys` mapping key IDs to Ed25519 public PEM keys.
+The feed can be
+`https://github.com/OWNER/REPO/releases/latest/download/latest.json`.
+Only bundled keys establish publisher trust. Feeds, settings and cached
+records cannot introduce keys. Keep private keys outside source control.
 
-4. Upload the generated ZIP from `release/public` and the accompanying
-   `latest.json`. Upload the ZIP first, then publish the JSON that points to it.
+Public Windows packaging requires `WIN_CSC_LINK` or `CSC_LINK`, its password,
+and `EXOMINA_PUBLISHER_THUMBPRINT`. Application, first-party Windows helpers,
+installer and generated uninstaller need verified timestamped publisher
+signatures. Vendor executable bytes retain their upstream identity and hashes.
+Release inventories are generated after signing. Public program files must be
+free of EFS encryption.
 
-The command creates files locally; it does not upload or publish anything. The
-ZIP contains the stamped `win-unpacked` program files, without chats, account
-stores or source. The JSON includes the ZIP's exact size and SHA-256, the same
-build ID/version/date as the ZIP, and optional plain text release notes.
+Update export requires `EXOMINA_UPDATE_KEY_ID` and
+`EXOMINA_UPDATE_PRIVATE_KEY_FILE`. The key must match a public key bundled
+in the exact packaged application's ASAR configuration.
 
-```json
-{
-  "format": 1,
-  "id": "THE-PACKAGED-BUILD-ID",
-  "version": "0.4.1",
-  "builtAt": "2026-10-07T12:00:00.000Z",
-  "notes": "Release notes",
-  "windows": {
-    "x64": {
-      "url": "https://YOUR-HOST/releases/0.4.1/Exomina-0.4.1-BUILD-ID-windows-x64.zip",
-      "size": 123456789,
-      "sha256": "THE-64-CHARACTER-SHA256"
-    }
-  }
-}
+```powershell
+npm run package:official
+node scripts/create-public-update.mjs --build PATH/TO/win-unpacked --output release/publish --base-url https://github.com/OWNER/REPO/releases/download/vVERSION/
 ```
 
-Older versions are ignored. A different build of the same version must have a
-later build date. Interrupted or invalid downloads do not become installable;
-the last verified download remains usable. A cancelled or failed installation
-waits for the user to retry. Ordinary local builds in `Source/release` remain
-available through the same Apply update button.
+The exporter creates the program ZIP and signed latest.json locally. It does
+not publish. The signature binds exact payload bytes, channel, publication and
+expiry dates, build/version identity, archive URL, size, archive hash and file
+inventory hash. Metadata validity is at most 90 days and defaults to 30 days.
+Maintain fresh signed channel metadata during long gaps between releases.
 
-Local customization builds remain unsigned. The public build path requires
-`WIN_CSC_LINK` (or `CSC_LINK`), its password and the expected public certificate's
-`EXOMINA_PUBLISHER_THUMBPRINT` in the build environment, fails
-when signing is unavailable, and verifies the publisher signatures on Exomina,
-its four Windows interop libraries, installer and generated uninstaller before
-embedding. Packaged vendor binary hashes must equal the prepared source inputs.
-Public update export also
-refuses unsigned application artifacts. Keep signing credentials out of source.
+Clients reject unsigned, expired, tampered and wrong-channel metadata, unknown
+keys, mismatched archives/inventories, unsafe archive entries, links and
+encrypted program caches. They revalidate cached releases before merge
+preparation and immediately before executing staged code. The elevated
+installer checks the approved complete receipt before activation. Earlier
+unsigned caches cannot be adopted.
 
-Windows interop is compiled during the build. Installed startup, desktop,
-speech and busy-state helpers load those libraries without invoking a C# compiler.
-Pinned third-party runtimes retain their upstream executable bytes and signatures.
-Integrity inventories are generated after application signing. Each public build
-uses a fresh output directory; release evidence identifies its build ID and hashes.
-Certificate rotation requires an explicit change to the expected publisher pin.
+For key rotation, first ship both public keys through a release trusted by the
+old key, then sign with the new key. Retire old pins after the transition.
+The feed cannot silently establish a new publisher identity.
 
-Signing establishes publisher identity and file integrity. It does not guarantee
-SmartScreen reputation or antivirus acceptance. Test the exact installer and
-update hashes on clean Windows systems with stock Defender and Bitdefender:
-install, start, connect a provider, open a terminal, scan storage, update and
-uninstall. Record product versions, detection names, process ancestry and hashes.
-Submit confirmed false-positive evidence through the vendor's review channel:
-https://www.bitdefender.com/consumer/support/answer/29358/
-Do not add broad exclusions or change firewall policy as part of the installer.
-No sample is uploaded by the build scripts. Vendor review and clean-VM tests
-remain release work; the local machine's exception cannot establish compatibility.
-# Customized installations
+## GitHub release and security maintenance
 
-Publisher builds use `npm run package:official`. Ordinary `npm run package` rebuilds retain the installed official source baseline when available. Program-only release ZIPs carry a checksum-verified `exomina-source` snapshot. Do not strip that directory when publishing.
+- `.github/workflows/security-maintenance.yml` polls npm advisories and
+  compatible direct releases, plus official Node 24 releases, every six hours.
+  It prepares a pull request and runs tests and a production build. Native
+  provider executables and incompatible upgrades remain review items.
+- `.github/workflows/release.yml` builds a signed Windows candidate and retains
+  its exact artifacts for qualification. A separate dispatch publishes that
+  candidate only after matching qualification evidence is committed to the
+  trusted default branch. It refuses to overwrite an existing or uncertain release.
+- `.github/dependabot.yml` provides independent dependency update proposals.
+- `.github/workflows/refresh-update-metadata.yml` can renew the current signed
+  metadata before expiry, preserving its archive, inventory and release fields.
+  Enable it with `EXOMINA_UPDATE_METADATA_REFRESH=true`. It rechecks the remote
+  release and exact original hash before replacing latest.json. GitHub asset
+  replacement has no atomic compare-and-swap operation; simultaneous manual
+  publication remains a race requiring operator coordination.
 
-For the installed App/Source layout, global updates compare the installed baseline, customized Source and incoming release. Settings → Updates → Prepare merged update creates a separate workspace. Review with AI opens a chat bound to that workspace. The assistant resolves conflicts and calls `app_update_verify`, which asks permission to install dependencies (lifecycle scripts disabled), prepare the pinned Electron runtime, run tests and package. Checks execute code under the user's Windows account; they are compatibility checks, not a sandbox for malicious source. No publisher should promise arbitrary edits will remain compatible.
+Workflows use pinned setup and artifact Actions with native runner git/gh.
+Configure a trusted Windows runner with the pinned Node 24.22.1 runtime.
+Pull-request validation has no
+signing secrets. Publication runs through the protected `public-release`
+environment and trusted repository history.
 
-Verification binds the final source and package. Applying rechecks them, and the elevated installer enforces the approved file receipt before activation. The previous App remains available. After startup, journaled Source promotion retains the entire original Source as `Source.previous-<plan-id>`. Source side files stay in that preserved copy. Settings, extensions, chats and sign-ins stay outside these program changes. Database migration rollback is not automatic.
+Repository variables: `EXOMINA_PUBLIC_RELEASE_ENABLED=true`,
+`EXOMINA_PUBLISHER_THUMBPRINT`, `EXOMINA_UPDATE_KEY_ID`.
+Environment secrets: `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`,
+`EXOMINA_UPDATE_PRIVATE_KEY_PEM`. Configure environment protection and review
+rules in GitHub; a workflow file does not establish them.
 
-Legacy releases without an official baseline cannot safely infer it from edited source. Global replacement is blocked until a verified baseline is installed separately with the customized copy preserved. Direct edits to installed program files are also blocked; port them into Source for a reviewed rebuild.
+Optional `EXOMINA_SECURITY_AUTOMERGE=true` requires enforced strict branch
+protection and the required `validate` check. Optional
+`EXOMINA_SECURITY_AUTO_CANDIDATE=true` builds candidates for qualified maintenance
+merges. Publishing still requires exact-candidate qualification. Otherwise
+preparation remains automatic while merge and candidate creation await review.
+Hosted services are patched by their operators.
 
-The per-user beta uses its whole-installer route. Its installer refuses customized or baseline-less program copies; use a different empty installation folder to preserve those versions. The automatic merge/apply flow above is for the installed App/Source layout.
+Node candidates require official archive/executable checksums, valid
+Authenticode from a bundled OpenJS signer pin, and a matching signed product
+version. Preparation and runtime-selection pins advance together. Certificate
+rotation and major upgrades require review. A registry release alone does not
+authenticate arbitrary provider executables.
+
+## Installation and migration
+
+Public setup uses Program Files/Exomina/App with separate Private, Workspace
+and editable Source siblings. A public ZIP is an update payload and cannot
+initialize an arbitrary portable profile. Setup refuses existing installations
+and profiles. Existing beta and portable users need an explicit verified
+migration preserving their original profile; that migration is not automatic.
+
+Initial public setup supports same-account administrator elevation. Alternate
+administrator credentials require reviewed ownership migration. Clean Windows
+installation, UAC, update, rollback, removal and antivirus qualification remain
+required before release. Public removal verifies program inventory and keeps
+Private, Workspace and Source. EFS protects private data after setup; executable
+program files remain unencrypted.
+
+## Customized installations
+
+Publisher builds use `npm run package:official`. Ordinary `npm run package`
+retains the installed official source baseline when available. Release ZIPs
+include the checksum-verified `exomina-source` snapshot.
+
+Settings → Updates → Prepare merged update compares the installed official
+baseline, customized Source and incoming release in a separate workspace.
+Review conflicts, then use `app_update_verify`. Verification asks permission
+to install dependencies with lifecycle scripts disabled, prepare the pinned
+runtime, run tests and package. Checks execute project code under the Windows
+account; they do not sandbox malicious source.
+
+Applying rechecks source and package receipts. The previous App remains
+available. Journaled source promotion preserves the original source as
+Source.previous-PLAN. Database migration rollback is not automatic. Missing
+baselines or direct program edits require review before global replacement.
+
+## Release qualification
+
+Signing establishes publisher identity and integrity; it does not establish
+SmartScreen reputation or antivirus acceptance. Test exact release hashes on
+clean supported Windows systems with Defender and Bitdefender, including
+install, startup, tools, update, cancellation, recovery and removal. Record
+versions, detections, process ancestry and hashes. Submit confirmed false
+positives through the vendor's review channel. Build scripts do not upload
+samples, configure broad exclusions or change firewall policy.
+
+A tag or a dispatch without `candidate_run_id` creates the
+`windows-public-candidate` workflow artifact, retained for 30 days. Test those
+exact files, then commit a qualification record and its reports to the default
+branch. Dispatch `release.yml` with the successful `candidate_run_id` and
+`qualification_file` (default `build/public-release-qualification.json`). The
+publication job reuses the tested files and does not rebuild them.
+
+The qualification record uses `format: 1` and binds `sourceRevision`, `buildId`,
+`inventorySha256`, `installerSha256`, `archiveSha256` and `metadataSha256` from
+the candidate manifest. It requires `signaturesVerified`, `cleanUpdate`,
+`customizedUpdate`, `recovery` and `stockAntivirus` to be true. The four latter
+checks each need a `reports` entry containing a repository-relative `path`,
+that report's `sha256`, and an ISO `testedAt` date. These fields are a record of
+actual tests; setting booleans does not perform qualification. The publication
+job checks trusted ancestry, report and artifact hashes, current update keys
+and the pinned installer signature before creating a release.

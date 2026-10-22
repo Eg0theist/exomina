@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from './transport.js';
 import './chat-memory-progress.css';
 
@@ -7,6 +7,8 @@ export default function ChatMemoryProgress() {
   const [view, setView] = useState(null), [error, setError] = useState('');
   const [state, setState] = useState('saved'), [chatId, setChatId] = useState(''), [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
+  // First reading while this view is open; totals alone cannot show whether work is moving.
+  const baseline = useRef(null);
   useEffect(() => {
     let disposed = false, loading = false;
     const load = async () => {
@@ -21,6 +23,9 @@ export default function ChatMemoryProgress() {
     return () => { disposed = true; clearInterval(timer); };
   }, [state, chatId, offset, refresh]);
   const totals = view?.totals;
+  if (totals && !baseline.current) baseline.current = { at: Date.now(), saved: totals.savedCatchUp };
+  const minutes = totals ? Math.floor((Date.now() - baseline.current.at) / 60000) : 0;
+  const recent = totals ? Math.max(0, totals.savedCatchUp - baseline.current.saved) : 0;
   return <section className="chat-memory-progress" aria-label="Catch-up progress">
     <div className="chat-memory-progress-heading"><h3>Catch-up progress</h3><button onClick={() => setRefresh(value => value + 1)}>Refresh progress</button></div>
     {error && <p role="alert">Progress unavailable: {error}</p>}
@@ -31,6 +36,7 @@ export default function ChatMemoryProgress() {
         <span><strong>{number(totals.saved)}</strong> saved summaries</span>
         <span><strong>{number(totals.savedCatchUp)}</strong> saved by catch-up since tracking began</span>
         <span>{number(totals.running)} running · {number(totals.failed)} waiting after failure</span>
+        {minutes >= 1 && <span><strong>+{number(recent)}</strong> saved by catch-up in the last {number(minutes)} min</span>}
       </div>
       <p className="settings-help">Counts come from saved memory, across your chats, and survive restarts. Earlier saved summaries include on-demand compression; their origin and save time were not recorded. New parent summaries can add pending work as catch-up progresses. Updates every 10 seconds while this view is open.</p>
       <details><summary>Progress by chat</summary><div className="chat-memory-progress-table"><table><thead><tr><th>Chat</th><th>Pending</th><th>Saved</th><th>Catch-up saved</th></tr></thead><tbody>{view.chats.map(chat => <tr key={chat.chatId}><td><button onClick={() => { setChatId(chat.chatId); setOffset(0); }}>{chat.title}</button></td><td>{number(chat.pending)}</td><td>{number(chat.saved)}</td><td>{number(chat.savedCatchUp)}</td></tr>)}</tbody></table></div></details>

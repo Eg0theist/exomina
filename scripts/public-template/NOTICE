@@ -1,0 +1,25 @@
+Exomina
+Copyright 2026 Exomina contributors
+
+Exomina's own source code and documentation are licensed under the Apache
+License, Version 2.0. See LICENSE.
+
+Acknowledgements
+
+Victor Taelin's work helped make Exomina possible. Its persistent memory design
+draws inspiration from UniiChat, OptMem, and his proposal for a chat that never
+ends: hierarchical summaries, bounded context, preserved original sources and
+retrieval of those originals when details matter.
+
+https://github.com/VictorTaelin/UniiChat
+https://github.com/VictorTaelin/OptMem
+https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449
+
+Exomina applies these ideas across multiple AI providers in a local desktop
+application, alongside shared notes, configurable permissions and integrated
+tools and workflows. The acknowledgement describes design inspiration and does
+not replace or alter the terms of the referenced projects.
+
+Third-party components retain their respective licences and notices. See
+THIRD-PARTY-NOTICES.txt and the retained dependency notices. This project's
+licence does not grant rights to provider accounts, services or recordings.

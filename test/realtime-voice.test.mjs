@@ -160,10 +160,10 @@ test('expired and stale starts, camera SDP and unsupported voices are rejected',
 test('canonical transcripts are streamed once per item and notifications from other threads are ignored',async()=>{
   const f=host(),prepared=await f.voice.prepare();await f.voice.start({sessionId:prepared.sessionId,sdp:offer,conversationId:'chat',workspace:'C:/synthetic'});
   f.notify('thread/realtime/item/started',{item:{id:'a',type:'transcriptSegment',role:'assistant',text:''}});f.notify('thread/realtime/item/transcript/delta',{itemId:'a',delta:'Hello'});
-  const complete={id:'a',type:'transcriptSegment',role:'assistant',text:'Hello there'};
+  const complete={id:'a',type:'transcriptSegment',role:'assistant',text:'Hello Alex'};
   f.notify('thread/realtime/item/completed',{item:complete});f.notify('thread/realtime/item/completed',{item:complete});
   f.notify('thread/realtime/item/completed',{threadId:'another-chat',item:{...complete,id:'b'}});
-  assert.equal(f.events.filter(event=>event.event.type==='transcript'&&event.event.done).length,1);assert.equal(f.events.at(-1).event.text,'Hello there');
+  assert.equal(f.events.filter(event=>event.event.type==='transcript'&&event.event.done).length,1);assert.equal(f.events.at(-1).event.text,'Hello Alex');
   f.notify('thread/realtime/error',{message:'Native usage exhausted.'});await turn();assert.equal(f.voice.active,null);assert.equal(f.events.some(event=>event.event.message==='Native usage exhausted.'),true);
 });
 test('Stop during subscription preparation prevents microphone authorization and late thread creation is stopped',async()=>{

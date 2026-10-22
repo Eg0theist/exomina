@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { AcpProvider, AcpTransport, runtimeError, unpackedPath } from './provider-acp.mjs';
 import { officialLoginUrl } from './provider-auth.mjs';
 import {APP_VERSION} from './app-version.mjs';
-import { bundledGrokPaths } from './runtime-targets.mjs';
 import {GROK_MEDIA_TOOLS,grokMediaTool,grokOutputFiles,readProviderMedia,stageProviderImages} from './provider-media.mjs';
+import { bundledGrokPaths } from './runtime-targets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUILTINS = ['Bash', 'Read', 'Grep', 'Edit', 'WebFetch', 'WebSearch'];

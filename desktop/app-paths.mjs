@@ -1,6 +1,6 @@
 import path from 'node:path';
-import {pathsEqual} from './path-policy.mjs';
 import {existsSync} from 'node:fs';
+import {pathsEqual} from './path-policy.mjs';
 
 /** App-owned locations are independent of the checkout and packaged executable.
  * Explicit data overrides keep development and synthetic QA profiles isolated.
@@ -14,6 +14,7 @@ export function appPaths({packaged,root,localAppData,appData,documents,legacyDat
   // An installation can keep its data beside the program (for example
   // C:\Program Files\Exomina\{App,Private,Workspace}) via exomina.paths.json.
   if(home)return {dataDir:p.join(home,'Private','data'),accountsDir:p.join(home,'Private','accounts'),workspace:p.join(home,'Workspace'),home};
+  if(distribution?.profile==='public')throw Error('This public package must be installed into its protected App folder before opening it. Run the signed Exomina installer.');
   if(!documents||(platform==='win32'?!localAppData:!appData))throw Error('The operating system could not locate your Exomina folders.');
   // Existing portable previews must keep their chats when upgraded. Relocation
   // is a separate verified migration; never silently initialize an empty store.
@@ -49,8 +50,13 @@ export function installDistribution(exeDir,{read,pathApi=path,platform=process.p
   const source=String(text).trimStart();
   if(source.length>4096)throw Error('Installed exomina.distribution.json exceeds its size limit.');
   let value;try{value=JSON.parse(source);}catch{throw Error('Installed exomina.distribution.json is not valid JSON.');}
-  if(value?.profile!=='beta'||value.manualUpdates!==true)throw Error('exomina.distribution.json must identify the beta distribution with manual updates.');
-  return {profile:'beta',manualUpdates:true};
+  if(value?.profile==='beta'&&value.manualUpdates===true)return {profile:'beta',manualUpdates:true};
+  if(value?.profile==='public'&&value.manualUpdates===false){
+    const repositoryUrl=value.repositoryUrl;
+    if(typeof repositoryUrl!=='string'||!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/.test(repositoryUrl))throw Error('exomina.distribution.json must identify a public GitHub repository.');
+    return {profile:'public',manualUpdates:false,repositoryUrl:repositoryUrl.replace(/\/$/,'')};
+  }
+  throw Error('exomina.distribution.json must identify a supported public or beta distribution.');
 }
 
 /** Reads <exe folder>\exomina.paths.json: {"home": "..\\"} (relative to that folder) or an absolute path. */

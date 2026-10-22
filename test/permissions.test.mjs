@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { PermissionPolicy, normalizeRule, normalizeRules, suggestRule, commandPrefix, hostAction, claudeAction, acpAction, codexPolicy, claudePermissionMode, permissionMode } from '../desktop/permissions.mjs';
+import { WorkspaceTools } from '../desktop/workspace-tools.mjs';
 
 const policyWith = (settings) => new PermissionPolicy({ getSettings: () => settings });
 
@@ -65,6 +69,71 @@ test('allow rules match by prefix or wildcard and chat grants stay in their chat
   assert.equal(policy.evaluate({ kind: 'execute', tool: 'codex.command', target: 'git status' }, 'a').decision, 'ask');
 });
 
+test('remembered command prefixes require a word boundary and cannot authorize shell syntax', () => {
+  const settings = { permissionMode: 'ask', permissionRules: [normalizeRule({ effect: 'allow', tool: 'workspace_shell', match: 'npm test' })] };
+  const policy = policyWith(settings);
+  const decide = command => policy.evaluate(hostAction('workspace_shell', { command }), 'chat').decision;
+  assert.equal(decide('npm test -- --watch'), 'allow');
+  assert.equal(decide('npm test\t--watch'), 'allow');
+  for (const command of ['npm testevil', 'npm test; Write-Output unapproved', 'npm test && echo unapproved', 'npm test | Other-Command', 'npm test > output.txt', 'npm test\necho unapproved', 'npm test $(Other-Command)', 'npm test `Other-Command`', 'npm test "$(Other-Command)"', 'npm test # comment', 'npm test --flag\u2028echo unapproved']) {
+    assert.equal(decide(command), 'ask', command);
+  }
+  settings.permissionRules = [];
+  policy.grant('chat', { tool: 'workspace_shell', match: 'npm test' });
+  assert.equal(decide('npm test; Write-Output unapproved'), 'ask', 'per-chat grants use the same boundary');
+  assert.equal(decide('npm test -- --watch'), 'allow');
+});
+
+test('complex command grants stay exact while explicit wildcard grants and deny prefixes retain their scope', () => {
+  const command = 'npm test; Write-Output reviewed';
+  assert.equal(commandPrefix(command), command);
+  assert.equal(suggestRule({ kind: 'execute', tool: 'workspace_shell', target: command }).match, command);
+  const settings = { permissionMode: 'ask', permissionRules: [normalizeRule({ effect: 'allow', tool: 'workspace_shell', match: command })] };
+  const policy = policyWith(settings), decide = target => policy.evaluate({ kind: 'execute', tool: 'workspace_shell', target }).decision;
+  assert.equal(decide(command), 'allow');
+  assert.equal(decide(command + '; Write-Output unapproved'), 'ask');
+  settings.permissionRules = [normalizeRule({ effect: 'allow', tool: 'workspace_shell', match: '*' })];
+  assert.equal(decide(command), 'allow', 'a deliberately unrestricted tool rule remains explicit');
+  settings.permissionRules.unshift(normalizeRule({ effect: 'deny', tool: 'workspace_shell', match: 'npm test' }));
+  assert.equal(decide(command), 'deny', 'command hardening must not narrow deny rules');
+});
+
+test('legacy browser origin grants cannot authorize a suffix host, credentials, or another port', () => {
+  const settings = { permissionMode: 'ask', permissionRules: [normalizeRule({ effect: 'allow', tool: 'browser_*', match: 'https://docs.example.com*' })] };
+  const policy = policyWith(settings), decide = url => policy.evaluate(hostAction('browser_open', { url }), 'chat').decision;
+  for (const url of ['https://docs.example.com', 'https://docs.example.com/path?q=1#part', 'https://DOCS.example.com:443/a']) assert.equal(decide(url), 'allow', url);
+  for (const url of ['https://docs.example.com.evil.test/a', 'https://docs.example.com@evil.test/a', 'https://someone@docs.example.com/a', 'https://docs.example.com:444/a', 'http://docs.example.com/a']) assert.equal(decide(url), 'ask', url);
+  settings.permissionRules = [];
+  policy.grant('chat', { tool: 'browser_open', match: 'https://docs.example.com*' });
+  assert.equal(decide('https://docs.example.com.evil.test/a'), 'ask', 'previous per-chat origin grants are also bounded');
+  settings.permissionRules = [normalizeRule({ effect: 'allow', tool: 'browser_open', match: 'https://*.example.com/public/*' })];
+  assert.equal(decide('https://other.example.com/public/page'), 'allow', 'explicit host and path globs retain their scope');
+  assert.equal(decide('https://other.example.com/private/page'), 'ask');
+});
+
+test('new browser suggestions include a slash after the exact origin', () => {
+  const suggestion = suggestRule(hostAction('browser_open', { url: 'https://docs.example.com/a' }));
+  assert.equal(suggestion.match, 'https://docs.example.com/*');
+  const policy = policyWith({ permissionMode: 'ask', permissionRules: [normalizeRule({ effect: 'allow', ...suggestion })] });
+  assert.equal(policy.evaluate(hostAction('browser_open', { url: 'https://docs.example.com/path' })).decision, 'allow');
+  assert.equal(policy.evaluate(hostAction('browser_open', { url: 'https://docs.example.com' })).decision, 'allow');
+  assert.equal(policy.evaluate(hostAction('browser_open', { url: 'https://DOCS.example.com:443/path' })).decision, 'allow');
+  assert.equal(policy.evaluate(hostAction('browser_open', { url: 'https://someone@docs.example.com/path' })).decision, 'ask');
+  assert.equal(policy.evaluate(hostAction('browser_open', { url: 'https://docs.example.com.evil.test/path' })).decision, 'ask');
+});
+
+test('workspace shell refuses a second command under an existing first-command grant', { skip: process.platform !== 'win32' }, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exomina-permission-'));
+  const workspace = path.join(root, 'workspace'), dataDir = path.join(root, 'data');
+  await mkdir(workspace); await mkdir(dataDir);
+  const settings = { workspace, permissionMode: 'ask', permissionRules: [normalizeRule({ effect: 'allow', tool: 'workspace_shell', match: 'Write-Output reviewed' })] };
+  const policy = policyWith(settings);
+  const tools = new WorkspaceTools({ dataDir, getSettings: () => settings, approve: request => policy.evaluate(request.action, 'chat').decision === 'allow' });
+  try {
+    await assert.rejects(tools.shell({ command: 'Write-Output reviewed; Write-Output unapproved' }, 'chat'), { code: 'TERMINAL_DENIED' });
+  } finally { tools.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('a chat level overrides the default for that chat only', () => {
   const settings = { permissionMode: 'ask', permissionRules: [] };
   const chats = { trusted: 'full', locked: 'read-only', bogus: 'yolo' };
@@ -106,9 +175,9 @@ test('rules are validated and an allow-everything rule is refused', () => {
 
 test('suggested rules narrow commands to their program and subcommand', () => {
   assert.equal(commandPrefix('npm run build -- --prod'), 'npm run');
-  assert.equal(commandPrefix('"C:\\tools\\x.exe" /flag'), 'C:\\tools\\x.exe');
+  assert.equal(commandPrefix('"C:\\tools\\x.exe" /flag'), '"C:\\tools\\x.exe" /flag', 'quoted commands are remembered exactly');
   assert.deepEqual(suggestRule({ kind: 'execute', tool: 'workspace_shell', target: 'git commit -m x' }), { tool: 'workspace_shell', match: 'git commit', label: 'git commit commands' });
-  assert.equal(suggestRule({ kind: 'browser', tool: 'browser_open', target: 'https://a.example/x?y' }).match, 'https://a.example*');
+  assert.equal(suggestRule({ kind: 'browser', tool: 'browser_open', target: 'https://a.example/x?y' }).match, 'https://a.example/*');
   assert.equal(suggestRule({ kind: 'write', tool: 'workspace_write', target: 'a.txt' }).match, '');
 });
 

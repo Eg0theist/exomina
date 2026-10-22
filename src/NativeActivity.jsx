@@ -3,6 +3,7 @@ import {Bot, Check, ChevronRight, Circle, FileCode2, ListChecks, LoaderCircle, S
 import {helperStepRows,helperStepTitle} from '../desktop/helper-step.mjs';
 import {HelperIdentity} from './HelperContribution.jsx';
 import SelectableText from './SelectableText.jsx';
+import {reportedCacheRate} from '../desktop/context-metrics.mjs';
 
 export function NativeHelperActivity({step,helpers,provider,live=false}){
   const [open,setOpen]=useState(false),rows=helperStepRows(step,helpers,provider),details=step.input||step.output||step.detail;
@@ -24,7 +25,8 @@ function TokenBreakdown({usage}){
 
 function Usage({data}){
   const providerRun=data.totalScope==='providerRun',totals=providerRun?'Provider reported totals':'Thread totals';
-  return <div className="native-usage"><p className="native-context-label">{data.modelContextWindow?`Latest reported input: ${count(data.last.inputTokens)} tokens. Model context window: ${count(data.modelContextWindow)} tokens.`:'The provider has not reported a model context window.'}</p><p className="native-context-note">The latest input is a request snapshot. Live context occupancy is not reported. {totals} accumulate across requests and are not the amount currently in context.{providerRun?' Claude’s totals may include earlier saved work, helpers and compaction.':''}</p><div className="native-usage-groups"><section><h4>Latest reported request</h4><TokenBreakdown usage={data.last}/></section><section><h4>{totals}</h4><TokenBreakdown usage={data.total}/></section></div><p className="native-context-note">Counters are shown as reported; do not add the rows together. They do not report subscription limits or charges.</p></div>;
+  const cacheRate=reportedCacheRate(data.last);
+  return <div className="native-usage"><p className="native-context-label">{data.modelContextWindow?`Latest reported input: ${count(data.last.inputTokens)} tokens. Model context window: ${count(data.modelContextWindow)} tokens.`:'The provider has not reported a model context window.'}</p><p className="native-context-note">The latest input is a request snapshot. Live context occupancy is not reported. {totals} accumulate across requests and are not the amount currently in context.{providerRun?' Claude’s totals may include earlier saved work, helpers and compaction.':''}</p><p className="native-context-label">Latest reported cache reads: {cacheRate===null?'Unknown':`${(cacheRate*100).toFixed(1)}% of input (${count(data.last.cachedInputTokens)} of ${count(data.last.inputTokens)} tokens)`}.</p><div className="native-usage-groups"><section><h4>Latest reported request</h4><TokenBreakdown usage={data.last}/></section><section><h4>{totals}</h4><TokenBreakdown usage={data.total}/></section></div><p className="native-context-note">Counters are shown as reported; do not add the rows together. The cache-read share describes this request and does not measure saved time, subscription allowance or charges.</p></div>;
 }
 
 function Plan({data}){

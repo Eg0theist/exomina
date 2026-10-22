@@ -1,8 +1,8 @@
-import {encryptProtectedSecret,decryptProtectedSecret,requireProtectedSecretStorage} from './secret-storage.mjs';
 import {readFile,writeFile,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomInt} from 'node:crypto';
 import {DISCORD_CONTROLS,DISCORD_TASK_HELP} from './discord-tasks.mjs';
+import {encryptProtectedSecret,decryptProtectedSecret} from './secret-storage.mjs';
 
 /** Exomina in Telegram and Discord: private bots that only answer accounts the
  * user paired with a one-time code. Each conversation there is a normal Exomina
@@ -165,7 +165,7 @@ export class MessagingHub{
   async setTaskExecution(enabled){if(typeof enabled!=='boolean')throw Error('Choose whether Discord can run tasks.');const previous=this.tasksDisabled;this.tasksDisabled=!enabled;if(!enabled)for(const p of this.config('discord').paired)this.stopUser({channel:'discord',userId:p.id});try{await this.setConfig('discord',{taskExecution:enabled});}catch(error){this.tasksDisabled=previous;throw error;}this.emit({type:'messaging.status',status:this.view()});return this.view();}
   async setConfig(channel,patch){this.assertChannel(channel);const write=this.configWrites.catch(()=>{}).then(async()=>{const all=this.getSettings().messaging||{},config=this.config(channel),next=typeof patch==='function'?patch(config):patch;if(!next)return;await this.saveSettings({messaging:{...all,[channel]:{...config,...next}}});});this.configWrites=write;return write;}
   async tokens(){try{return JSON.parse(await readFile(this.file,'utf8'));}catch{return {};}}
-  async token(channel){const saved=(await this.tokens())[channel];if(!saved)return null;return decryptProtectedSecret(this.encryption,Buffer.from(saved,'base64'));}
+  async token(channel){const saved=(await this.tokens())[channel];return saved?decryptProtectedSecret(this.encryption,Buffer.from(saved,'base64')):null;}
   async saveToken(channel,token){this.assertChannel(channel);const write=this.tokenWrites.catch(()=>{}).then(async()=>{const all=await this.tokens();if(token)all[channel]=encryptProtectedSecret(this.encryption,token).toString('base64');else delete all[channel];await writeFile(this.file+'.tmp',JSON.stringify(all),{mode:0o600});await rename(this.file+'.tmp',this.file);});this.tokenWrites=write;return write;}
   setStatus(channel,value){this.status[channel]={...value,at:new Date().toISOString()};this.emit({type:'messaging.status',status:this.view()});}
   view(){return Object.fromEntries(CHANNELS.map(channel=>{const config=this.config(channel);const code=this.codes.get(channel);return [channel,{...config,recipients:this.recipients(channel),links:undefined,chats:Object.keys(config.links).length,...(this.status[channel]||{state:config.enabled?'stopped':'off'}),code:code&&code.expires>Date.now()?code.value:null}];}));}
@@ -184,13 +184,12 @@ export class MessagingHub{
       if(!current())throw new Error('Connection stopped.');
       const latest=this.status[channel];this.setStatus(channel,{...info,...latest,state:latest?.state==='connecting'?info.state||'connected':latest?.state||info.state||'connected'});
       if(persist)this.newCode(channel);return info;
-    }catch(error){bridge.stop();if(current()){this.bridges.delete(channel);this.setStatus(channel,{state:'error',error:error.status===401?'The bot token was rejected.':safeError(error,token)});}throw new Error(error.status===401?'The bot token was rejected.':safeError(error,token));}
+    }catch(error){bridge.stop();if(current()){this.bridges.delete(channel);this.setStatus(channel,{state:'error',error:error.status===401?'The bot token was rejected.':safeError(error,token)});}throw Object.assign(new Error(error.status===401?'The bot token was rejected.':safeError(error,token)),/^SECRET_STORAGE_[A-Z_]+$/.test(error.code||'')?{code:error.code}:{});}
   }
   clearCode(channel){this.codes.delete(channel);clearTimeout(this.codeTimers.get(channel));this.codeTimers.delete(channel);}
   stop(channel){this.generations.set(channel,(this.generations.get(channel)||0)+1);this.clearCode(channel);for(const [key,turns] of this.turns)if(key.startsWith(channel+':'))for(const controller of turns)controller.abort();this.bridges.get(channel)?.stop();this.bridges.delete(channel);}
   stopAll(){for(const channel of [...this.bridges.keys()])this.stop(channel);}
   async connect(channel,token){
-    requireProtectedSecretStorage(this.encryption);
     this.assertChannel(channel);
     if(typeof token!=='string'||!/^[\w.:-]{20,200}$/.test(token.trim()))throw new Error(channel==='telegram'?'Paste the token @BotFather gave you (it looks like 123456:ABC…).':'Paste the bot token from the Discord Developer Portal.');
     const hadPrevious=this.config(channel).enabled;this.stop(channel);const generation=this.generations.get(channel);

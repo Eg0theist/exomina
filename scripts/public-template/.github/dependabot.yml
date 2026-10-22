@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    versioning-strategy: increase
+    groups:
+      compatible-security-maintenance:
+        patterns: ['*']
+        update-types: [patch, minor]
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+      - dependency-name: '@anthropic-ai/claude-code-win32-x64'
+      - dependency-name: '@xai-official/grok-win32-x64'

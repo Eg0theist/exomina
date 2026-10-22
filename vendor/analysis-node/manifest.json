@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "name": "Node.js",
-  "version": "24.13.0",
+  "version": "24.22.1",
   "platform": "win32",
   "architecture": "x64",
   "executable": "node.exe",
-  "sha256": "d14ba95cdce1ef7dc9ad3ac74949ca5db38b27378ee30f30a23cf26f9e875a11",
-  "executableSha256": "d14ba95cdce1ef7dc9ad3ac74949ca5db38b27378ee30f30a23cf26f9e875a11",
+  "sha256": "d702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5",
+  "executableSha256": "d702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5",
   "license": "LICENSE",
-  "licenseSha256": "b4c7840e841ab8f14543646bd941d01a459fb0f8ce1249244341b2a63272ca79",
-  "archive": "node-v24.13.0-win-x64.zip",
-  "archiveSha256": "ca2742695be8de44027d71b3f53a4bdb36009b95575fe1ae6f7f0b5ce091cb88",
-  "source": "https://nodejs.org/dist/v24.13.0/node-v24.13.0-win-x64.zip",
-  "checksums": "https://nodejs.org/dist/v24.13.0/SHASUMS256.txt"
+  "licenseSha256": "ed34dd8e3f0a78dbaf00d0444ce8e285b015b765379c2e17880455f70370f8e9",
+  "archive": "node-v24.22.1-win-x64.zip",
+  "archiveSha256": "d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5",
+  "source": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-win-x64.zip",
+  "checksums": "https://nodejs.org/dist/v24.22.1/SHASUMS256.txt"
 }

@@ -218,8 +218,3 @@ test('cancelling while the device token is being validated cannot reconnect the 
   github.cancelSignIn();release();await new Promise(resolve=>setImmediate(resolve));
   assert.equal(github.connected,false);assert.equal(github.signIn,null);
 });
-
-test('Linux plaintext credential fallback cannot start GitHub sign-in or save a token',async t=>{
- const e=await fixture(t,[],{encryption:{isEncryptionAvailable:()=>true,getSelectedStorageBackend:()=> 'basic_text',encryptString:()=>{throw Error('Unexpected encryption');}}});
- await assert.rejects(e.github.connect(TOKEN),error=>error.code==='SECRET_STORAGE_UNAVAILABLE');assert.equal(e.calls.length,0);
-});

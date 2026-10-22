@@ -37,8 +37,8 @@ async function fixture(t, { enabled = true, runtime = 'user', files = [], handle
 test('shared builds keep Claude in the catalog as an opt-in that starts off', () => {
   const entry = getProvider('claude');
   assert.ok(entry);
-  assert.equal(isOptInProvider('claude'), DISTRIBUTION_PROFILE === 'beta');
-  if (DISTRIBUTION_PROFILE === 'beta') assert.match(entry.description, /your own copy/);
+  assert.equal(isOptInProvider('claude'), ['beta','public'].includes(DISTRIBUTION_PROFILE));
+  if (['beta','public'].includes(DISTRIBUTION_PROFILE)) assert.match(entry.description, /your own copy/);
   for (const id of ['codex', 'anthropic-api', 'grok']) assert.equal(isOptInProvider(id), false);
 });
 

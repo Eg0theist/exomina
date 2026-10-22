@@ -6,6 +6,17 @@ import path from 'node:path';
 import {Store} from '../desktop/store.mjs';
 import {durableReplace} from '../desktop/durable-state.mjs';
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};};
+test('the store retains a digest and backups keep the preceding durable generation',async()=>{
+  const dir=await mkdtemp(path.join(tmpdir(),'exomina-digest-'));
+  try{
+    const store=new Store(dir);await store.init();const chat=store.create('codex');chat.messages.push({role:'user',content:'Previous durable generation'});await store.save();
+    assert.equal(store.lastDurable,undefined);assert.match(store.lastDurableHash,/^[a-f0-9]{64}$/);
+    chat.messages[0].content='Latest generation';store.lastBackupAt=0;await store.save();
+    assert.equal(JSON.parse(await readFile(path.join(dir,'state.backup.1.json'),'utf8')).conversations[0].messages[0].content,'Previous durable generation');
+    assert.equal(JSON.parse(await readFile(path.join(dir,'state.json'),'utf8')).conversations[0].messages[0].content,'Latest generation');
+    const reopened=new Store(dir);await reopened.init();await reopened.save();assert.equal(reopened.completedWrites,0);assert.equal(reopened.lastDurable,undefined);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
 test('a slow write and 500 tool saves retain one writer and commit the latest state before callers resolve',async()=>{
   const dir=await mkdtemp(path.join(tmpdir(),'exomina-backpressure-')),gate=deferred(),started=deferred();let writes=0,resolved=false;
   try{

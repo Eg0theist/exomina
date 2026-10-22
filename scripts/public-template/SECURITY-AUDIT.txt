@@ -1,0 +1,26 @@
+Exomina 0.6 security notes
+
+Fresh private storage uses restricted user permissions. Connection keys require
+OS-protected secret storage, refusing Linux plaintext fallbacks. Chats, advanced
+tool configuration and some provider sign-in files rely on device encryption.
+Existing EFS profiles retain their recovery checks and are never downgraded.
+Provider/tool approvals remain enabled. Sign-in uses each user's own account.
+Tests use fresh synthetic profiles.
+
+This is a release preparation record, not a penetration test or security
+certification. See BETA.md for supported storage and known limitations.
+
+The 0.6 source pins Electron 44.9.3, Vite 8.3.5 and the dedicated Windows
+analysis Node.js runtime 24.22.1. Permission matching, stale approvals and
+read-denial enforcement have regression coverage. Authenticated update metadata
+and inventory verification fail closed without trusted publisher keys.
+
+Publisher signing, protected release configuration and exact-candidate install,
+update, recovery and antivirus qualification are required for public Windows
+delivery. The configured source tree does not activate a public update feed.
+macOS/Linux packages retain their existing manual update process.
+
+Open findings from the dependency review: the coverage of the October 21 Node
+fixes in Electron's embedded Node 24.22.0 has not been independently established;
+the build-time sprintf-js denial-of-service advisory has no verified published
+fix in the reviewed dependency chain. Neither finding is represented as fixed.

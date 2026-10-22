@@ -1,7 +1,7 @@
 import {mkdir} from 'node:fs/promises';
-import {readRecoverableState,durableReplace,backupState,validateState} from './durable-state.mjs';
+import {readRecoverableState,removeOrphanedTemps,durableReplace,backupState,backupFromFile,validateState,serializeState,digestChunks} from './durable-state.mjs';
 import path from 'node:path';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {orderedPins} from './chat-management.mjs';
 /** Retire the removed connection while retaining original messages and their provider attribution. */
 export function retireGeminiCli(state){
@@ -41,11 +41,11 @@ export function retireRemovedProviders(state){
   return [...found];
 }
 export class Store{
-  constructor(dir,{workspace=path.join(dir,'workspace'),writeState=durableReplace,writeBackup=backupState}={}){this.dir=dir;this.writeState=writeState;this.writeBackup=writeBackup;this.saving=false;this.pendingSave=false;this.completedWrites=0;this.queue=Promise.resolve();this.state={settings:{provider:'codex',model:'',effort:'',closeToTray:true,memoryEnabled:true,memoryCapture:'automatic',chatMemoryEnabled:true,chatMemorySummaries:true,desktopEnabled:false,browserEnabled:false,cuaDriverPath:'',workspace,permissionMode:'ask',permissionRules:[],spellcheck:{enabled:true,languages:[]},autoTitle:true},conversations:[]}}
+  constructor(dir,{workspace=path.join(dir,'workspace'),writeState=durableReplace,writeBackup=(dir,previous)=>previous?.file?backupFromFile(dir,previous.file,previous.digest):backupState(dir,previous)}={}){this.dir=dir;this.writeState=writeState;this.writeBackup=writeBackup;this.saving=false;this.pendingSave=false;this.completedWrites=0;this.queue=Promise.resolve();this.state={settings:{provider:'codex',model:'',effort:'',closeToTray:true,memoryEnabled:true,memoryCapture:'automatic',chatMemoryEnabled:true,chatMemorySummaries:true,desktopEnabled:false,browserEnabled:false,cuaDriverPath:'',workspace,permissionMode:'ask',permissionRules:[],spellcheck:{enabled:true,languages:[]},autoTitle:true},conversations:[]}}
   async init(){
-    await mkdir(this.dir,{recursive:true});const loaded=await readRecoverableState(this.dir);
+    await mkdir(this.dir,{recursive:true});this.removedTemps=await removeOrphanedTemps(this.dir);const loaded=await readRecoverableState(this.dir);
     if(loaded.state)this.state={...this.state,...loaded.state,settings:{...this.state.settings,...loaded.state.settings}};
-    this.lastDurable=loaded.text;this.recovery=loaded.recovery;this.lastBackupAt=0;
+    this.lastDurableHash=loaded.text===null?null:createHash('sha256').update(loaded.text).digest('hex');this.recovery=loaded.recovery;this.lastBackupAt=0;
     orderedPins(this.state.conversations);
     await mkdir(this.state.settings.workspace,{recursive:true});this.retiredProviders=[...retireGeminiCli(this.state),...retireRemovedProviders(this.state)];
   }
@@ -64,10 +64,17 @@ export class Store{
           // Serialize only when the writer is ready. A tool-event burst keeps
           // one active snapshot and a dirty flag, not one whole store per event.
           // Private chats live in memory only and are never written to disk.
-          const data=JSON.stringify(this.state.conversations.some(c=>c.private===true)?{...this.state,conversations:this.state.conversations.filter(c=>c.private!==true)}:this.state);
-          if(data===this.lastDurable)continue;
-          if(!this.lastBackupAt||Date.now()-this.lastBackupAt>=30000){await this.writeBackup(this.dir,this.lastDurable||data);this.lastBackupAt=Date.now();}
-          await this.writeState(path.join(this.dir,'state.json'),data);this.lastDurable=data;this.completedWrites++;
+          // Serializing, hashing and writing yield between slices: a 70 MB
+          // library in one pass froze keyboard input for most of a second.
+          const data=await serializeState(this.state,{omit:c=>c?.private===true});
+          const digest=await digestChunks(data);
+          if(digest===this.lastDurableHash)continue;
+          if(!this.lastBackupAt||Date.now()-this.lastBackupAt>=30000){
+            // The previous durable generation already lives on disk. Copy it
+            // and verify the copy instead of reading and parsing the library.
+            await this.writeBackup(this.dir,this.lastDurableHash===null?data:{file:path.join(this.dir,'state.json'),digest:this.lastDurableHash});this.lastBackupAt=Date.now();
+          }
+          await this.writeState(path.join(this.dir,'state.json'),data);this.lastDurableHash=digest;this.completedWrites++;
         }
       }finally{this.saving=false;}
     });return this.queue;

@@ -1,0 +1,208 @@
+/* Chat flair: the ordinary chat gets a signal-light look built from the theme's own accents.
+   Guarded with :where() so specificity stays low: themes with their own chat materials
+   (html[data-theme] / html[data-artwork] rules) keep every property they set, and Hide HUD keeps its own look.
+   Nothing loops at rest. The only repeating motion runs while a reply is streaming. */
+
+/* Message box: a gradient ring, a soft underglow, and a sheen that sweeps once when you focus it. */
+:where(.app-frame:not([data-hud])) .chat-page .composer{
+  border-radius:22px;border-color:transparent;
+  background:linear-gradient(180deg,color-mix(in oklab,var(--surface) 92%,var(--t-accent)),var(--surface));
+  box-shadow:0 26px 60px -30px color-mix(in oklab,var(--t-accent) 55%,transparent),0 10px 30px color-mix(in oklab,var(--t-shadow) 28%,transparent)}
+:where(.app-frame:not([data-hud])) .chat-page .composer::before{
+  content:"";position:absolute;inset:-1.5px;border-radius:inherit;padding:1.5px;pointer-events:none;
+  background:linear-gradient(115deg,var(--t-accent),color-mix(in oklab,var(--t-lilac) 80%,transparent) 22%,color-mix(in oklab,var(--t-info) 45%,transparent) 38%,color-mix(in oklab,var(--line-strong) 70%,transparent) 50%,color-mix(in oklab,var(--t-info) 45%,transparent) 62%,color-mix(in oklab,var(--t-lilac) 80%,transparent) 78%,var(--t-accent));
+  background-size:220% 100%;background-position:0% 0;
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;
+  opacity:.75;transition:opacity .35s,background-position 1.1s cubic-bezier(.3,.6,.2,1)}
+:where(.app-frame:not([data-hud])) .chat-page .composer:focus-within{
+  border-color:transparent;
+  box-shadow:0 30px 70px -28px color-mix(in oklab,var(--t-accent) 75%,transparent),0 0 0 4px color-mix(in oklab,var(--t-accent) 7%,transparent),0 10px 30px color-mix(in oklab,var(--t-shadow) 28%,transparent)}
+:where(.app-frame:not([data-hud])) .chat-page .composer:focus-within::before{opacity:1;background-position:100% 0}
+:where(.app-frame:not([data-hud])) .chat-page .composer.is-running::before{opacity:.9;animation:flair-flow 2.6s linear infinite}
+:where(.app-frame:not([data-hud])) .chat-page .composer textarea{caret-color:var(--t-accent)}
+:where(.app-frame:not([data-hud])) .chat-page .composer textarea::placeholder{letter-spacing:.01em}
+:where(.app-frame:not([data-hud])) .chat-page .composer-toolbar .composer-chip:hover{background:color-mix(in oklab,var(--t-accent) 11%,transparent);color:var(--text)}
+
+/* A pool of light under the message box: painted once, never animated. */
+:where(.app-frame:not([data-hud])) .chat-page .composer-region{isolation:isolate}
+:where(.app-frame:not([data-hud])) .chat-page .composer-region::before{content:"";position:absolute;z-index:-1;left:-6%;right:-6%;bottom:-10px;height:150px;pointer-events:none;background:radial-gradient(ellipse 50% 60% at 30% 75%,color-mix(in oklab,var(--t-accent) 16%,transparent),transparent 70%),radial-gradient(ellipse 45% 55% at 72% 80%,color-mix(in oklab,var(--t-lilac) 13%,transparent),transparent 70%)}
+:where(.app-frame:not([data-hud])) .chat-page .composer>textarea{text-shadow:0 0 18px color-mix(in oklab,var(--t-accent) 18%,transparent)}
+
+/* Send: a small glowing orb that lifts when it is ready. */
+.chat-page .send-button:not(:disabled):not(.stop):not(.queue){
+  background:radial-gradient(circle at 32% 28%,color-mix(in oklab,var(--t-accent) 55%,#fff),var(--t-accent) 48%,color-mix(in oklab,var(--t-accent) 60%,var(--t-lilac)));
+  color:var(--accent-ink);
+  box-shadow:0 0 0 3px color-mix(in oklab,var(--t-accent) 14%,transparent),0 6px 20px -4px color-mix(in oklab,var(--t-accent) 70%,transparent);
+  transition:transform .18s cubic-bezier(.3,1.6,.5,1),box-shadow .2s}
+.chat-page .send-button:not(:disabled):not(.stop):not(.queue):hover{transform:translateY(-1px) scale(1.07);box-shadow:0 0 0 5px color-mix(in oklab,var(--t-accent) 18%,transparent),0 10px 26px -4px color-mix(in oklab,var(--t-accent) 85%,transparent)}
+.chat-page .send-button:not(:disabled):not(.stop):not(.queue):active{transform:scale(.94)}
+/* Waiting, stop and follow-up share one ring language instead of borrowed solid discs. */
+.chat-page .send-button:disabled:not(.stop){background:transparent;color:color-mix(in oklab,var(--t-accent) 40%,var(--text-3));box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--t-accent) 24%,transparent)}
+.chat-page .send-button.stop{background:color-mix(in oklab,var(--t-accent) 8%,transparent);color:var(--t-accent);box-shadow:inset 0 0 0 1.5px color-mix(in oklab,var(--t-accent) 75%,transparent),0 0 16px -2px color-mix(in oklab,var(--t-accent) 55%,transparent);animation:flair-stop 2s ease-in-out infinite;transition:background .2s,transform .18s}
+.chat-page .send-button.stop svg{filter:drop-shadow(0 0 4px color-mix(in oklab,var(--t-accent) 80%,transparent))}
+.chat-page .send-button.stop:hover:not(:disabled){background:color-mix(in oklab,var(--t-accent) 20%,transparent);transform:scale(1.06)}
+.chat-page .send-button.queue:not(:disabled){background:transparent;color:var(--t-accent);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--t-accent) 50%,transparent)}
+.chat-page .send-button.queue:not(:disabled):hover{background:color-mix(in oklab,var(--t-accent) 14%,transparent)}
+:where(.app-frame:not([data-hud])) .chat-page .composer-toolbar .composer-chip{border-radius:999px;transition:background .2s,color .2s,box-shadow .2s}
+:where(.app-frame:not([data-hud])) .chat-page .composer-toolbar .composer-chip:hover{box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--t-accent) 35%,transparent)}
+
+/* Your messages: a lit glass chip with a tail. */
+:where(.app-frame:not([data-hud])) .chat-page .user-bubble{
+  border-radius:20px 20px 6px 20px;
+  background:linear-gradient(135deg,color-mix(in oklab,var(--t-accent) 20%,var(--surface-3)),color-mix(in oklab,var(--t-lilac) 12%,var(--surface-3)));
+  border-color:color-mix(in oklab,var(--t-accent) 34%,transparent);
+  box-shadow:inset 0 1px 0 color-mix(in oklab,#fff 8%,transparent),0 14px 34px -22px color-mix(in oklab,var(--t-accent) 80%,transparent)}
+
+/* Replies: an accent rail beside the text (themes that frame replies as cards keep their card). */
+:where(html:not([data-artwork]):not([data-theme="matrix"]) .app-frame:not([data-hud])) .chat-page .message.assistant{padding-left:22px}
+:where(html:not([data-artwork]):not([data-theme="matrix"]) .app-frame:not([data-hud])) .chat-page .message.assistant::before{
+  content:"";position:absolute;left:0;top:4px;bottom:6px;width:2px;border-radius:2px;pointer-events:none;
+  background:linear-gradient(180deg,var(--t-accent),color-mix(in oklab,var(--t-lilac) 55%,transparent) 45%,transparent);
+  background-size:100% 100%;width:3px;opacity:.9;box-shadow:0 0 14px color-mix(in oklab,var(--t-accent) 45%,transparent)}
+:where(html:not([data-artwork]):not([data-theme="matrix"]) .app-frame:not([data-hud])) .chat-page .message.assistant.is-streaming::before{
+  background:linear-gradient(180deg,transparent,var(--t-accent) 20%,transparent 40%,color-mix(in oklab,var(--t-lilac) 55%,transparent) 70%,transparent);
+  background-size:100% 260%;opacity:1;animation:flair-rail 1.6s linear infinite}
+:where(.app-frame:not([data-hud])) .chat-page .message{animation:flair-arrive .45s cubic-bezier(.2,.7,.2,1) both}
+:where(.app-frame:not([data-hud])) .chat-page .message.assistant .message-meta strong{font-size:11.5px;font-weight:650;letter-spacing:.14em;text-transform:uppercase;color:color-mix(in oklab,var(--t-accent) 70%,var(--text))}
+:where(.app-frame:not([data-hud])) .chat-page .message.assistant .message-meta .provider-mark{box-shadow:0 0 0 3px color-mix(in oklab,var(--t-accent) 12%,transparent),0 0 16px color-mix(in oklab,var(--t-accent) 30%,transparent);border-radius:50%}
+
+/* Reply typography: highlighter strong text, lit headings, softer quotes, accent code. */
+:where(.app-frame:not([data-hud])) .chat-page .message.assistant .markdown .md-heading{color:color-mix(in oklab,var(--t-accent) 38%,var(--text));letter-spacing:.005em}
+:where(.app-frame:not([data-hud])) .chat-page .message.assistant .markdown .md-heading::after{content:"";display:block;width:46px;height:2px;margin-top:7px;border-radius:2px;background:linear-gradient(90deg,var(--t-accent),var(--t-lilac) 60%,transparent);box-shadow:0 0 10px color-mix(in oklab,var(--t-accent) 50%,transparent)}
+:where(.app-frame:not([data-hud])) .chat-page .message.assistant .markdown strong{background:linear-gradient(transparent 64%,color-mix(in oklab,var(--t-accent) 20%,transparent) 0);padding:0 .08em}
+:where(.app-frame:not([data-hud])) .chat-page .message.assistant .markdown li::marker{color:var(--t-accent)}
+:where(.app-frame:not([data-hud])) .chat-page .message.assistant .markdown blockquote{border-left:2px solid var(--t-accent);background:linear-gradient(90deg,color-mix(in oklab,var(--t-accent) 8%,transparent),transparent 80%);border-radius:0 12px 12px 0;padding:8px 14px;font-style:italic}
+:where(.app-frame:not([data-hud])) .chat-page .message.assistant .markdown hr{border:0;height:1px;margin:1.8em 0;background:linear-gradient(90deg,transparent,color-mix(in oklab,var(--t-accent) 55%,transparent),transparent)}
+:where(.app-frame:not([data-hud])) .chat-page .message.assistant .markdown :not(pre)>code{background:color-mix(in oklab,var(--t-accent) 10%,var(--surface-3));border-color:color-mix(in oklab,var(--t-accent) 22%,transparent)}
+:where(.app-frame:not([data-hud])) .chat-page .message.assistant .markdown .code-block{border-radius:14px;overflow:hidden;box-shadow:inset 0 1px 0 color-mix(in oklab,var(--t-accent) 40%,transparent),0 16px 40px -28px color-mix(in oklab,var(--t-accent) 60%,transparent)}
+
+/* Take it further: chips that light up from the edge. */
+:where(.app-frame:not([data-hud])) .chat-page .further-actions button{border-radius:999px;transition:border-color .2s,background .2s,box-shadow .2s}
+:where(.app-frame:not([data-hud])) .chat-page .further-actions button:hover{border-color:color-mix(in oklab,var(--t-accent) 55%,transparent);background:color-mix(in oklab,var(--t-accent) 9%,transparent);box-shadow:0 0 18px -6px color-mix(in oklab,var(--t-accent) 70%,transparent)}
+
+@keyframes flair-flow{to{background-position:220% 0}}
+@keyframes flair-rail{from{background-position:0 100%}to{background-position:0 -160%}}
+@keyframes flair-stop{50%{box-shadow:inset 0 0 0 1.5px var(--t-accent),0 0 24px 0 color-mix(in oklab,var(--t-accent) 70%,transparent)}}
+@keyframes flair-arrive{from{opacity:0;transform:translateY(10px)}}
+
+@media (prefers-reduced-motion:reduce){.chat-page .message,.chat-page .message::before,.chat-page .composer::before,.chat-page .send-button.stop{animation:none!important;transition:none!important}.chat-page .send-button{transition:none!important}}
+[data-motion="reduced"] .chat-page .message,[data-motion="reduced"] .chat-page .message::before,[data-motion="reduced"] .chat-page .composer::before,[data-motion="reduced"] .chat-page .send-button.stop{animation:none!important;transition:none!important}
+
+/* A shared colour and type composition for the conversation, with or without chrome.
+   Local system fonts keep this offline. The user's serif/mono choice stays authoritative.
+   These highlights are static; the existing working signals are the only continuous motion. */
+.chat-page{
+  --chat-prose:color-mix(in oklab,var(--t-text) 45%,var(--t-ink));
+  --chat-title:color-mix(in oklab,var(--t-warm) 58%,var(--t-text));
+  --chat-emphasis:color-mix(in oklab,var(--t-accent) 55%,var(--t-text));
+  --chat-code:color-mix(in oklab,var(--t-info) 65%,var(--t-text));
+  --chat-quote:color-mix(in oklab,var(--t-warm) 72%,var(--t-text));
+  --chat-display-font:var(--reading-font);
+  --chat-quote-font:'Sitka Text','Iowan Old Style','Palatino Linotype',Georgia,serif;
+}
+html[data-reading-font="mono"] .chat-page{--chat-quote-font:var(--reading-font)}
+.chat-page .messages .message-content{
+  font-family:var(--reading-font);font-weight:350;font-kerning:normal;
+  color:var(--chat-prose);line-height:1.8;letter-spacing:.006em;
+}
+.chat-page .messages .message.has-error .message-content{color:var(--danger)}
+.chat-page .messages .message.assistant .message-content .md-heading{
+  font-family:var(--chat-display-font);color:var(--chat-title);font-weight:550;
+  letter-spacing:-.03em;line-height:1.23;text-transform:none;margin:1.55em 0 .65em;
+  text-wrap:balance;
+}
+.chat-page .messages .message.assistant .message-content .md-h1{font-size:calc(var(--reading-size) * 1.85)}
+.chat-page .messages .message.assistant .message-content .md-h2{font-size:calc(var(--reading-size) * 1.55)}
+.chat-page .messages .message.assistant .message-content :is(.md-h3,.md-h4,.md-h5,.md-h6){font-size:calc(var(--reading-size) * 1.2)}
+.chat-page .messages .message.assistant .message-content .md-heading::after{
+  content:"";display:block;width:72px;height:2px;margin-top:11px;border-radius:2px;
+  background:linear-gradient(90deg,var(--t-accent),var(--t-info) 60%,transparent);
+  box-shadow:none;
+}
+.chat-page .messages .message.assistant .message-content strong{
+  color:var(--chat-emphasis);font-weight:650;background:none;padding:0;
+}
+.chat-page .messages .message.assistant .message-content a{
+  color:var(--t-accent);text-decoration-color:color-mix(in oklab,var(--t-accent) 45%,transparent);
+  text-decoration-thickness:1px;text-underline-offset:.22em;transition:text-decoration-color .15s;
+}
+.chat-page .messages .message.assistant .message-content a:hover{text-decoration-color:currentColor}
+.chat-page .messages .message.assistant .message-content blockquote{
+  font-family:var(--chat-quote-font);font-size:1.14em;line-height:1.65;letter-spacing:0;
+  font-style:italic;color:var(--chat-quote);opacity:1;
+  margin:1.3em 0;padding:14px 20px;border-left:2px solid var(--t-warm);border-radius:0 14px 14px 0;
+  background:linear-gradient(110deg,color-mix(in oklab,var(--t-warm) 7%,transparent),transparent 85%);
+}
+.chat-page .messages .message.assistant .message-content :not(pre)>code{
+  color:var(--chat-code);border:1px solid color-mix(in oklab,var(--t-info) 20%,transparent);
+  background:color-mix(in oklab,var(--t-info) 7%,var(--t-ground));border-radius:6px;padding:2px 6px;
+}
+.chat-page .messages .message.assistant .message-content .code-block{
+  background:var(--t-ground);border:1px solid color-mix(in oklab,var(--t-info) 22%,var(--t-ground));
+  border-radius:14px;box-shadow:0 8px 24px -20px var(--t-shadow);
+}
+.chat-page .messages .message-content .code-block pre{
+  font-family:'Cascadia Code','Cascadia Mono',Consolas,'SFMono-Regular',monospace;
+  background:none;border:0;border-radius:0;color:var(--chat-prose);font-size:.86em;line-height:1.7;
+}
+.chat-page .messages .code-header{
+  background:color-mix(in oklab,var(--t-info) 5%,var(--t-ground));
+  border-color:color-mix(in oklab,var(--t-info) 15%,var(--t-ground));padding:7px 10px 7px 16px;
+}
+.chat-page .messages .code-language{font-family:var(--reading-font);color:var(--chat-code);letter-spacing:.12em;text-transform:uppercase;font-size:10px}
+.chat-page .messages .message-content .md-table{border-radius:12px;border-color:color-mix(in oklab,var(--t-accent) 22%,var(--t-ground))}
+.chat-page .messages .message-content .md-table table{background:var(--t-ground);border:0;border-radius:0;font-size:.9em}
+.chat-page .messages .message-content .md-table th{color:var(--chat-emphasis);background:color-mix(in oklab,var(--t-accent) 7%,var(--t-ground))}
+.chat-page .messages .message-content .md-table :is(th,td){padding:10px 14px}
+.chat-page .messages .message-content hr{border:0;width:100%;height:1px;margin:2em 0;background:linear-gradient(90deg,var(--t-accent),color-mix(in oklab,var(--t-warm) 28%,transparent) 45%,transparent)}
+
+/* A dark enamel input with an asymmetric spectrum rim. One paint, no rotating glow. */
+.chat-page .composer-region .composer{
+  border:1px solid transparent;border-radius:22px;background:
+    linear-gradient(150deg,color-mix(in oklab,var(--t-accent) 6%,var(--surface)),var(--surface) 60%);
+  box-shadow:0 18px 45px -22px color-mix(in oklab,var(--t-shadow) 80%,transparent),0 8px 26px -18px color-mix(in oklab,var(--t-accent) 60%,transparent);
+}
+.chat-page .composer-region .composer::before{
+  content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;pointer-events:none;
+  background:linear-gradient(112deg,color-mix(in oklab,var(--t-accent) 90%,transparent),color-mix(in oklab,var(--t-info) 45%,transparent) 22%,color-mix(in oklab,var(--t-ink) 12%,transparent) 48%,color-mix(in oklab,var(--t-warm) 40%,transparent) 78%,color-mix(in oklab,var(--t-accent) 75%,transparent));
+  -webkit-mask:linear-gradient(var(--n-100) 0 0) content-box,linear-gradient(var(--n-100) 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;opacity:.7;
+  background-size:100% 100%;background-position:0 0;
+  transition:opacity .25s;
+}
+.chat-page .composer-region .composer::after{
+  content:"";position:absolute;left:24px;bottom:-1px;width:84px;height:2px;pointer-events:none;
+  background:linear-gradient(90deg,var(--t-accent),var(--t-info),transparent);opacity:.8;
+}
+.chat-page .composer-region .composer:focus-within{
+  border-color:transparent;box-shadow:0 0 0 3px color-mix(in oklab,var(--t-accent) 6%,transparent),0 18px 45px -20px color-mix(in oklab,var(--t-accent) 24%,var(--t-shadow));
+}
+.chat-page .composer-region .composer:focus-within::before{opacity:1}
+.chat-page .composer-region .composer textarea[aria-label="Message"]{
+  font-family:var(--reading-font);font-size:max(15px,var(--reading-size));font-weight:400;
+  color:var(--chat-prose);letter-spacing:.015em;caret-color:var(--t-accent);text-shadow:none;
+}
+.chat-page .composer-region .composer textarea::placeholder{color:var(--text-3);letter-spacing:.01em}
+.chat-page .composer-toolbar .composer-chip{font-family:var(--reading-font)}
+.chat-page .send-button:focus-visible{outline:2px solid var(--t-info);outline-offset:4px}
+
+/* Your words get a contrasting voice and a small illuminated edge. */
+:where(.app-frame:not([data-hud])) .chat-page .messages .user-bubble{
+  background:linear-gradient(120deg,color-mix(in oklab,var(--t-accent) 12%,var(--surface)),color-mix(in oklab,var(--t-info) 6%,var(--surface)));
+  border:1px solid color-mix(in oklab,var(--t-accent) 26%,var(--t-ground));border-radius:18px 18px 4px 18px;
+  box-shadow:inset -2px 0 color-mix(in oklab,var(--t-accent) 50%,transparent);
+}
+[data-hud="hidden"] .chat-page .messages .user-bubble{max-width:min(84%,600px);padding:8px 16px;border-right:1px solid color-mix(in oklab,var(--t-accent) 55%,transparent)}
+[data-hud="hidden"] .chat-page .user-bubble .message-content{color:color-mix(in oklab,var(--t-accent) 32%,var(--t-text));font-size:calc(var(--reading-size) * .94);font-style:normal;letter-spacing:.015em}
+[data-hud="hidden"] .chat-page .user-bubble .message-content>:first-child::before{content:none}
+[data-hud="hidden"] .chat-page .message.assistant::before{
+  width:2px;background:linear-gradient(180deg,var(--t-accent),color-mix(in oklab,var(--t-info) 45%,transparent) 35%,color-mix(in oklab,var(--t-warm) 22%,transparent) 72%,transparent);opacity:.8;
+}
+/* Keep the existing progress signals above the static rail. */
+[data-hud="hidden"] .chat-page .message.assistant.is-streaming::before{background-size:100% 260%}
+html[data-theme="matrix"] .chat-page .composer-region .composer{border-radius:18px}
+
+@media(max-width:760px){
+  .chat-page .messages .message.assistant .message-content .md-h1{font-size:calc(var(--reading-size) * 1.6)}
+  .chat-page .messages .message.assistant .message-content blockquote{padding:10px 14px}
+}

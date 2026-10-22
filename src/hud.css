@@ -1,0 +1,96 @@
+/* Hide HUD: the chat becomes a quiet reading column with one floating message box.
+   Everything here is static or a short one-shot transition; only the working pulse loops,
+   and only while a reply is running. */
+.hud-toggle{opacity:.75}
+.hud-toggle:hover{opacity:1}
+.hud-pulse{display:none}
+
+[data-hud="hidden"] .sidebar,[data-hud="hidden"] .sidebar-scrim,[data-hud="hidden"] .topbar,
+[data-hud="hidden"] .browser-panel,[data-hud="hidden"] .terminal-panel,[data-hud="hidden"] .workflow-controls,[data-hud="hidden"] .workflow-floating,
+[data-hud="hidden"] .composer-toolbar>:not(.send-button),[data-hud="hidden"] .composer-caption,[data-hud="hidden"] .composer-resize,
+[data-hud="hidden"] .message-meta,[data-hud="hidden"] .message-actions,[data-hud="hidden"] .further-actions,[data-hud="hidden"] .message-body>.activity,[data-hud="hidden"] .helper-contribution,[data-hud="hidden"] .helper-history-note,
+[data-hud="hidden"] .task-refinements,[data-hud="hidden"] .task-actions,[data-hud="hidden"] .usage-banner,[data-hud="hidden"] .voice-status,[data-hud="hidden"] .welcome,[data-hud="hidden"] .welcome-tip,[data-hud="hidden"] .prompt-suggestions,[data-hud="hidden"] .ambition-bar,[data-hud="hidden"] .archived-chat-banner{display:none!important}
+
+/* No bar at all: the header floats over the scene as an invisible drag strip, and the native
+   window buttons are cleared too. Both return only while the pointer is near the top edge. */
+[data-hud="hidden"] .window-header{position:absolute;top:0;left:0;right:0;background:transparent!important;border-bottom-color:transparent!important}
+[data-hud="hidden"] .window-header>*{opacity:0;pointer-events:none;transition:opacity .25s}
+[data-hud="hidden"][data-hud-peek] .window-header>*,[data-hud="hidden"] .window-header:has(:focus-visible)>*{opacity:1;pointer-events:auto}
+
+[data-hud="hidden"] .main-shell{background:
+  radial-gradient(ellipse 60% 45% at 50% 105%,color-mix(in oklab,var(--t-accent) 26%,transparent),transparent 72%),
+  radial-gradient(ellipse 40% 30% at 50% -5%,color-mix(in oklab,var(--t-accent) 10%,transparent),transparent 70%),
+  radial-gradient(ellipse 90% 70% at 50% 40%,transparent 55%,color-mix(in oklab,var(--n-0,#000) 55%,transparent)),
+  var(--bg)}
+[data-hud="hidden"] .chat-page{max-width:none}
+[data-hud="hidden"] .messages{max-width:720px;padding:12vh 40px 32px}
+
+/* Replies: larger, airier, without chrome. Older turns recede so the newest one leads. */
+[data-hud="hidden"] .message{margin:0 0 44px;animation:hud-arrive .6s ease-out both}
+[data-hud="hidden"] .message.assistant .message-body{width:100%}
+[data-hud="hidden"] .message.assistant .message-content{font-size:calc(var(--reading-size,14px) * 1.12);line-height:1.85;font-weight:350;letter-spacing:.006em;color:var(--chat-prose,var(--text))}
+/* Keep history readable. Fading whole messages also faded their controls and images. */
+[data-hud="hidden"] .message:has(~ .message.user){opacity:1}
+[data-hud="hidden"] .message-content .md-heading{font-weight:550;letter-spacing:-.025em;text-transform:none;margin:1.6em 0 .65em}
+[data-hud="hidden"] .message.assistant .message-content>p:first-child{font-size:1.06em;line-height:1.8}
+[data-hud="hidden"] .message-content strong{font-weight:600;color:var(--text)}
+[data-hud="hidden"] .message-content a{color:var(--t-accent);text-decoration-thickness:1px;text-underline-offset:3px}
+[data-hud="hidden"] .message-content ul{list-style:none;padding-left:1.4em}
+[data-hud="hidden"] .message-content ul>li{position:relative}
+[data-hud="hidden"] .message-content ul>li::before{content:"";position:absolute;left:-1.3em;top:.95em;width:.7em;height:1px;background:var(--t-accent)}
+[data-hud="hidden"] .message-content ol>li::marker{color:var(--t-accent)}
+[data-hud="hidden"] .message-content hr{border:0;height:1px;margin:2em auto;width:40%;background:linear-gradient(90deg,transparent,color-mix(in oklab,var(--t-accent) 50%,transparent),transparent)}
+[data-hud="hidden"] .message-content blockquote{border-left:1px solid var(--t-accent);margin-left:0;padding-left:1em;font-style:italic;opacity:.85}
+[data-hud="hidden"] .message-content pre,[data-hud="hidden"] .message-content table{font-size:13px;background:color-mix(in oklab,var(--t-accent) 5%,transparent);border:1px solid color-mix(in oklab,var(--t-accent) 14%,transparent);border-radius:12px}
+
+/* Your messages: a quiet margin note instead of a bubble. */
+[data-hud="hidden"] .message.user{align-items:flex-end;margin-bottom:22px}
+[data-hud="hidden"] .user-bubble{background:none;border:0;padding:0 2px 0 0;max-width:min(78%,560px);text-align:right}
+[data-hud="hidden"] .user-bubble .message-content{font-size:14px;font-style:italic;color:color-mix(in oklab,var(--t-accent) 55%,var(--muted))}
+[data-hud="hidden"] .user-bubble .message-content>:first-child::before{content:"› ";font-style:normal;color:var(--t-accent)}
+
+/* The message box floats as one glass pill; only Send remains beside it. */
+[data-hud="hidden"] .composer-region{max-width:760px;padding:8px 32px 6vh}
+[data-hud="hidden"] .composer{display:flex;align-items:flex-end;gap:10px;border-radius:26px;padding:10px 10px 10px 22px;background:color-mix(in oklab,var(--bg) 70%,transparent);border:1px solid color-mix(in oklab,var(--t-accent) 22%,transparent);box-shadow:0 0 0 1px color-mix(in oklab,var(--t-accent) 6%,transparent),0 18px 60px color-mix(in oklab,var(--t-accent) 12%,transparent);transition:border-color .3s,box-shadow .3s}
+[data-hud="hidden"] .composer:focus-within{border-color:color-mix(in oklab,var(--t-accent) 50%,transparent);box-shadow:0 0 0 1px color-mix(in oklab,var(--t-accent) 18%,transparent),0 18px 70px color-mix(in oklab,var(--t-accent) 22%,transparent)}
+[data-hud="hidden"] .composer textarea[aria-label="Message"]{flex:1 1 auto;width:auto;min-width:0;font-size:15px;min-height:24px;background:transparent}
+[data-hud="hidden"] .composer .composer-toolbar{flex:0 0 auto;width:auto;min-width:0;margin:0;padding:0;border:0}
+[data-hud="hidden"] .send-button{border-radius:50%}
+
+/* Conversation interactions stay available while the work log is hidden. */
+[data-hud="hidden"] .hud-questions{display:grid;gap:12px;margin:18px 0}
+[data-hud="hidden"] .question-card,[data-hud="hidden"] .live-followup{border:1px solid color-mix(in oklab,var(--t-accent) 26%,transparent);border-radius:16px;background:color-mix(in oklab,var(--bg) 90%,transparent)}
+[data-hud="hidden"] .live-followup{padding:14px 17px}
+[data-hud="hidden"] .message:has(.question-card[data-status="open"]),[data-hud="hidden"] .message:has(.question-card[data-status="waiting"]),[data-hud="hidden"] .message:has(.live-followup[data-task-status="working"]),[data-hud="hidden"] .message:has(.live-followup[data-task-status="pending"]),[data-hud="hidden"] .message:has(.live-followup[data-status="answering"]){opacity:1}
+
+[data-hud="hidden"] .hud-pulse{display:flex;justify-content:center;gap:7px;height:14px;margin:0 0 14px}
+.hud-pulse i{width:5px;height:5px;border-radius:50%;background:var(--t-accent);opacity:.25;animation:hud-breathe 1.4s ease-in-out infinite}
+.hud-pulse i:nth-child(2){animation-delay:.2s}
+.hud-pulse i:nth-child(3){animation-delay:.4s}
+
+/* Replies float free here, even in themes that frame them as cards; a thin light rail marks each one. */
+[data-hud="hidden"] .messages .message.assistant{background:none;border:0;border-radius:0;box-shadow:none;backdrop-filter:none;padding:0 0 0 24px}
+[data-hud="hidden"] .message.assistant::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:2px;pointer-events:none;background:linear-gradient(180deg,var(--t-accent),color-mix(in oklab,var(--t-accent) 25%,transparent) 55%,transparent);opacity:.7}
+/* Working: the rail runs with light and a scan line sweeps under the reply, so an empty reply never looks stuck.
+   Both stop the moment the reply finishes. */
+[data-hud="hidden"] .message.assistant.is-streaming{min-height:56px}
+[data-hud="hidden"] .message.assistant.is-streaming::before{opacity:1;background:linear-gradient(180deg,transparent,var(--t-accent) 22%,transparent 44%,color-mix(in oklab,var(--t-accent) 45%,transparent) 72%,transparent);background-size:100% 260%;box-shadow:0 0 14px color-mix(in oklab,var(--t-accent) 55%,transparent);animation:hud-rail 1.5s linear infinite}
+[data-hud="hidden"] .message.assistant.is-streaming::after{content:"";display:block;height:1px;margin-top:18px;background:linear-gradient(90deg,transparent,var(--t-accent),transparent) no-repeat;background-size:35% 100%;animation:hud-scan 1.8s ease-in-out infinite}
+[data-hud="hidden"] .composer.is-running{animation:hud-glow 2.4s ease-in-out infinite}
+
+/* Images: a lit frame, details only on hover or focus. */
+[data-hud="hidden"] .message-image{border:0;background:none;border-radius:14px;box-shadow:0 0 0 1px color-mix(in oklab,var(--t-accent) 20%,transparent),0 22px 50px -30px color-mix(in oklab,var(--t-accent) 70%,transparent)}
+[data-hud="hidden"] .message-image>img{background:none}
+[data-hud="hidden"] .message-image>figcaption{border-top:0;background:none;opacity:0;transition:opacity .2s}
+[data-hud="hidden"] .message-image:hover>figcaption,[data-hud="hidden"] .message-image:focus-within>figcaption{opacity:1}
+[data-hud="hidden"] .message.user .message-images{justify-items:end;margin-left:auto;max-width:min(78%,560px)}
+
+@keyframes hud-arrive{from{opacity:0;transform:translateY(8px)}}
+@keyframes hud-breathe{50%{opacity:.95;transform:scale(1.25)}}
+@keyframes hud-rail{from{background-position:0 100%}to{background-position:0 -160%}}
+@keyframes hud-scan{from{background-position:-40% 0}to{background-position:140% 0}}
+@keyframes hud-glow{50%{border-color:color-mix(in oklab,var(--t-accent) 55%,transparent);box-shadow:0 0 0 1px color-mix(in oklab,var(--t-accent) 22%,transparent),0 18px 80px color-mix(in oklab,var(--t-accent) 28%,transparent)}}
+
+@media (max-width:760px){[data-hud="hidden"] .messages{padding:8vh 20px 24px}[data-hud="hidden"] .composer-region{padding:8px 14px 18px}[data-hud="hidden"] .message.assistant .message-content{font-size:16px}}
+@media (prefers-reduced-motion:reduce){[data-hud="hidden"] .message,[data-hud="hidden"] .message::before,[data-hud="hidden"] .message::after,[data-hud="hidden"] .composer,.hud-pulse i{animation:none}.hud-pulse i{opacity:.6}}
+[data-motion="reduced"] [data-hud="hidden"] .message,[data-motion="reduced"] [data-hud="hidden"] .message::before,[data-motion="reduced"] [data-hud="hidden"] .message::after,[data-motion="reduced"] [data-hud="hidden"] .composer,[data-motion="reduced"] .hud-pulse i{animation:none}

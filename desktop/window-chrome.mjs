@@ -11,9 +11,16 @@ export function windowChromeState(win, { borderless, platform = process.platform
   return { borderless, nativeControls: true, platform, maximized: win.isMaximized(), fullscreen: win.isFullScreen(), focused: win.isFocused() };
 }
 
-export function applyWindowChromeTheme(win, { borderless, ground, ink, platform = process.platform }) {
-  if (borderless && platform !== 'darwin' && !win.isDestroyed()) win.setTitleBarOverlay({ color: ground, symbolColor: ink, height: TITLEBAR_HEIGHT });
+const CLEAR = '#00000000';
+
+/** Hide HUD clears the caption strip entirely; 'peek' shows only the buttons while the pointer is near the top edge. */
+export function applyWindowChromeTheme(win, { borderless, ground, ink, hud = null, platform = process.platform }) {
+  if (!borderless || platform === 'darwin' || win.isDestroyed()) return;
+  const color = hud === 'hidden' || hud === 'peek' ? CLEAR : ground, symbolColor = hud === 'hidden' ? CLEAR : ink;
+  win.setTitleBarOverlay({ color, symbolColor, height: TITLEBAR_HEIGHT });
 }
+
+export const windowHudMode = value => value === 'hidden' || value === 'peek' ? value : null;
 
 export function windowChromeCommand(win, action) {
   if (win.isDestroyed()) throw Error('The app window is closed.');

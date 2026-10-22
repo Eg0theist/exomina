@@ -14,7 +14,7 @@ export const PROVIDER_CATALOG = Object.freeze([
     billingNote: 'Your eligible ChatGPT plan and Codex limits apply. Provider-enabled extra usage may cost more; Exomina never switches this connection to an API key.',
     setupUrl: 'https://learn.chatgpt.com/docs/auth',
   },
-  DISTRIBUTION_PROFILE === 'beta' ? {
+  ['beta','public'].includes(DISTRIBUTION_PROFILE) ? {
     // Shared builds ship nothing from Anthropic. The user turns this on, which
     // uses (or installs from Anthropic) their own unmodified Claude Code.
     id: 'claude', name: 'Claude', engine: 'Claude Code', mode: 'subscription',

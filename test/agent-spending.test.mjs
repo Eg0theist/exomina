@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {AgentSpending,evaluateSpend,spendingPolicy} from '../desktop/agent-spending.mjs';
+const policy={enabled:true,currency:'EUR',totalLimit:2000,monthlyLimit:1000,perPurchaseLimit:600,reviewAbove:400,allowedMerchants:['shop.example.com'],allowedCategories:['books']};
+const purchase={amount:300,currency:'EUR',merchant:'https://shop.example.com/item',category:'books'};
+test('spending blocks outside caps, exact merchants, currency and categories; threshold escalates',()=>{assert.equal(evaluateSpend(policy,[],purchase).decision,'within-budget');assert.equal(evaluateSpend(policy,[],{...purchase,amount:500}).decision,'review');for(const patch of [{amount:601},{currency:'USD'},{merchant:'shop.example.com.evil.test'},{category:'games'}])assert.equal(evaluateSpend(policy,[],{...purchase,...patch}).decision,'blocked');assert.throws(()=>spendingPolicy({...policy,totalLimit:NaN}));});
+test('concurrent trials reserve budget atomically, retries are idempotent, failed saves do not reserve',async()=>{
+ const store={state:{agentSpending:{policy}},save:async()=>{}},service=new AgentSpending({store});const results=await Promise.all([1,2,3,4].map(n=>service.trial({...purchase,requestId:'trial-'+n})));assert.equal(results.filter(r=>r.status==='reserved').length,3);assert.equal(results.at(-1).status,'blocked');assert.equal((await service.trial({...purchase,requestId:'trial-1'})).duplicate,true);await assert.rejects(service.trial({...purchase,amount:200,requestId:'trial-1'}),/different purchase/);
+ await service.resolve({id:results[0].id,decision:'cancel'});assert.equal(service.quote(purchase).decision,'within-budget');const before=structuredClone(store.state);store.save=async()=>{throw Error('disk full');};await assert.rejects(service.trial({...purchase,requestId:'save-fails'}),/disk full/);assert.deepEqual(store.state,before);assert.equal(service.view().liveProviderConnected,false);
+});
+test('unknown outcomes continue counting and monthly boundaries do not reset the total budget',()=>{const ledger=[{amount:1800,currency:'EUR',status:'unknown',createdAt:'2026-09-01T00:00:00.000Z'}];assert.equal(evaluateSpend(policy,ledger,purchase,new Date('2026-10-20')).decision,'blocked');});

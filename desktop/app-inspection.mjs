@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {stripVTControlCharacters} from 'node:util';
 import {agentCommandRows} from './agent-commands.mjs';
+import {contextMetricsView} from './context-metrics.mjs';
 import {normalizeAppearance} from './themes.mjs';
 import {normalizeSounds} from './sound-settings.mjs';
 import {normalizeVoice} from './voice-settings.mjs';
@@ -182,7 +183,7 @@ export class AppInspection{
     if(section==='diagnostics'){
       const messages=asArray(target.messages).filter(message=>message.role==='assistant'&&(!args.messageId||message.id===args.messageId));
       if(args.messageId&&!messages.length)throw Error('Choose an assistant message in the selected chat.');
-      return {conversationId:target.id,approachRefinements:asArray(target.approachRefinements),messages:messages.map(message=>({id:message.id,...pick(message,['provider','startedAt','finishedAt','error','continuationError','timing']),events:asArray(message.activity).filter(step=>step.kind!=='thinking').map(eventView).filter(event=>matches(event,args.query))})),limit:'Recorded tool and visible progress events only. Approach observations and lessons are model interpretations, not proof. Hidden reasoning and raw provider transports are excluded.'};
+      return {conversationId:target.id,approachRefinements:asArray(target.approachRefinements),messages:messages.map(message=>({id:message.id,...pick(message,['provider','startedAt','finishedAt','error','continuationError','timing']),contextMetrics:contextMetricsView(message.contextMetrics),events:asArray(message.activity).filter(step=>step.kind!=='thinking').map(eventView).filter(event=>matches(event,args.query))})),limit:'Recorded tool and visible progress events only. Approach observations and lessons are model interpretations, not proof. Hidden reasoning and raw provider transports are excluded.'};
     }
     if(section==='questions')return {questions:asArray(target.messages).flatMap(message=>asArray(message.questions).map(group=>({messageId:message.id,...pick(group,['id','status','questions','answers','reason','createdAt','answeredAt','requireAnswer','waitingForAnswer','deliveryError'])}))),approvals:asArray(this.getActivity().approvals).filter(item=>item.conversationId===target.id).map(item=>pick(item,['id','title','detail','kind','tool','target','expiresAt']))};
     if(section==='projects')return filter(asArray(state.projects).map(item=>pick(item,['id','name','instructions','folder','files'])));

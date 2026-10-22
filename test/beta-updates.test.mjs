@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {UpdateMerge,runProcess} from '../desktop/update-merge.mjs';
 
-test('beta updates never launch the legacy Program Files updater',async()=>{
+test('private beta updates never launch the legacy Program Files updater',async()=>{
  const updater=new Updater({packaged:true,appDir:'synthetic-beta',home:'synthetic-home',manualUpdates:true,repositoryUrl:'https://github.com/example/exomina',spawnImpl:()=>{throw Error('Must not launch a legacy updater.');}});
  const status=await updater.status();assert.equal(status.supported,false);assert.equal(status.manualUpdates,true);assert.match(status.reason,/latest installer/);assert.equal(status.repositoryUrl,'https://github.com/example/exomina');
  await assert.rejects(()=>updater.launch(),/latest installer/);updater.close();

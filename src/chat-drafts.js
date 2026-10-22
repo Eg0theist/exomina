@@ -18,3 +18,27 @@ export function moveDraft(drafts, from, to) {
   delete result[from];
   return result;
 }
+
+/** Draft changes notify their editors without rendering the application shell. */
+export function createDraftStore() {
+  let drafts = {};
+  const listeners = new Map();
+  return {
+    get: key => drafts[key] || '',
+    update: change => {
+      const next = typeof change === 'function' ? change(drafts) : change;
+      if (next === drafts) return;
+      const previous = drafts;
+      drafts = next;
+      for (const [key, callbacks] of listeners) {
+        if ((previous[key] || '') !== (next[key] || '')) for (const callback of callbacks) callback();
+      }
+    },
+    subscribe: (key, callback) => {
+      if (!listeners.has(key)) listeners.set(key, new Set());
+      const callbacks = listeners.get(key);
+      callbacks.add(callback);
+      return () => { callbacks.delete(callback); if (!callbacks.size) listeners.delete(key); };
+    },
+  };
+}

@@ -100,6 +100,17 @@
     SetErrorLevel 10
     Quit
   beta_check_destination_lock:
+  ; Never let the whole-installer path erase a customized or unverified program.
+  SetOutPath "$PLUGINSDIR"
+  File /oname=verify-beta-update.ps1 "${PROJECT_DIR}\scripts\verify-beta-update.ps1"
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -WindowStyle Hidden -File "$PLUGINSDIR\verify-beta-update.ps1" -App "$INSTDIR"'
+  Pop $0
+  Pop $1
+  ${If} $0 != 0
+    MessageBox MB_OK|MB_ICONSTOP "$1" /SD IDOK
+    SetErrorLevel 12
+    Quit
+  ${EndIf}
   System::Call 'kernel32::CreateFileW(w "$INSTDIR\Exomina.exe", i 0x40000000, i 7, p 0, i 3, i 0, p 0) p.r0'
   ${If} $0 == -1
     MessageBox MB_OK|MB_ICONSTOP "Close Exomina Beta in this installation folder before continuing, or choose a folder writable by your Windows account. The installer will not close apps automatically." /SD IDOK

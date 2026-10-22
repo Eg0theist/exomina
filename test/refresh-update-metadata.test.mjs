@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {generateKeyPairSync,createHash} from 'node:crypto';
+import {signReleaseEnvelope,verifyReleaseEnvelope} from '../desktop/update-auth.mjs';
+import {renewReleaseMetadata} from '../scripts/refresh-update-metadata.mjs';
+const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
+test('renewal preserves every immutable payload field and requires exact input plus the same publisher key',()=>{
+ const key=generateKeyPairSync('ed25519'),wrong=generateKeyPairSync('ed25519'),now=Date.now(),trust={channel:'stable',trustedKeys:{release:key.publicKey.export({type:'spki',format:'pem'})}},payload={format:2,channel:'stable',id:'refresh-test-build',version:'0.5.0',builtAt:new Date(now-86400000).toISOString(),publishedAt:new Date(now-86400000).toISOString(),expiresAt:new Date(now+86400000).toISOString(),notes:'Existing release notes',windows:{x64:{url:'https://github.com/example/exomina/releases/download/v0.5.0/package.zip',size:123,sha256:'a'.repeat(64),inventorySha256:'b'.repeat(64)}}},bytes=Buffer.from(JSON.stringify(signReleaseEnvelope(payload,{keyId:'release',privateKey:key.privateKey}))),args={bytes,expectedSha256:digest(bytes),expectedVersion:'0.5.0',expectedBaseUrl:'https://github.com/example/exomina/releases/download/v0.5.0/',trust,keyId:'release',privateKey:key.privateKey,now};
+ const renewed=renewReleaseMetadata(args),decoded=verifyReleaseEnvelope(JSON.parse(renewed.bytes),{...trust,now});assert.equal(renewed.changed,true);const withoutDates=value=>{const{publishedAt,expiresAt,...other}=value;return other;};assert.deepEqual(withoutDates(decoded),withoutDates(payload));assert.equal(decoded.expiresAt,new Date(now+30*86400000).toISOString());
+ assert.throws(()=>renewReleaseMetadata({...args,expectedSha256:'0'.repeat(64)}),/expected hash/);assert.throws(()=>renewReleaseMetadata({...args,privateKey:wrong.privateKey}),/signature/);assert.throws(()=>renewReleaseMetadata({...args,keyId:'rotated'}),/same trusted/);assert.throws(()=>renewReleaseMetadata({...args,now:now+2*86400000}),/expired/);
+ assert.throws(()=>renewReleaseMetadata({...args,expectedVersion:'0.5.1'}),/selected immutable/);assert.throws(()=>renewReleaseMetadata({...args,expectedBaseUrl:'https://github.com/example/exomina/releases/download/v0.5.1/'}),/selected immutable/);
+ const freshPayload={...payload,expiresAt:new Date(now+20*86400000).toISOString()},fresh=Buffer.from(JSON.stringify(signReleaseEnvelope(freshPayload,{keyId:'release',privateKey:key.privateKey})));assert.equal(renewReleaseMetadata({...args,bytes:fresh,expectedSha256:digest(fresh),privateKey:undefined}).changed,false);
+});

@@ -176,7 +176,7 @@ export class UsageTracker {
   forget(provider) {
     if (!Object.hasOwn(this.entries, provider)) return false;
     delete this.entries[provider];
-    this.onUpdate(this.entries);
+    this.onUpdate(this.entries, { immediate: true });
     this.emit({ type: 'usage', usage: this.snapshot() });
     return true;
   }

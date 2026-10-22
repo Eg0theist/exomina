@@ -4,7 +4,7 @@ Your favourite AI tools in one place.
 
 **Status:** hosting deferred by the owner. This document is a prepared plan, not authorization to purchase or deploy. Monetization will be evaluated separately.
 
-This is a reviewable setup plan, not a record of deployment. No server has been purchased, account signed in, or personal archive uploaded by following this document. The server code has offline tests.
+This is a reviewable setup plan, not a record of deployment. No server has been purchased, account signed in, or personal archive uploaded by following this document. The server code has offline tests; a real Linux installation, encrypted mount, phone connection and authenticated provider turns still need acceptance testing.
 
 ## What this provides
 

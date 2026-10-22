@@ -42,6 +42,7 @@ export function backupState(state,{workspace}={}){
  const result={settings,conversations,projects:structuredClone(state.projects||[]),prompts:structuredClone(state.prompts||[]),schedules:(state.schedules||[]).map(s=>({...s,enabled:false,recipient:'',delivery:'desktop'}))};
  for(const project of result.projects){project.folder='';project.files=[];}
  if(state.scratchpad){const {notes,handled,organization}=state.scratchpad;result.scratchpad={notes:structuredClone(notes||[]),handled:structuredClone(handled||[]),jobs:[],settings:{enabled:false},...(organization?{organization:{...structuredClone(organization),autoRefresh:false,refreshConfigured:false}}:{})};}
+ if(state.agentSpending)result.agentSpending={policy:{...state.agentSpending.policy,enabled:false},trials:structuredClone(state.agentSpending.trials||[])};
  return result;
 }
 

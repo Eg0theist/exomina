@@ -1,11 +1,13 @@
 // Marks a packaged build with a unique ID so an installed Exomina can tell that
 // release\win-unpacked holds a newer build. Runs after electron-builder.
-import {writeFile,readFile,stat,cp,rm} from 'node:fs/promises';
+import {writeFile,readFile,stat,rm} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {extractFile,listPackage} from '@electron/asar';
-import {snapshotSource,readSnapshot,SOURCE_FOLDER} from '../desktop/update-source.mjs';
+import {snapshotSource,readSnapshot,writeTree,SOURCE_FOLDER} from '../desktop/update-source.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const args=process.argv.slice(2);
@@ -34,9 +36,22 @@ if(!officialSource&&process.env.EXOMINA_PUBLISHER_BUILD!=='1'){
 if(path.dirname(snapshot)!==build)throw Error('Invalid release source destination.');
 await rm(snapshot,{recursive:true,force:true});
 if(officialSource){
-  const official=path.resolve(officialSource),verified=await readSnapshot(official);
+  const official=path.resolve(officialSource),manifestBytes=await readFile(path.join(official,'manifest.json')),verified=await readSnapshot(official);
   stamp.officialId=verified.manifest.release.id;stamp.officialVersion=verified.manifest.release.version;stamp.customized=true;
-  await cp(official,snapshot,{recursive:true});
+  // Write fresh files instead of copying: a copy keeps EFS encryption from the
+  // Workspace or an installed snapshot, and program files must stay plain.
+  await writeTree(path.join(snapshot,'files'),verified.files);
+  await writeFile(path.join(snapshot,'manifest.json'),manifestBytes,{flag:'wx'});
+  const written=await readSnapshot(snapshot);
+  if(written.manifest.treeHash!==verified.manifest.treeHash||written.manifest.release.id!==verified.manifest.release.id)throw Error('The release source snapshot changed while it was written.');
 }else await snapshotSource(root,snapshot,stamp);
 await writeFile(path.join(build,'exomina.build.json'),JSON.stringify(stamp,null,2)+'\n');
+if(process.platform==='win32'){
+  // A build made inside an encrypted folder inherits EFS on every file.
+  const {stdout}=await promisify(execFile)(path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe'),[
+    '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(root,'scripts','decrypt-package.ps1'),'-Directory',build
+  ],{windowsHide:true,encoding:'utf8',timeout:600000}).catch(error=>{throw Error('Program files could not be decrypted: '+String(error.stdout||error.message).trim());});
+  if(JSON.parse(stdout).remaining!==0)throw Error('Program files remain EFS-encrypted.');
+  console.log('EFS check: '+stdout.trim());
+}
 console.log(`Stamped build ${stamp.id} (${version})`);

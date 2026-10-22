@@ -10,6 +10,7 @@ import './mobile.css';
 // Design layer last, so it overrides every component sheet imported above.
 import './refresh.css';
 import './chat-layout.css';
+import './chat-flair.css';
 import './live-followups.css';
 import './extravagant-themes.css';
 import './extensions.css';

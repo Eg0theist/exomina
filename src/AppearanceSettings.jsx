@@ -9,6 +9,7 @@ import {UI_SCALES} from '../desktop/ui-zoom.mjs';
 function ThemePreview({ theme }) {
   const { ground, ink, accent, leaf } = theme.colors;
   return <span className={`tp ${theme.effect ? 'tp-' + theme.effect : ''} ${theme.artwork ? 'tp-artwork' : ''}`} style={{ '--g': ground, '--i': ink, '--a': accent, '--l': leaf, '--theme-art': themeArtwork(theme) }} aria-hidden="true">
+    {theme.effect === 'matrix' && <span className="tp-rain">{['ﾏ01ﾘｸ7', 'ｼ9ﾄ0ﾒ', '01ﾈﾊ6', 'ｳ7ﾐ10', '8ﾖｶ01', 'ﾆ0ﾑ9ﾗ'].map((code, i) => <i key={i}>{code}</i>)}</span>}
     <span className="tp-side"><i /><i /><i /><i /></span>
     <span className="tp-main"><span className="tp-bubble" /><span className="tp-line" /><span className="tp-line short" /><span className="tp-composer"><s /><b /></span></span>
   </span>;
@@ -48,7 +49,7 @@ export default function AppearanceSettings({ appearance: value, onChange, Toggle
   const shown = theme => !hidden.has(theme.id) || inUse.has(theme.id);
   const darkThemes = THEMES.filter(theme => theme.scheme === 'dark' && shown(theme));
   const lightThemes = THEMES.filter(theme => theme.scheme === 'light' && shown(theme));
-  const groups = [['Extravagant', THEMES.filter(theme => theme.artwork && !theme.calm)], ['Atmospheric', THEMES.filter(theme => theme.calm)], ['Dark', THEMES.filter(theme => theme.scheme === 'dark' && !theme.artwork)], ['Light', THEMES.filter(theme => theme.scheme === 'light' && !theme.artwork)]]
+  const groups = [['Animated', THEMES.filter(theme => theme.effect === 'matrix')], ['Extravagant', THEMES.filter(theme => theme.artwork && !theme.calm)], ['Atmospheric', THEMES.filter(theme => theme.calm)], ['Dark', THEMES.filter(theme => theme.scheme === 'dark' && !theme.artwork && theme.effect !== 'matrix')], ['Light', THEMES.filter(theme => theme.scheme === 'light' && !theme.artwork)]]
     .map(([label, themes]) => [label, themes.filter(shown)]).filter(([, themes]) => themes.length);
   const byId = id => THEMES.find(theme => theme.id === id);
   const setHidden = ids => onChange({ hiddenThemes: [...new Set(ids)].sort() });

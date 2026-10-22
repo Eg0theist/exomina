@@ -22,7 +22,8 @@ async function fixture(t, overrides = {}) {
   const events = [], calls = [], children = [];
   let handler = () => {};
   const manager = new ProviderManager({ dataDir, workspace: path.join(dataDir, 'workspace'),
-    isProviderEnabled: () => true, claudeRuntime: 'bundled',
+    isProviderEnabled: () => true,
+    claudeRuntime: 'bundled',
     codexPath: process.execPath, claudePath: process.execPath,
     gateway: { url: 'http://127.0.0.1:1', token: 'synthetic-test-token', script: path.join(dataDir, 'gateway.mjs') },
     emit: event => events.push(event),

@@ -24,7 +24,7 @@ function MatchText({ text, query }) {
   return <>{text.slice(0, hit.start)}<mark>{text.slice(hit.start, hit.end)}</mark>{text.slice(hit.end)}</>;
 }
 
-export default function ChatSidebar({ conversations, selectedId, activeIds = [], unreadIds = [], titlesPending = [], onSelect, onUpdate, onRetitle, onDelete, onModalChange }) {
+export default function ChatSidebar({ conversations, selectedId, activeIds = [], unreadIds = [], titlesPending = [], onSelect, onUpdate, onRetitle, onDelete, onModalChange, onSearch }) {
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState('active');
   const [rowLimit,setRowLimit]=useState(SIDEBAR_PAGE_SIZE);
@@ -36,6 +36,8 @@ export default function ChatSidebar({ conversations, selectedId, activeIds = [],
   const [draggedId, setDraggedId] = useState(null);
   const [dropHint, setDropHint] = useState(null);
   const [announcement, setAnnouncement] = useState('');
+  const [remoteHits,setRemoteHits]=useState(null);
+  const [searching,setSearching]=useState(false);
   const dragRef = useRef(null);
   const movingRef = useRef(false);
   const searchRef = useRef(null);
@@ -48,7 +50,15 @@ export default function ChatSidebar({ conversations, selectedId, activeIds = [],
   const windowed=useMemo(()=>sidebarWindow(scoped,rowLimit,selectedId),[scoped,rowLimit,selectedId]);
   useEffect(()=>setRowLimit(SIDEBAR_PAGE_SIZE),[scope,term]);
   // Search always covers archived chats too; their rows carry the archive icon.
-  const hits = useMemo(() => searchChats(sorted, { query: term, scope: 'all', limit: 100 }), [sorted, term]);
+  const localHits = useMemo(() => onSearch?[]:searchChats(sorted, { query: term, scope: 'all', limit: 100 }), [sorted, term,onSearch]);
+  const libraryRevision=useMemo(()=>JSON.stringify(conversations.map(chat=>[chat.id,chat.title,chat.archived])),[conversations]);
+  const hits=onSearch?(remoteHits?.query===term?Object.assign(remoteHits.results,{truncated:remoteHits.truncated}):[]):localHits;
+  useEffect(()=>{
+    if(!onSearch||!term){setRemoteHits(null);setSearching(false);return;}
+    let canceled=false;setSearching(true);
+    const timer=setTimeout(()=>onSearch({query:term,scope:'all',limit:100}).then(result=>{if(!canceled)setRemoteHits({...result,query:term});}).catch(failure=>{if(!canceled){setRemoteHits({query:term,results:[]});setError(failure.message||String(failure));}}).finally(()=>{if(!canceled)setSearching(false);}),160);
+    return ()=>{canceled=true;clearTimeout(timer);};
+  },[term,onSearch,libraryRevision]);
   const groups = useMemo(() => {
     if (term) return [];
     const result = [];
@@ -137,7 +147,7 @@ export default function ChatSidebar({ conversations, selectedId, activeIds = [],
     <button type="button" className="chat-archive-toggle" aria-label="Show archived chats" aria-pressed={scope === 'archived'} title={scope === 'archived' ? 'Back to recent chats' : 'Show archived chats'} onClick={() => { setScope(scope === 'archived' ? 'active' : 'archived'); setMenu(null); }}><Archive size={14} /></button></div>
     {error && !renaming && <p className="chat-list-error" role="alert">{error}</p>}
     {!term && pinned.length > 0 && <div className="chat-pinned-section" role="region" aria-label="Pinned chats"><div className="chat-group-heading"><Pin size={10} />PINNED</div><div className="chat-pinned-list">{pinned.map(chat => row(chat))}</div></div>}
-    <div className="chat-list-scroll" role="region" aria-label={term ? 'Chat search results' : 'Recent chats'}>{term ? <div className="chat-search-results"><div className="chat-group-heading" role="status">{hits.length}{hits.truncated ? '+' : ''} {hits.length === 1 ? 'RESULT' : 'RESULTS'}</div>{hits.map(hit => row(hit.chat, hit))}{!hits.length && <p className="recent-empty">No matching chats. Try another phrase.</p>}</div> : scoped.length ? <>{groups.filter(group => group.chats.length).map(group => <div className="chat-list-group" key={group.label}><div className="chat-group-heading">{group.label}</div>{group.chats.map(chat => row(chat))}</div>)}{windowed.remaining>0&&<button type="button" className="text-button chat-show-more" onClick={()=>setRowLimit(n=>n+SIDEBAR_PAGE_SIZE)}>Show more chats ({windowed.remaining} more)</button>}</> : <p className="recent-empty">{scope === 'archived' ? 'No archived chats.' : 'Your chats will appear here.'}</p>}</div>
+    <div className="chat-list-scroll" role="region" aria-label={term ? 'Chat search results' : 'Recent chats'}>{term ? <div className="chat-search-results"><div className="chat-group-heading" role="status">{searching?'Searching…':hits.length}{hits.truncated ? '+' : ''} {!searching&&(hits.length === 1 ? 'RESULT' : 'RESULTS')}</div>{hits.map(hit => row(hit.chat, hit))}{!searching&&!hits.length && <p className="recent-empty">No matching chats. Try another phrase.</p>}</div> : scoped.length ? <>{groups.filter(group => group.chats.length).map(group => <div className="chat-list-group" key={group.label}><div className="chat-group-heading">{group.label}</div>{group.chats.map(chat => row(chat))}</div>)}{windowed.remaining>0&&<button type="button" className="text-button chat-show-more" onClick={()=>setRowLimit(n=>n+SIDEBAR_PAGE_SIZE)}>Show more chats ({windowed.remaining} more)</button>}</> : <p className="recent-empty">{scope === 'archived' ? 'No archived chats.' : 'Your chats will appear here.'}</p>}</div>
     {renaming && createPortal(<div className="modal-backdrop"><section className="modal chat-rename-modal" role="dialog" aria-modal="true" aria-labelledby="rename-chat-title" onKeyDown={event => { if (event.key === 'Escape' && !pending) setRenaming(null); }}><button className="modal-close icon-button" aria-label="Close rename" disabled={pending} onClick={() => setRenaming(null)}><X size={18} /></button><div className="modal-icon"><Pencil size={21} /></div><h2 id="rename-chat-title">Rename chat</h2><form onSubmit={rename}><label className="input-label" htmlFor="chat-title">Chat name</label><input id="chat-title" ref={titleRef} value={title} maxLength={80} onChange={event => { setTitle(event.target.value); setError(''); }} disabled={pending} autoComplete="off" />{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button className="secondary-button" type="button" disabled={pending} onClick={() => setRenaming(null)}>Cancel</button><button className="primary-button" disabled={pending}>{pending ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}Save name</button></div></form></section></div>, document.body)}
   </section>;
 }

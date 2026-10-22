@@ -69,6 +69,14 @@ export class ChatMemoryTree {
             INSERT OR IGNORE INTO tree_migrations VALUES('job-counts-v1'); COMMIT;`);
         }
         this.#db=db;
+        const jobColumns=new Set(db.prepare('PRAGMA table_info(tree_jobs)').all().map(column=>column.name));
+        if(!jobColumns.has('retry_after')){
+          db.exec('ALTER TABLE tree_jobs ADD COLUMN retry_after INTEGER NOT NULL DEFAULT 0');
+          // Older failures had no automatic wake. Give them one bounded retry
+          // after startup without changing originals or completed summaries.
+          db.prepare("UPDATE tree_jobs SET retry_after=? WHERE state='failed'").run(Date.now()+60_000);
+        }
+        db.exec("CREATE INDEX IF NOT EXISTS tree_job_retry ON tree_jobs(retry_after,chat_id) WHERE retry_after>0 AND state IN ('ready','failed');");
         if(process.platform!=='win32')await chmod(filename,0o600);
         return this;
       }catch(error){db.close();this.#db=null;throw error;}
@@ -239,14 +247,19 @@ export class ChatMemoryTree {
     identifier(chatId,'chat id');if(!Array.isArray(events))throw Error('Chat events must be an array.');const normalized=events.map(event=>this.#normalize(event));await this.init();
     return this.#transaction(()=>{const results=normalized.map(event=>this.#append(chatId,event));if(this.#chat(chatId))this.#settle(chatId);return {chatId,appended:results.filter(result=>result.appended).length,total:this.#chat(chatId)?.next_id??0,results};});
   }
-  async resume(chatId){identifier(chatId,'chat id');await this.init();return this.#transaction(()=>{const changed=this.#sql('UPDATE tree_chats SET generation=generation+1 WHERE chat_id=?').run(chatId).changes;const generation=this.#chat(chatId)?.generation??0;this.#sql("UPDATE tree_jobs SET state='ready' WHERE chat_id=? AND state='failed' AND blocked_generation<?").run(chatId,generation);return {chatId,resumed:!!changed,generation};});}
-  async readyJobs(limit=8,{chatId}={}){
-    integer(limit,'job limit',1,1024);if(chatId!==undefined)identifier(chatId,'chat id');await this.init();
+  async resume(chatId){identifier(chatId,'chat id');await this.init();return this.#transaction(()=>{const changed=this.#sql('UPDATE tree_chats SET generation=generation+1 WHERE chat_id=?').run(chatId).changes;const generation=this.#chat(chatId)?.generation??0;this.#sql("UPDATE tree_jobs SET state='ready',retry_after=0 WHERE chat_id=? AND state='failed' AND blocked_generation<?").run(chatId,generation);return {chatId,resumed:!!changed,generation};});}
+  async nextRetry({chatId}={}){
+    if(chatId!==undefined)identifier(chatId,'chat id');await this.init();
+    return this.#sql(`SELECT MIN(retry_after) AS at FROM tree_jobs WHERE retry_after>0 AND state IN ('ready','failed')${chatId===undefined?'':' AND chat_id=?'}`).get(...(chatId===undefined?[]:[chatId])).at||0;
+  }
+  async readyJobs(limit=8,{chatId,now=Date.now()}={}){
+    integer(limit,'job limit',1,1024);integer(now,'retry time');if(chatId!==undefined)identifier(chatId,'chat id');await this.init();
     return this.#transaction(()=>{
-      // Eight unfinished earlier leaves form the boundary of the next leaf's
-      // chronological context. The partial index probe visits at most eight.
-      const rows=this.#sql(`SELECT j.chat_id,j.id,j.count,j.source_hash,j.attempts,c.generation FROM tree_jobs j JOIN tree_chats c ON c.chat_id=j.chat_id WHERE j.state='ready'${chatId===undefined?'':' AND j.chat_id=?'} AND (j.count>1 OR NOT EXISTS(SELECT 1 FROM tree_nodes earlier INDEXED BY tree_leaf_pending WHERE earlier.chat_id=j.chat_id AND earlier.count=1 AND earlier.text IS NULL AND earlier.id<j.id ORDER BY earlier.id LIMIT 1 OFFSET 7)) ORDER BY j.count,j.id,j.chat_id LIMIT ?`).all(...(chatId===undefined?[]:[chatId]),limit);
-      return rows.map(row=>{const token=randomUUID();this.#sql("UPDATE tree_jobs SET state='running',token=?,attempts=attempts+1,last_error=NULL WHERE chat_id=? AND id=? AND count=?").run(token,row.chat_id,row.id,row.count);return {chatId:row.chat_id,id:row.id,count:row.count,sourceHash:row.source_hash,attempt:row.attempts+1,eventGeneration:row.generation,token};});
+      this.#sql(`UPDATE tree_jobs SET state='ready' WHERE state='failed' AND retry_after>0 AND retry_after<=?${chatId===undefined?'':' AND chat_id=?'}`).run(now,...(chatId===undefined?[]:[chatId]));
+      // Keep the normal eight-leaf window, but failed/cooling sources cannot
+      // block independent later work. sourceTask still stops context at a gap.
+      const rows=this.#sql(`SELECT j.chat_id,j.id,j.count,j.source_hash,j.attempts,c.generation FROM tree_jobs j JOIN tree_chats c ON c.chat_id=j.chat_id WHERE j.state='ready' AND j.retry_after<=?${chatId===undefined?'':' AND j.chat_id=?'} AND (j.count>1 OR NOT EXISTS(SELECT 1 FROM tree_nodes earlier INDEXED BY tree_leaf_pending JOIN tree_jobs waiting ON waiting.chat_id=earlier.chat_id AND waiting.id=earlier.id AND waiting.count=1 WHERE earlier.chat_id=j.chat_id AND earlier.count=1 AND earlier.text IS NULL AND earlier.id<j.id AND waiting.state<>'failed' AND waiting.retry_after<=? ORDER BY earlier.id LIMIT 1 OFFSET 7)) ORDER BY j.count,j.id,j.chat_id LIMIT ?`).all(now,...(chatId===undefined?[]:[chatId]),now,limit);
+      return rows.map(row=>{const token=randomUUID();this.#sql("UPDATE tree_jobs SET state='running',token=?,attempts=attempts+1,last_error=NULL,retry_after=0 WHERE chat_id=? AND id=? AND count=?").run(token,row.chat_id,row.id,row.count);return {chatId:row.chat_id,id:row.id,count:row.count,sourceHash:row.source_hash,attempt:row.attempts+1,eventGeneration:row.generation,token};});
     });
   }
   #currentJob(job){
@@ -326,8 +339,8 @@ export class ChatMemoryTree {
     }
     return {capturedAt:new Date().toISOString(),totals,chats,entries,state,chatId,offset,total,nextOffset:offset+entries.length<total?offset+entries.length:null};
   }
-  async failJob(job,error='Summary unavailable.'){
-    await this.init();return this.#transaction(()=>{if(!this.#currentJob(job))return {failed:false,stale:true};const generation=this.#chat(job.chatId).generation;const message=String(error?.message??error).slice(0,400);this.#sql("UPDATE tree_jobs SET state='failed',token=NULL,blocked_generation=?,last_error=? WHERE chat_id=? AND id=? AND count=?").run(generation,message,job.chatId,job.id,job.count);return {failed:true,retryAfterEventGeneration:generation};});
+  async failJob(job,error='Summary unavailable.',{retryAt=0}={}){
+    integer(retryAt,'retry deadline');await this.init();return this.#transaction(()=>{if(!this.#currentJob(job))return {failed:false,stale:true};const generation=this.#chat(job.chatId).generation;const message=String(error?.message??error).slice(0,400);this.#sql("UPDATE tree_jobs SET state='failed',token=NULL,blocked_generation=?,last_error=?,retry_after=? WHERE chat_id=? AND id=? AND count=?").run(generation,message,retryAt,job.chatId,job.id,job.count);return {failed:true,retryAfterEventGeneration:generation,retryAt};});
   }
   async view(chatId,{kind='turn'}={}){
     identifier(chatId,'chat id');if(!['turn','compaction'].includes(kind))throw Error('Invalid chat memory view.');await this.init();

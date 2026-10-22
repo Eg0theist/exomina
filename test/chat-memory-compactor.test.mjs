@@ -3,11 +3,120 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ChatMemoryCompactor, CHAT_MEMORY_RULER, chooseCompactionModel, compactionRequest, correctionPrefix } from '../desktop/chat-memory-compactor.mjs';
+import { ChatMemoryCompactor, CHAT_MEMORY_RULER, chooseCompactionModel, compactionRequest, correctionPrefix, validateSummary } from '../desktop/chat-memory-compactor.mjs';
 import { ChatMemoryTree } from '../desktop/chat-memory-tree.mjs';
 
 const nextTurn = () => new Promise(resolve => setImmediate(resolve));
 const available = () => [{ provider: 'codex', model: 'gpt-luna', role: 'light', available: true, efforts: ['low', 'medium'] }];
+
+test('idle concurrency overlaps two jobs and foreground activity holds further dispatches to one', async () => {
+  const f = fixture(6), releases = []; let foreground = false, calls = 0;
+  const worker = new ChatMemoryCompactor({ tree: f.tree, available, concurrency: 2, getConcurrency: () => foreground ? 1 : 2,
+    summarize: () => { calls++; return new Promise(resolve => releases.push(() => resolve('Retained decision.'))); }
+  });
+  try {
+    worker.notify('chat'); await nextTurn(); assert.equal(calls, 2); assert.equal(worker.stats().concurrency, 2);
+    foreground = true; releases.shift()(); await nextTurn(); assert.equal(calls, 2); assert.equal(worker.stats().running, 1); assert.equal(worker.stats().concurrency, 1);
+    releases.shift()(); await nextTurn(); assert.equal(calls, 3); assert.equal(worker.stats().running, 1);
+    foreground = false; releases.shift()(); await nextTurn(); assert.equal(calls, 5); assert.equal(worker.stats().running, 2);
+    while (f.values.size < 6) { for (const release of releases.splice(0)) release(); await nextTurn(); }
+    await worker.drain(); assert.equal(calls, 6);
+  } finally { await worker.close(); }
+});
+
+test('a foreground turn arriving during model lookup defers extra claims without losing work', async () => {
+  const f = fixture(3); let foreground = false, gates = 0, calls = 0;
+  const releases = [];
+  f.tree.deferJob = async job => { f.jobs.find(value => value.id === job.id).status = 'pending'; };
+  const worker = new ChatMemoryCompactor({ tree: f.tree, concurrency: 2, getConcurrency: () => foreground ? 1 : 2,
+    available: async () => { if (++gates === 1) foreground = true; return available(); },
+    summarize: () => { calls++; return new Promise(resolve => releases.push(() => resolve('Retained decision.'))); }
+  });
+  try {
+    worker.notify('chat'); await nextTurn(); assert.equal(calls, 1); assert.equal(f.jobs.filter(job => job.status === 'pending').length, 2);
+    while (f.values.size < 3) { releases.shift()(); await nextTurn(); assert.ok(worker.stats().running <= 1); }
+    await worker.drain(); assert.equal(calls, 3); assert.equal(f.failures.length, 0);
+  } finally { await worker.close(); }
+});
+
+test('validation rejects incomplete, malformed, placeholder and fenced output without cutting valid Unicode', () => {
+  const options = { prefix: '[user/text]', maxBytes: 512 };
+  for (const text of ['', '[pending]', '[user/text]', '[user/text] [pending]', 'A decision and', 'Details:', 'Cut off…', '```text\nClaim\n```', 'bad\uD800', '😀'.repeat(130)]) {
+    assert.equal(validateSummary(text, options).valid, false, JSON.stringify(text));
+  }
+  const result = validateSummary('Correction: Größe is 18; source unverified.', options);
+  assert.equal(result.valid, true); assert.equal(result.text, '[user/text] Correction: Größe is 18; source unverified.');
+});
+
+test('a cooling scope cannot delay a queued chat with runnable work', async () => {
+  const f = fixture(1, 'b'); let now = 1000;
+  f.tree.nextRetry = async ({ chatId }) => chatId === 'a' ? now + 30 * 60_000 : 0;
+  const worker = new ChatMemoryCompactor({ tree: f.tree, available, concurrency: 1, now: () => now, summarize: async () => 'Retained decision.' });
+  try {
+    worker.notify('a'); worker.notify('b'); await worker.drain();
+    assert.equal(f.values.size, 1); assert.equal(f.jobs[0].status, 'built');
+    assert.equal(worker.stats().queued, 1);
+  } finally { await worker.close(); }
+});
+
+test('a temporary gate failure wakes at its own earlier deadline and retains its chat scope', async () => {
+  for (const failure of ['throw', 'timeout', 'unavailable']) {
+    const f = fixture(1, 'b'); let now = 1000, broken = true, serial = 0;
+    const timers = new Map();
+    f.tree.nextRetry = async ({ chatId }) => chatId === 'a' ? 1000 + 30 * 60_000 : 0;
+    const worker = new ChatMemoryCompactor({ tree: f.tree, available, concurrency: 1, now: () => now, gateTimeoutMs: 5,
+      chooseModel: (models, chatId) => {
+        if (chatId === 'b' && broken) {
+          if (failure === 'throw') throw Error('Private gate error');
+          if (failure === 'timeout') return new Promise(() => {});
+          return null;
+        }
+        return models[0];
+      },
+      setTimer: (callback, delay) => { const id = ++serial; timers.set(id, { callback, delay }); return id; }, clearTimer: id => timers.delete(id),
+      summarize: async () => 'Retained decision.'
+    });
+    try {
+      worker.notify('a'); worker.notify('b'); await worker.drain();
+      assert.equal(f.values.size, 0); assert.equal(timers.size, 1);
+      assert.equal([...timers.values()][0].delay, 60_000, failure);
+      assert.equal(worker.stats().queued, 2);
+      broken = false; now += 60_000; const timer = [...timers.values()][0]; timers.clear(); timer.callback(); await worker.drain();
+      assert.equal(f.values.size, 1, failure); assert.ok(f.claims.every(claim => claim.options.chatId !== undefined));
+      assert.doesNotMatch(JSON.stringify(worker.stats()), /Private gate error/);
+      assert.equal([...timers.values()][0].delay, 29 * 60_000);
+    } finally { await worker.close(); }
+    assert.equal(timers.size, 0);
+  }
+});
+
+test('an idle deadline retries a failed source while other jobs progress and pause clears the timer', async () => {
+  const parent = path.resolve(import.meta.dirname, '..', '.verification', 'chat-memory-compactor-tests');
+  await mkdir(parent, { recursive: true });
+  const directory = await mkdtemp(path.join(parent, 'synthetic-'));
+  const tree = new ChatMemoryTree(directory);
+  let now = 1000, failing = true, calls = 0, nextTimer = 0;
+  const timers = new Map();
+  const worker = new ChatMemoryCompactor({ tree, concurrency: 1, available, now: () => now,
+    setTimer: (callback, delay) => { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; }, clearTimer: id => timers.delete(id),
+    summarize: async ({ job }) => { calls++; return failing && job.id === 0 && job.count === 1 ? 'x'.repeat(600) : 'A retained decision; exact originals remain available.'; }
+  });
+  try {
+    await tree.sync('chat', Array.from({ length: 12 }, (_, id) => ({ key: String(id), role: 'user', kind: 'text', text: `Decision ${id}. ` + 'Detailed source. '.repeat(60) })));
+    worker.notify('chat'); await worker.drain();
+    assert.equal((await tree.stats('chat')).jobs.failed, 1);
+    assert.ok(worker.stats().completed >= 11, 'The failed early leaf cannot stall the remaining eleven.');
+    assert.equal(timers.size, 1); assert.equal([...timers.values()][0].delay, 60_000);
+    const before = calls; failing = false; now += 60_000;
+    const timer = [...timers.values()][0]; timers.clear(); timer.callback(); await worker.drain();
+    assert.ok(calls > before, 'No append, explicit resume or host poll was required.');
+    assert.equal((await tree.stats('chat')).pendingJobs, 0); assert.equal((await tree.audit('chat')).valid, true);
+    assert.equal((await tree.zoom('chat', 0)).text.startsWith('Decision 0.'), true);
+    assert.equal(timers.size, 0);
+    worker.state.retryAt = now + 60_000; worker.notify('chat'); assert.equal(timers.size, 1);
+    await worker.pause(); assert.equal(timers.size, 0);
+  } finally { await worker.close(); await tree.close(); assert.ok(directory.startsWith(parent + path.sep)); await rm(directory, { recursive: true, force: true }); }
+});
 
 test('a global safety refusal racing dispatch stays resumable and reports its operational cause', async () => {
   const f = fixture(); let calls = 0;
@@ -155,7 +264,7 @@ test('context lines before the source are separated from finer lines covering it
   assert.deepEqual(parsed.earlierContext.map(entry => entry.id), [0]);
   assert.deepEqual(parsed.finerSource.map(entry => entry.id), [4, 5]);
   assert.match(request.task, /never copy their facts/);
-  assert.match(request.task, /Aim for about 410 bytes/);
+  assert.match(request.task, /Aim for about 348 bytes/);
 });
 
 test('five oversized or placeholder answers fail without committing truncated text', async () => {
@@ -164,7 +273,7 @@ test('five oversized or placeholder answers fail without committing truncated te
     const worker = new ChatMemoryCompactor({ tree: f.tree, available, maxAttempts: 10, summarize: async () => { calls++; return answer; } });
     worker.notify('chat'); await worker.drain();
     assert.equal(calls, 5); assert.equal(f.values.size, 0); assert.equal(f.failures.length, 1); assert.equal(f.jobs[0].status, 'blocked');
-    assert.equal(f.failures[0].failure.code, 'SUMMARY_OVERSIZE');
+    assert.equal(f.failures[0].failure.code, answer === '[pending]' ? 'SUMMARY_INVALID' : 'SUMMARY_OVERSIZE');
     assert.ok(!f.failures[0].failure.message.includes(answer));
     await worker.close();
   }

@@ -5,7 +5,7 @@ import { usageStale } from './usage.mjs';
 export const BACKFILL_PROVIDER = 'codex';
 // Subscriptions whose usage windows Exomina can read; the spare-allowance guard needs them.
 export const BACKFILL_PROVIDERS = ['codex', 'claude', 'muse-code'];
-// Default when no model is chosen: light model first, the balanced one only if the light model is not offered.
+// Recommended starts light; repeated invalid output on one source may use the balanced fallback.
 export const BACKFILL_MODELS = ['gpt-6-luna', 'gpt-6.1-sol'];
 export const BACKFILL_EFFORT = 'high';
 export const BACKFILL_DAILY_CAP = 1500;
@@ -124,6 +124,13 @@ export class ChatMemoryBackfill {
     const model = chooseBackfillModel(models, this.getSettings().chatMemoryBackfillModel);
     if (!model) { this.reason = 'unavailable'; return null; }
     return { ...model, backfill: true };
+  }
+  fallback(models, current) {
+    // Explicit selections remain exact. Recommended may adapt only within the
+    // same subscription, under the ordinary usage/reservation checks.
+    if (backfillChoice(this.getSettings().chatMemoryBackfillModel) || this.blocked() || !current?.backfill || current.provider !== BACKFILL_PROVIDER || current.model !== BACKFILL_MODELS[0]) return null;
+    const model = chooseBackfillModel(models.filter(item => item.model === BACKFILL_MODELS[1]));
+    return model ? { ...model, backfill: true } : null;
   }
   authorized(model) {
     const settings = this.getSettings(), choice = backfillChoice(settings.chatMemoryBackfillModel);
