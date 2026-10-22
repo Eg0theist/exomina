@@ -2,9 +2,9 @@ import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {PROVIDER_CATALOG,getProvider} from './provider-catalog.mjs';
-import {encryptProtectedSecret,decryptProtectedSecret} from './secret-storage.mjs';
 import {connectionEndpoint,isLocalEndpoint} from './api-endpoint.mjs';
 export {connectionEndpoint} from './api-endpoint.mjs';
+import {encryptProtectedSecret,decryptProtectedSecret} from './secret-storage.mjs';
 function modelId(value) {
   const model = String(value || '').trim();
   if (!model || model.length > 200 || /[\x00-\x20]/.test(model) || ['auto','default'].includes(model.toLowerCase())) throw Error('Choose a model or enter its exact model ID.');

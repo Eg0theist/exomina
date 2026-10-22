@@ -1,11 +1,31 @@
 # Extract only a verified public program archive into a fresh updater directory.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archivePath = [IO.Path]::GetFullPath($env:EXOMINA_UPDATE_ARCHIVE)
 $targetPath = [IO.Path]::GetFullPath($env:EXOMINA_UPDATE_TARGET).TrimEnd('\')
 if (-not (Test-Path -LiteralPath $targetPath -PathType Container)) { throw 'Missing update destination.' }
+if ($env:EXOMINA_UPDATE_VERIFY_ONLY -eq '1') {
+  $pending = [Collections.Generic.Stack[string]]::new()
+  $pending.Push($targetPath)
+  while ($pending.Count) {
+    $current = $pending.Pop()
+    $item = Get-Item -LiteralPath $current -Force
+    if ($item.Attributes -band ([IO.FileAttributes]::ReparsePoint -bor [IO.FileAttributes]::Encrypted)) { throw 'Linked or encrypted update program entry.' }
+    if ($item.PSIsContainer) { foreach ($child in Get-ChildItem -LiteralPath $current -Force) { $pending.Push($child.FullName) } }
+  }
+  exit 0
+}
+$archivePath = [IO.Path]::GetFullPath($env:EXOMINA_UPDATE_ARCHIVE)
 if (Get-ChildItem -LiteralPath $targetPath -Force | Select-Object -First 1) { throw 'Update destination must be empty.' }
 if ((Get-Item -LiteralPath $targetPath).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked update destination.' }
+$cursor = $targetPath
+while ($cursor) {
+  if ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked update destination ancestor.' }
+  $cursor = [IO.Path]::GetDirectoryName($cursor)
+}
+# A fresh empty directory may inherit EFS from a customized cache location.
+# Clear that directory's inheritance before writing any program bytes.
+if ((Get-Item -LiteralPath $targetPath -Force).Attributes -band [IO.FileAttributes]::Encrypted) { [IO.File]::Decrypt($targetPath) }
+if ((Get-Item -LiteralPath $targetPath -Force).Attributes -band [IO.FileAttributes]::Encrypted) { throw 'Update program destination remains encrypted.' }
 $zip = [IO.Compression.ZipFile]::OpenRead($archivePath)
 try {
   $total = [long]0
@@ -16,7 +36,7 @@ try {
     $parts = $name.TrimEnd('\').Split('\')
     if (-not $name -or $name.StartsWith('\') -or $name.Contains(':') -or $parts -contains '..' -or $parts -contains '.' -or $parts -contains '') { throw 'Unsafe update archive path.' }
     if ($parts[0] -in @('Private', 'data', 'Workspace', 'Source')) { throw 'An update must contain program files only.' }
-    foreach ($part in $parts) { if ($part -match '[. ]$|^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])([.]|$)') { throw 'Invalid Windows update filename.' } }
+    foreach ($part in $parts) { if ($part -match '[<>"|?*\x00-\x1f]|[. ]$|^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])([.]|$)') { throw 'Invalid Windows update filename.' } }
     $destination = [IO.Path]::GetFullPath([IO.Path]::Combine($targetPath, $name))
     if (-not $destination.StartsWith($targetPath + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Update path leaves its destination.' }
     if (-not $seen.Add($name.TrimEnd('\'))) { throw 'Duplicate update archive path.' }
@@ -25,5 +45,24 @@ try {
     $total += $entry.Length
     if ($total -gt 16GB) { throw 'Unpacked update is too large.' }
   }
+  # Keep the same archive handle open through extraction. Reopening by path
+  # would allow the checked archive to be replaced between validation and use.
+  foreach ($entry in $zip.Entries) {
+    $name = $entry.FullName.Replace('/', '\')
+    $destination = [IO.Path]::GetFullPath([IO.Path]::Combine($targetPath, $name))
+    $directory = if ($name.EndsWith('\')) { $destination.TrimEnd('\') } else { [IO.Path]::GetDirectoryName($destination) }
+    $null = [IO.Directory]::CreateDirectory($directory)
+    $cursor = $directory
+    while ($cursor.StartsWith($targetPath, [StringComparison]::OrdinalIgnoreCase)) {
+      if ((Get-Item -LiteralPath $cursor -Force).Attributes -band ([IO.FileAttributes]::ReparsePoint -bor [IO.FileAttributes]::Encrypted)) { throw 'Linked or encrypted update directory.' }
+      if ($cursor -eq $targetPath) { break }; $cursor = [IO.Path]::GetDirectoryName($cursor)
+    }
+    if ($name.EndsWith('\')) { continue }
+    $entryStream = $entry.Open()
+    try {
+      $output = [IO.FileStream]::new($destination, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+      try { $entryStream.CopyTo($output) } finally { $output.Dispose() }
+    } finally { $entryStream.Dispose() }
+    if ((Get-Item -LiteralPath $destination -Force).Attributes -band ([IO.FileAttributes]::ReparsePoint -bor [IO.FileAttributes]::Encrypted)) { throw 'Linked or encrypted update program file.' }
+  }
 } finally { $zip.Dispose() }
-[IO.Compression.ZipFile]::ExtractToDirectory($archivePath, $targetPath)

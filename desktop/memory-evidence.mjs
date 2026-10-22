@@ -1,5 +1,5 @@
 import {memoryQuery} from './memory-relevance.mjs';
-const GENERIC=new Set(['installed','verified','unverified','source','update','beta','build','passed','tests','notes','said','oct','exomina','currently','still','the','with','that','this','from','were','have','after','before','only','requests','remains','prefers','prefer']);
+const GENERIC=new Set(['installed','verified','unverified','source','update','beta','build','passed','tests','notes','said','oct','nathan','exomina','currently','still','the','with','that','this','from','were','have','after','before','only','requests','remains','prefers','prefer']);
 const tokens=text=>new Set(memoryQuery(text).terms.filter(t=>t.length>2&&!GENERIC.has(t)&&!/^\d+$/.test(t)));
 const numbers=text=>[...String(text).matchAll(/\b\d+(?:\.\d+)?\s*(?:%|gb|mb|hours?|days?|\/hour|\/day)\b|\b\d+%/gi)].map(m=>m[0].toLowerCase().replaceAll(' ','')).sort().join('|');
 const negative=text=>/\b(?:not|never|no longer|disabled|off|false|unverified|cannot|can't|kein\w*|nicht)\b/i.test(text);

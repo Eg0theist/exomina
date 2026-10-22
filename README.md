@@ -1,10 +1,10 @@
-# Exomina beta
+# Exomina 0.6
 
 **The age of personal software is here. Make the software you wish existed.**
 
 Build ambitious personal applications, replace SaaS workflows and adapt existing software and games around the way you work and play. The feature you keep wishing for, the tools that should be one, the app nobody would build for an audience of one: these can become projects you develop, test and keep improving.
 
-Exomina brings ChatGPT, Claude, Gemini, Grok and local models into one free, open-source desktop workspace that remembers your work, edits your real files, browses the web and keeps going when one AI runs out of messages. Your idea can grow across sessions, models and revisions, with the code and context kept together.
+Exomina brings ChatGPT, Claude, Antigravity, Grok, Muse and local models into one free, open-source desktop workspace that remembers your work, edits your real files, browses the web and keeps going when one AI runs out of messages. Your idea can grow across sessions, models and revisions, with the code and context kept together.
 
 - **Stop re-explaining yourself.** Long conversations keep a memory with links back to the original messages, and shared notes carry your preferences and decisions into new chats.
 - **Stop copy-pasting between AIs.** Switch the model or provider inside a conversation; the history, attachments and project context stay where they are.
@@ -16,6 +16,12 @@ Your chat library stays on your computer; content sent to a cloud provider is pr
 **[Website](https://eg0theist.github.io/exomina/)** · **[Download the current beta](https://github.com/Eg0theist/exomina/releases/tag/v0.5.0-beta.94)** · [Quick start](START-HERE.txt) · [Installation](BETA.md) · [Platform support](SUPPORT.md)
 
 Open source under [Apache-2.0](LICENSE). Forks, modifications and your own versions are welcome.
+
+## New in 0.6
+
+Versioned shared skills turn useful workflows into reusable instructions with source references and revision history. Read pipelines can filter several tool results while retaining each source's access controls. Optional Docker and SSH workers let supported jobs run on a configured worker, and context metrics make model input and cache use easier to inspect.
+
+The update client now verifies publisher-signed metadata and package inventories, and customized installations can prepare a reviewed merge. GitHub workflows prepare dependency and security updates and build signed Windows candidates. Automatic public delivery requires configured publisher keys, signing and qualification of the exact candidate; the source release does not enable that channel. Existing beta downloads and native packages retain their documented manual update process. See [publishing updates](PUBLIC-UPDATES.md).
 
 ## What could you make?
 
@@ -37,7 +43,7 @@ Start with your imagination, then work through what the project needs. Feasibili
 
 **You do not need to import conversations, context or memories.** Start with an empty library; importing earlier material is optional. Fresh profiles open in Standard view, with **Learn Exomina** on the home screen. Its 13 walkthroughs begin with your first conversation. Advanced view adds controls for models, tools and workflows without changing your permissions.
 
-Installers are available for Windows 10/11 x64 including Home, Intel and Apple Silicon Macs, and Debian/Ubuntu x64 or ARM64. You do not need Node.js or developer tools to use the app. ChatGPT and Grok clients are included. Claude is an opt-in connection through your own official Claude Code client; Gemini and Muse need their clients installed separately. Provider access, plans, limits and API charges apply to your own account. Local models need a separate server and model download.
+The current beta provides installers for Windows 10/11 x64 including Home, Intel and Apple Silicon Macs, and Debian/Ubuntu x64 or ARM64. New 0.6 installers require separate qualification. You do not need Node.js or developer tools to use the app. ChatGPT and Grok clients are included. Claude is an opt-in connection through your own official Claude Code client; Antigravity and Muse need their clients installed separately. Provider access, plans, limits and API charges apply to your own account. Local models need a separate server and model download.
 
 ## What you can do
 

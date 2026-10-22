@@ -1,4 +1,3 @@
-import {requireProtectedSecretStorage,encryptProtectedSecret,decryptProtectedSecret} from './secret-storage.mjs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -91,7 +90,7 @@ export class GithubConnection {
   }
   #token() {
     if (!this.record) throw new GithubError('Connect GitHub in Connections first.');
-    try { return decryptProtectedSecret(this.encryption,Buffer.from(this.record.encryptedToken, 'base64')); }
+    try { return this.encryption.decryptString(Buffer.from(this.record.encryptedToken, 'base64')); }
     catch { throw new GithubError('Windows could not unlock the saved GitHub token. Connect GitHub again in Connections.'); }
   }
   async #save() {
@@ -151,7 +150,7 @@ export class GithubConnection {
   async startSignIn(access = 'all') {
     if (!CLIENT_ID.test(this.clientId)) throw Error('Sign-in needs Exomina’s GitHub app. Add its client ID below, or paste a token instead.');
     if (!Object.hasOwn(SIGN_IN_ACCESS, access)) throw Error('Choose which repositories the AI may reach.');
-    requireProtectedSecretStorage(this.encryption);
+    if (!this.encryption.isEncryptionAvailable()) throw Error('Windows credential encryption is unavailable. Nothing has been saved.');
     this.cancelSignIn();
     const grant = await this.#oauth('/login/device/code', { client_id: this.clientId, scope: SIGN_IN_ACCESS[access] });
     if (grant.error || typeof grant.device_code !== 'string' || typeof grant.user_code !== 'string' || typeof grant.verification_uri !== 'string') {
@@ -192,13 +191,13 @@ export class GithubConnection {
     return this.#adopt(token.trim());
   }
   async #adopt(token, forcedKind, signal) {
-    requireProtectedSecretStorage(this.encryption);
+    if (!this.encryption.isEncryptionAvailable()) throw Error('Windows credential encryption is unavailable. The token has not been saved.');
     const me = await this.#send(token, 'GET', '/user');
     if(signal?.aborted)return this.status();
     const meta = this.lastScopes ?? [];
     const kind = forcedKind || (token.startsWith('github_pat_') ? 'fine-grained' : /^gh[pousr]_/.test(token) ? 'classic' : 'unknown');
     this.record = { version: 1, login: clean(me.login, 100), name: clean(me.name, 200), tokenKind: kind, scopes: meta, connectedAt: new Date(this.now()).toISOString(), checkedAt: new Date(this.now()).toISOString(),
-      encryptedToken: encryptProtectedSecret(this.encryption,token).toString('base64') };
+      encryptedToken: this.encryption.encryptString(token).toString('base64') };
     this.problem = '';
     await this.#save(); this.emit({ type: 'state.changed' });
     return this.status();

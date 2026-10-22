@@ -1,0 +1,28 @@
+/* Code moves behind the interface; the words sit on near-opaque black glass. */
+html[data-theme="matrix"] .main-shell{position:relative;isolation:isolate;overflow:hidden;background:var(--t-ground)}
+.matrix-rain{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;user-select:none;mask-image:linear-gradient(90deg,transparent,rgba(0,0,0,.32) 12%,rgba(0,0,0,.7) 58%,black)}
+html[data-theme="matrix"] .main-shell::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:repeating-linear-gradient(0deg,transparent 0 3px,color-mix(in oklab,var(--t-ground) 16%,transparent) 3px 4px),radial-gradient(ellipse at 92% 35%,transparent 10%,color-mix(in oklab,var(--t-ground) 72%,transparent) 100%)}
+html[data-theme="matrix"] .chat-page{background:transparent}
+html[data-theme="matrix"] .sidebar{background:linear-gradient(135deg,color-mix(in oklab,var(--t-accent) 4%,var(--t-ground)),var(--t-ground) 60%);border-right:1px solid color-mix(in oklab,var(--t-accent) 24%,var(--t-ground))}
+html[data-theme="matrix"] :is(.topbar,.window-header){background:color-mix(in oklab,var(--t-ground) 96%,transparent);border-bottom:1px solid color-mix(in oklab,var(--t-accent) 23%,var(--t-ground))}
+html[data-theme="matrix"] :is(.brand-mark,.brand-studio){color:var(--t-accent)}
+html[data-theme="matrix"][data-glow] .brand-mark{filter:drop-shadow(0 0 8px color-mix(in oklab,var(--t-accent) 30%,transparent))}
+html[data-theme="matrix"] :is(.nav-item.active,.chat-item.selected){background:color-mix(in oklab,var(--t-accent) 9%,var(--t-ground));box-shadow:inset 2px 0 var(--t-accent)}
+html[data-theme="matrix"] .message.assistant{padding:20px 22px;background:color-mix(in oklab,var(--t-ground) 96%,transparent);border:1px solid color-mix(in oklab,var(--t-accent) 19%,var(--t-ground));border-radius:6px;box-shadow:inset 2px 0 color-mix(in oklab,var(--t-accent) 40%,var(--t-ground))}
+html[data-theme="matrix"] .user-bubble{background:color-mix(in oklab,var(--t-accent) 5%,var(--t-ground));border-color:color-mix(in oklab,var(--t-accent) 28%,var(--t-ground));border-radius:6px}
+html[data-theme="matrix"] .composer{background:color-mix(in oklab,var(--t-ground) 98%,transparent);border-color:color-mix(in oklab,var(--t-accent) 36%,var(--t-ground));border-radius:8px;box-shadow:0 12px 35px color-mix(in oklab,var(--t-shadow) 60%,transparent)}
+html[data-theme="matrix"] .composer:focus-within{border-color:var(--t-accent)}
+html[data-theme="matrix"][data-glow] .composer:focus-within{box-shadow:0 0 22px color-mix(in oklab,var(--t-accent) 10%,transparent)}
+html[data-theme="matrix"] :is(.composer-caption,.usage-banner,.connection-banner,.activity,.helper-contribution,.welcome-block,.welcome-hero,.welcome-connection,.recent-chat,.workbench-card){background:color-mix(in oklab,var(--t-ground) 97%,transparent)}
+html[data-theme="matrix"] .composer-caption{border-radius:4px;padding:5px 7px}
+html[data-theme="matrix"] .content-page{background:color-mix(in oklab,var(--t-ground) 96%,transparent)}
+html[data-theme="matrix"] :is(.eyebrow,.brand-studio){font-family:'Cascadia Mono',Consolas,monospace;letter-spacing:.15em}
+.tp-matrix{position:relative;overflow:hidden;background:var(--g)}
+.tp-matrix .tp-rain{position:absolute;inset:0;display:flex;justify-content:space-around;opacity:.45;color:var(--a);font:12px/1.2 Consolas,monospace}
+.tp-matrix .tp-rain i{writing-mode:vertical-rl;font-style:normal;letter-spacing:3px;transform:translateY(-8px)}
+.tp-matrix .tp-rain i:nth-child(even){transform:translateY(16px);opacity:.5}
+.tp-matrix :is(.tp-side,.tp-main){position:relative;z-index:1}
+.tp-matrix .tp-side{background:color-mix(in oklab,var(--g) 85%,transparent);border-right:1px solid color-mix(in oklab,var(--a) 25%,var(--g))}
+.tp-matrix .tp-bubble,.tp-matrix .tp-composer{background:var(--g);border:1px solid color-mix(in oklab,var(--a) 35%,var(--g));border-radius:3px}
+@media(max-width:860px){html[data-theme="matrix"] .sidebar{position:fixed}}
+@media(max-width:760px){html[data-theme="matrix"] .message.assistant{padding:16px}}

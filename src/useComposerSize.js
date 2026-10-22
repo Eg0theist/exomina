@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const KEY = 'exomina.composerHeight';
 const MIN = 46;
@@ -10,19 +10,62 @@ const stored = () => { try { const value = Number(localStorage.getItem(KEY)); re
  * handle fixes its height (up to 70%), kept across restarts. Double-click resets. */
 export default function useComposerSize(ref, value) {
   const [manual, setManual] = useState(stored);
+  const measureRef = useRef(null);
+  const nativeSizing = typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content');
 
   const fit = useCallback(() => {
     const area = ref.current; if (!area) return;
+    if (nativeSizing) {
+      // Let layout wrap the actual editor once, without copying and measuring
+      // the whole draft during each input event. Empty suggestions must not
+      // determine the editor's height.
+      const content = !manual && !!area.value;
+      const sizing = content ? 'content' : 'fixed';
+      const maximum = manual ? '70vh' : '40vh';
+      const height = manual ? `min(${manual}px, 70vh)` : content ? 'auto' : MIN + 'px';
+      if (area.style.fieldSizing !== sizing) area.style.fieldSizing = sizing;
+      if (area.style.maxHeight !== maximum) area.style.maxHeight = maximum;
+      if (area.style.height !== height) area.style.height = height;
+      return;
+    }
     const limit = manual ? manualLimit() : autoLimit();
-    area.style.maxHeight = limit + 'px';
-    area.style.height = 'auto';
+    let wanted = manual;
+    if (!manual) {
+      // Measure outside the chat's flex layout. Collapsing the live editor to
+      // `auto` made the reply viewport expand and contract on every keystroke.
+      let measure = measureRef.current;
+      if (!measure) {
+        measure = document.createElement('textarea');
+        measure.dataset.composerMeasure = ''; measure.setAttribute('aria-hidden', 'true');
+        measure.tabIndex = -1; measure.readOnly = true; measure.inert = true;
+        measure.style.cssText = 'position:fixed;left:-10000px;top:0;height:0;min-height:0;max-height:none;visibility:hidden;pointer-events:none;overflow:hidden;resize:none;box-sizing:border-box;';
+        document.body.appendChild(measure); measureRef.current = measure;
+      }
+      const style = getComputedStyle(area);
+      for (const property of ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontStretch', 'lineHeight', 'letterSpacing', 'textIndent', 'textTransform', 'wordSpacing', 'tabSize', 'whiteSpace', 'wordBreak', 'overflowWrap', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'borderStyle', 'scrollbarGutter']) measure.style[property] = style[property];
+      measure.style.width = area.getBoundingClientRect().width + 'px';
+      measure.value = area.value;
+      wanted = Math.max(measure.scrollHeight + (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0), MIN);
+    }
     // A chosen height is kept as chosen; longer text scrolls inside it.
-    const wanted = manual || Math.max(area.scrollHeight, MIN);
-    area.style.height = Math.min(wanted, limit) + 'px';
-  }, [ref, manual]);
+    const maximum = limit + 'px', height = Math.min(wanted, limit) + 'px';
+    if (area.style.maxHeight !== maximum) area.style.maxHeight = maximum;
+    if (area.style.height !== height) area.style.height = height;
+  }, [ref, manual, nativeSizing]);
 
-  useLayoutEffect(fit, [fit, value]);
-  useEffect(() => { window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); }, [fit]);
+  useLayoutEffect(fit, [fit, nativeSizing ? !!value : value]);
+  useEffect(() => {
+    if (nativeSizing) return;
+    const area = ref.current; let width = area?.getBoundingClientRect().width;
+    const observer = new ResizeObserver(entries => {
+      const next = entries[0]?.target.getBoundingClientRect().width;
+      if (next !== undefined && Math.abs(next - width) > .5) { width = next; fit(); }
+    });
+    if (area) observer.observe(area);
+    window.addEventListener('resize', fit);
+    return () => { observer.disconnect(); window.removeEventListener('resize', fit); };
+  }, [fit, ref, nativeSizing]);
+  useEffect(() => () => { measureRef.current?.remove(); measureRef.current = null; }, []);
 
   const save = height => {
     setManual(height);

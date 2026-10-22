@@ -12,6 +12,26 @@ const event=(id,text='short synthetic text')=>({key:`event-${id}`,text,role:id%2
 const coverage=(view,total)=>{let next=0;for(const entry of view.entries){assert.equal(entry.id,next);assert.equal(entry.id%entry.count,0);assert.equal(Number.isInteger(Math.log2(entry.count)),true);next+=entry.count;}assert.equal(next,total);assert.equal(Buffer.byteLength(view.text,'utf8'),view.bytes);};
 const finish=async(tree,chatId)=>{for(let rounds=0;rounds<1000;rounds++){const jobs=await tree.readyJobs(8,{chatId});if(!jobs.length)return;for(const job of jobs){const source=await tree.sourceTask(job);const text=job.count===1?'faithful synthetic leaf facts':'preserved synthetic range '+job.id+' through '+(job.id+job.count-1)+' with user and assistant attribution';assert.equal((await tree.commitSummary(job,(source.prefix?source.prefix+' ':'')+text)).committed,true);}}throw Error('Synthetic drain did not finish.');};
 
+test('retry deadlines survive restart, cannot be bypassed by new messages, and retain exact originals', async () => {
+  const { dir, tree } = await fixture(); const now = 1000;
+  await tree.append('chat', event(0, 'Exact original correction. '.repeat(60)));
+  const [job] = await tree.readyJobs(1, { now });
+  await tree.failJob(job, 'Operational failure.', { retryAt: now + 60_000 });
+  await tree.append('chat', event(1, 'New source event.'));
+  assert.equal((await tree.readyJobs(8, { now })).length, 0);
+  assert.equal(await tree.nextRetry({ chatId: 'chat' }), now + 60_000);
+  await tree.close(); const reopened = await new ChatMemoryTree(dir).init();
+  try {
+    assert.equal((await reopened.readyJobs(8, { now: now + 59_999 })).length, 0);
+    const [retry] = await reopened.readyJobs(8, { now: now + 60_000 });
+    assert.equal(retry.id, 0); assert.notEqual(retry.token, job.token);
+    assert.equal((await reopened.commitSummary(job, 'Stale.')).stale, true);
+    await reopened.commitSummary(retry, 'Correction retained.');
+    assert.equal((await reopened.zoom('chat', 0)).text, 'Exact original correction. '.repeat(60));
+    assert.equal(await reopened.nextRetry(), 0); assert.equal((await reopened.audit('chat')).valid, true);
+  } finally { await reopened.close(); }
+});
+
 test('a paused job is deferred without losing its source or requiring another chat message',async()=>{
   const {tree}=await fixture();
   try{
@@ -145,19 +165,18 @@ test('a failed early leaf stops context at its first hole even when later leaves
   }finally{await tree.close();}
 });
 
-test('the chronological leaf window cannot advance past eight failed or running earlier originals',async()=>{
+test('failed leaves cannot block later work and chronological context still stops at the first gap',async()=>{
   const {tree}=await fixture();try{
     await tree.sync('chat',Array.from({length:24},(_,id)=>event(id,'long synthetic source '.repeat(60))));
     const first=await tree.readyJobs(24);assert.deepEqual(first.map(job=>job.id),[0,1,2,3,4,5,6,7]);
     assert.equal((await tree.readyJobs(24)).length,0);
     for(const job of first)await tree.failJob(job,'synthetic provider failure');
-    assert.equal((await tree.readyJobs(24)).length,0);
-    await tree.resume('chat');const retries=await tree.readyJobs(24);assert.deepEqual(retries.map(job=>job.id),[0,1,2,3,4,5,6,7]);
-    await tree.commitSummary(retries[7],'Out-of-order later leaf completed.');
-    const [eighth]=await tree.readyJobs(24);assert.equal(eighth.id,8);assert.equal((await tree.readyJobs(24)).length,0);
+    const later=await tree.readyJobs(24);assert.deepEqual(later.map(job=>job.id),[8,9,10,11,12,13,14,15]);
+    const eighth=later[0];
     const task=await tree.sourceTask(eighth);assert.deepEqual(task.context,[]);assert.equal(task.contextEnd,0);
+    await tree.resume('chat');const retries=await tree.readyJobs(24);assert.deepEqual(retries.map(job=>job.id),[0,1,2,3,4,5,6,7]);
     await tree.commitSummary(retries[0],'The earliest source now completed.');
-    const [ninth]=await tree.readyJobs(24);assert.equal(ninth.id,9);
+    const ninth=later[1];
     const nextTask=await tree.sourceTask(ninth);assert.deepEqual(nextTask.context.map(entry=>entry.id),[0]);assert.equal(nextTask.contextEnd,1);
     assert.equal((await tree.view('chat')).text.includes('conversation_zoom'),true);
   }finally{await tree.close();}

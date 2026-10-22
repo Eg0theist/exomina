@@ -29,6 +29,27 @@ emptied notes. Later source edits block Undo from overwriting newer text.
 | Antigravity | Exomina's shared browser, memory, file and question tools through a scoped MCP bridge. Native file, URL and command tools are disabled. | Full tool mode reads attached images through Exomina's attachment tool. Tool-free helpers accept text only. Authenticated image understanding still needs live verification. Google's image and video generators are accessed through Gemini's website; see below. |
 | Muse Code | Native Muse file tools, plus Exomina's shared terminal, browser, desktop, file, memory and archive tools through an authenticated local MCP bridge | Image input. Models and effort settings come from your signed-in Muse account. |
 
+## Shared skills, pipelines and workers
+
+`skill_library` discovers reusable procedures shared with this saved chat.
+Catalogue entries contain metadata; `read` loads a specific revision or named
+reference with pagination. Creating, revising and retiring content use normal
+write permissions. Project or all-chat sharing always asks for explicit
+confirmation. Private chats and scoped note tasks cannot use the library.
+
+`tool_pipeline` runs a validated sequence of read-only host tools and applies
+literal filters or safe field projections. Each source call follows the normal
+dispatcher and permission rules. It cannot run code, shell commands or external
+mutations. Retained raw workspace results expire and require fresh source
+authorization in the same live run; other sources are reopened through their
+original tools.
+
+`worker_run` lists configured Docker and SSH workers and runs an approved job.
+Configure workers under Settings. Docker images must already exist locally and
+be pinned by digest. SSH requires previously configured access and known host
+keys. The host never installs a worker runtime or falls back to local execution
+when a worker is unavailable. Every job requires explicit approval.
+
 ## Using Muse Code
 
 Open **Connections → Muse Code → Sign in**, and approve the device code through Meta using the account with your Muse Code subscription. After sign-in, choose **Muse Code** in the chat model picker. The list comes from the official client, including **Muse Wonder** and **Muse Wonder Full** when your account offers them. Their reasoning effort choices appear beside the model. Power uses its subscription allowance; this connection removes Meta API keys from the runtime environment and has no API-key fallback.
@@ -117,7 +138,7 @@ never substitutes API billing for a subscription request.
 
 ## App analysis with REA
 
-Tools → App analysis → Inspection reports selects a file or folder for the current chat. Every provider that supports Exomina tools can call `analysis_status`, `analysis_run`, `analysis_native`, `analysis_report`, `analysis_read` and `analysis_search` to inspect that selection. No extra API connection is required. A selected target uses the full tool suite, and the target files remain source data, never instructions. Tools apply the chat permission policy and deny rules. REA 6.1.0 is bundled and pinned. Static operations cover JavaScript/Electron inspection, .NET metadata/members/native declarations, file inventories, and native Windows executable inspection through optional Ghidra. It runs against bounded snapshots and has cancellable progress and local JSON reports. Native workers use the verified Node 24.13.0 runtime bundled with Exomina. Native setup is a user action in Tools: select the Ghidra and full Java JDK installation folders and check their reported availability. The experimental workflow currently supports native Windows x86/x64 EXE files. Native DLLs, other binary formats and other architectures are not yet integrated and verified in Exomina; Ghidra itself supports a wider range of targets. Managed EXEs and DLLs use the separate .NET inspections. `analysis_run` operations `native` and `native-functions` produce an overview or bounded decompilation, with an optional function name/address `procedure` for the latter. `analysis_native` exposes supported read-only Ghidra queries for deeper investigation. The selected executable is never launched. Runtime capture and Hopper are not enabled; reconstructed source can be incomplete. Results read by an AI are sent to its provider.
+Tools → App analysis → Inspection reports selects a file or folder for the current chat. Every provider that supports Exomina tools can call `analysis_status`, `analysis_run`, `analysis_native`, `analysis_report`, `analysis_read` and `analysis_search` to inspect that selection. No extra API connection is required. A selected target uses the full tool suite, and the target files remain source data, never instructions. Tools apply the chat permission policy and deny rules. REA 6.1.0 is bundled and pinned. Static operations cover JavaScript/Electron inspection, .NET metadata/members/native declarations, file inventories, and native Windows executable inspection through optional Ghidra. It runs against bounded snapshots and has cancellable progress and local JSON reports. Native workers use the verified Node 24.22.1 runtime bundled with Exomina. Native setup is a user action in Tools: select the Ghidra and full Java JDK installation folders and check their reported availability. The experimental workflow currently supports native Windows x86/x64 EXE files. Native DLLs, other binary formats and other architectures are not yet integrated and verified in Exomina; Ghidra itself supports a wider range of targets. Managed EXEs and DLLs use the separate .NET inspections. `analysis_run` operations `native` and `native-functions` produce an overview or bounded decompilation, with an optional function name/address `procedure` for the latter. `analysis_native` exposes supported read-only Ghidra queries for deeper investigation. The selected executable is never launched. Runtime capture and Hopper are not enabled; reconstructed source can be incomplete. Results read by an AI are sent to its provider.
 
 ## Ghidra projects within App analysis
 

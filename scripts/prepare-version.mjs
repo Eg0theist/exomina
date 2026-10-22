@@ -1,5 +1,5 @@
-// A packaged update always gets a new semantic version. Renderer-only builds
-// keep the version: preparing assets or running QA is not a release.
+// Release versions are deliberate. Local packaging keeps the version and the
+// package stamp supplies a unique build identity for each attempt.
 import {readFile,writeFile,rename,unlink,open} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -16,13 +16,25 @@ export function nextBuildVersion(version) {
   return `${match[1]}.${match[2]}.${match[3]}-${parts.join('.')}`;
 }
 
+export function nextReleaseVersion(version,kind='patch') {
+  nextBuildVersion(version);
+  if(!['patch','minor','major'].includes(kind))throw Error('Choose patch, minor or major for a release.');
+  const [base,preview]=version.split('-',2),parts=base.split('.').map(Number);
+  const index={major:0,minor:1,patch:2}[kind];
+  if(!(kind==='patch'&&preview)){parts[index]++;if(!Number.isSafeInteger(parts[index]))throw Error('The version counter is too large.');}
+  for(let i=index+1;i<3;i++)parts[i]=0;
+  return parts.join('.');
+}
+
 async function replaceFile(target, text) {
   const temporary = target + '.version-' + randomUUID();
   try { await writeFile(temporary, text); await rename(temporary, target); }
   finally { await unlink(temporary).catch(() => {}); }
 }
 
-export async function prepareVersion(root, {advance = false} = {}) {
+export async function prepareVersion(root, {advance = false,release=null,setVersion=null} = {}) {
+  if([Boolean(advance),Boolean(release),Boolean(setVersion)].filter(Boolean).length>1)throw Error('Choose one version operation.');
+  if(setVersion!==null)nextBuildVersion(setVersion);
   root = path.resolve(root);
   let lock;
   const lockPath = path.join(root, '.exomina-version.lock');
@@ -32,9 +44,9 @@ export async function prepareVersion(root, {advance = false} = {}) {
     await lock.writeFile(JSON.stringify({pid: process.pid, startedAt: new Date().toISOString()}));
     const manifestPath = path.join(root, 'package.json'), manifestText = await readFile(manifestPath, 'utf8'), manifest = JSON.parse(manifestText);
     nextBuildVersion(manifest.version); // Validate even a non-release asset build.
-    const version = advance ? nextBuildVersion(manifest.version) : manifest.version;
+    const version = setVersion|| (release?nextReleaseVersion(manifest.version,release):advance?nextBuildVersion(manifest.version):manifest.version);
     const changes = [];
-    if (advance) {
+    if (advance||release||setVersion) {
       const lockfilePath = path.join(root, 'package-lock.json'), lockfileText = await readFile(lockfilePath, 'utf8'), lockfile = JSON.parse(lockfileText);
       if (!lockfile.packages?.['']) throw Error('The package lock is missing its root package. Repair it before packaging.');
       manifest.version = version; lockfile.version = version; lockfile.packages[''].version = version;
@@ -57,7 +69,9 @@ export async function prepareVersion(root, {advance = false} = {}) {
 
 if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  if (args.some(arg => arg !== '--advance')) throw Error('Use prepare-version.mjs [--advance].');
-  const version = await prepareVersion(fileURLToPath(new URL('..',import.meta.url)), {advance: args.includes('--advance')});
-  if (args.includes('--advance')) console.log(`Packaging Exomina ${version}`);
+  const valid=!args.length||args.length===1&&args[0]==='--advance'||args.length===2&&['--release','--set'].includes(args[0]);
+  if(!valid)throw Error('Use prepare-version.mjs [--release patch|minor|major | --set VERSION].');
+  const options=args[0]==='--release'?{release:args[1]}:args[0]==='--set'?{setVersion:args[1]}:{advance:args.includes('--advance')};
+  const version = await prepareVersion(fileURLToPath(new URL('..',import.meta.url)),options);
+  if(args.length)console.log(`Selected Exomina release ${version}`);
 }

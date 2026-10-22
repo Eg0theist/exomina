@@ -1,9 +1,8 @@
-Exomina desktop beta
+Exomina desktop
 
-Unmodified official runtimes: OpenAI Codex 0.160.1 (Apache-2.0), Google Gemini CLI
-0.62.0 (Apache-2.0), Moonshot Kimi Code 2.1.1 (MIT), GitHub Copilot SDK 1.0.16
-(MIT) with matching platform runtime (its redistribution terms retained in
-vendor/licenses), and xAI Grok 1.0.46 (Apache-2.0). Provider accounts, access and
+Unmodified official runtimes: OpenAI Codex 0.160.1 (Apache-2.0),
+Muse Code SDK 1.4.6 (MIT), and xAI Grok 1.0.46 (Apache-2.0).
+Provider accounts, access and
 billing remain subject to each provider's service terms. Exomina is independent.
 
 Python 3.13.7 Windows embeddable runtime: PSF license, vendor/python/LICENSE.txt.
@@ -19,7 +18,7 @@ launcher/postinstall. Official executable SHA-256:
 47ad7fbc51767b8b301714111a1e452acc2c89912c08be260e1779a383302a4c
 License and third-party notices: vendor/grok/.
 
-Electron 44.5.1: MIT with Chromium third-party notices, distributed alongside the
+Electron 44.9.3: MIT with Chromium third-party notices, distributed alongside the
 program. React 19.3.0: MIT. Lucide: ISC. Playwright: Apache-2.0. smol-toml 1.9.0:
 BSD-3-Clause. Build tools Vite and electron-builder: MIT. Full dependency versions
 and integrity hashes are recorded in package-lock.json. Dependency licenses and
@@ -49,3 +48,7 @@ Native Grok 1.0.46: target-specific hashes in scripts/grok-runtime-config.mjs.
 The pinned official platform packages retain their license/notices.
 
 Muse Code SDK 1.4.6: MIT, Copyright Meta Platforms, Inc. and affiliates. Full license: vendor/licenses/MUSE-CODE-SDK.txt. Muse connections use the user's official Muse installation. Meta account and service terms apply.
+
+Dedicated Windows analysis runtime: Node.js 24.22.1, with its bundled LICENSE.
+The pinned official archive and executable hashes are recorded in
+scripts/prepare-analysis-node.mjs. Vite 8.3.5 is used for production builds.

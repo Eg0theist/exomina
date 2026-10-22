@@ -94,8 +94,9 @@ test('a refused request never reaches account preparation or a provider process'
   const directory = await mkdtemp(path.join(os.tmpdir(), 'exomina-guard-manager-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const seen = [], calls = { prepare: 0, spawn: 0 };
-  const manager = new ProviderManager({isProviderEnabled:()=>true,
+  const manager = new ProviderManager({
     dataDir: path.join(directory, 'private'), workspace: path.join(directory, 'workspace'), codexPath: process.execPath, claudePath: process.execPath,
+    isProviderEnabled: () => true,
     beforePrepare: async () => { calls.prepare++; }, spawnImpl: () => { calls.spawn++; throw Error('Unexpected process start.'); },
     beforeRequest: request => { seen.push(request); throw new RequestLimitError('Paused by the safeguard.', request); },
   });

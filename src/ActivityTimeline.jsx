@@ -96,7 +96,7 @@ export default function ActivityTimeline({ message, streaming = false, providerN
   const detailId=useId();
   const standard = useStandardView();
   const diagnostics = useDiagnosticsView();
-  if (!steps.length && !running) return null;
+  if (!steps.length && !running) return diagnostics&&message.contextMetrics?<DiagnosticInspector message={message}/>:null;
   const {updates, details, recovered} = activityVisibility(message, {standard, running});
   const needsAttention = !!message.error || updates.some(step => activityProblem(step) || step.kind === 'status' && ['error', 'denied', 'stopped'].includes(step.status));
   const summary = activitySummary(message);

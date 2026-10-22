@@ -2,9 +2,9 @@ import {readFile,writeFile,mkdir,stat,lstat,rm,link,rename} from 'node:fs/promis
 import {randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
-import {PublicUpdates,updateUrl,releaseIsNewer,compareVersions} from './public-updates.mjs';
-import {distributionMetadataDirectory} from './app-paths.mjs';
+import {PublicUpdates,updateUrl,releaseIsNewer,compareVersions,PUBLIC_UPDATE_AUTHENTICATION_REQUIRED} from './public-updates.mjs';
 import {UpdateMerge} from './update-merge.mjs';
+import {distributionMetadataDirectory} from './app-paths.mjs';
 
 /** Written by `npm run package` into the build folder; the installer mirrors it into App\. */
 export const STAMP='exomina.build.json';
@@ -57,6 +57,7 @@ export class Updater {
   }
   async init({feedUrl,automatic=true}={}){
     const channel=this.channelFile?await readJson(this.channelFile):null;
+    this.public.configureTrust(channel?.format===2?channel:null);
     this.defaultFeed=channel?.feedUrl||'';
     try{this.configure({feedUrl,automatic});}catch(error){this.feedUrl='';this.automatic=automatic;this.public.notify({phase:'error',message:error.message});}
     if(this.stateDir)await this.public.init();
@@ -66,7 +67,8 @@ export class Updater {
     this.feedUrl=source?updateUrl(source,{allowLoopback:this.public.allowLoopback}):'';
     this.automatic=automatic;
   }
-  async check({download=this.automatic}={}){
+  // Missing bundled trust keeps checks discovery-only and preserves preference.
+  async check({download=this.automatic&&this.public.downloadSupported}={}){
     const status=await this.status();
     if(!status.supported)throw Error(status.reason);
     if(this.feedUrl)await this.public.check({feedUrl:this.feedUrl,installed:status.installed,download});
@@ -77,12 +79,12 @@ export class Updater {
     clearInterval(this.timer);this.timer=setInterval(check,6*60*60*1000);this.timer.unref?.();
   }
   close(){clearInterval(this.timer);this.public.close();}
-  async status(){
+  async status({revalidatePublic=false}={}){
     let lastResult=this.stateDir?await readJson(path.join(this.stateDir,RESULT)):null;
-    if(this.manualUpdates)return {supported:false,manualUpdates:true,installed:this.appDir?await readStamp(this.appDir):null,repositoryUrl:this.repositoryUrl,reason:'This beta updates by running the latest installer from GitHub Releases. Your chats and sign-ins are kept.',lastResult};
+    if(this.manualUpdates)return {supported:false,manualUpdates:true,installed:this.appDir?await readStamp(this.appDir):null,repositoryUrl:this.repositoryUrl,reason:'This private beta updates by running the latest installer from GitHub Releases. Your chats and sign-ins are kept. Repository access is required.',lastResult};
     if(!this.packaged||!this.home)return {supported:false,reason:'Updates install only into an installed Exomina (C:\\Program Files\\Exomina layout), not a development or portable copy.',lastResult};
     if(!await exists(this.installer)||!await exists(this.runner))return {supported:false,reason:'This installation predates automatic updates. Install once with scripts\\install-windows.ps1; later updates install themselves.',lastResult};
-    const [installed,local,remote]=await Promise.all([readStamp(this.appDir),readStamp(this.build),this.public.ready(this.feedUrl)]);
+    const [installed,local,remote]=await Promise.all([readStamp(this.appDir),readStamp(this.build),this.public.ready(this.feedUrl,{revalidate:revalidatePublic})]);
     const candidates=[];
     if(local&&releaseIsNewer(local,installed)&&await exists(path.join(this.build,'Exomina.exe')))candidates.push({staged:local,buildPath:this.build,source:'local'});
     if(remote&&releaseIsNewer(remote.release,installed))candidates.push({staged:remote.release,buildPath:remote.buildPath,source:'public'});
@@ -118,7 +120,7 @@ export class Updater {
     const autoBlocked=!inProgress&&available&&lastResult?.buildId===staged.id&&lastResult.status!=='installed';
     const release=this.public.feedUrl===this.feedUrl&&releaseIsNewer(this.public.release,installed)?this.public.release:null;
     const merge=available?await this.merge.inspect({installed,staged,source:selected.source,buildPath:selected.buildPath}):null;
-    return {supported:true,installed,staged:staged||null,available,autoBlocked,inProgress,buildPath:selected?.buildPath||this.build,source:selected?.source,lastResult,merge,remote:{configured:!!this.feedUrl,feedUrl:this.feedUrl,release,checkedAt:this.public.checkedAt,progress:this.public.progress}};
+    return {supported:true,installed,staged:staged||null,available,autoBlocked,inProgress,buildPath:selected?.buildPath||this.build,source:selected?.source,lastResult,merge,remote:{configured:!!this.feedUrl,feedUrl:this.feedUrl,release,checkedAt:this.public.checkedAt,progress:this.public.progress,downloadSupported:this.public.downloadSupported,reason:this.public.downloadSupported?'':PUBLIC_UPDATE_AUTHENTICATION_REQUIRED}};
   }
   /** Reads the result of the update that ran before this launch, once. */
   async takeResult(){
@@ -156,7 +158,12 @@ export class Updater {
     if(this.public.work)throw Error('Wait for the update download to finish or cancel it before applying.');
     if(current.inProgress)return current;
     await this.merge.assertProgramUnmodified(current.installed);
-    let checked;if(current.merge?.required){checked=await this.merge.approvedBuild(current);current.buildPath=checked.buildPath;current.staged=checked.staged;}
+    let checked;
+    if(current.source==='public'){
+      checked=await this.public.ready(this.feedUrl);
+      if(!checked||checked.release.id!==current.staged.id||checked.buildPath!==current.buildPath)throw Error('The public update changed or could not be authenticated. Download and verify it again.');
+    }
+    if(current.merge?.required){checked=await this.merge.approvedBuild(current);current.buildPath=checked.buildPath;current.staged=checked.staged;}
     this.launched=false;
     await mkdir(this.stateDir,{recursive:true});
     const pending=path.join(this.stateDir,PENDING);

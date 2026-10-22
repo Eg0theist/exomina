@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,readFile,writeFile,rm,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {durableReplace,backupState,readRecoverableState,parseState} from '../desktop/durable-state.mjs';
+import {durableReplace,backupState,readRecoverableState,parseState,removeOrphanedTemps} from '../desktop/durable-state.mjs';
 import {Store} from '../desktop/store.mjs';
 const snapshot=text=>JSON.stringify({settings:{provider:'codex'},conversations:[{id:'chat',messages:[{id:'message',role:'user',content:text}]}]});
 async function fixture(task){const dir=await mkdtemp(path.join(tmpdir(),'exomina-durable-state-'));try{await task(dir);}finally{await rm(dir,{recursive:true,force:true});}}
@@ -39,4 +39,17 @@ test('Store commits queued snapshots and reopens a crash-damaged profile from it
   assert.equal(JSON.parse(await readFile(path.join(dir,'state.json'),'utf8')).conversations[0].messages.length,3);
   await writeFile(path.join(dir,'state.json'),Buffer.alloc(1024));const reopened=new Store(dir);await reopened.init();assert.equal(reopened.state.conversations[0].messages[0].content,'Work checkpoint');assert.ok(reopened.recovery);
   reopened.state.conversations[0].messages.push({role:'user',content:'Retry'});await reopened.save();assert.equal(JSON.parse(await readFile(path.join(dir,'state.json'),'utf8')).conversations[0].messages.length,2);
+}));
+test('Store startup removes write temporaries left by a crash and keeps every other file',()=>fixture(async dir=>{
+  const orphans=['state.0b7c2a3e-9d41-4f6a-8e2b-5c1d3f7a9e60.tmp','state.A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D.tmp'];
+  const kept=['state.json','state.backup.1.json','state.backup.2.json','state.corrupt-2026-10-21T21-00-00-000Z-0b7c2a3e-9d41-4f6a-8e2b-5c1d3f7a9e60.json','state.tmp','state.not-a-uuid.tmp','remote-access.json.0b7c2a3e9d414f6a8e2b5c1d.tmp','api-connections.json.0b7c2a3e-9d41-4f6a-8e2b-5c1d3f7a9e60.tmp'];
+  for(const name of kept)await writeFile(path.join(dir,name),snapshot('Kept '+name));
+  await writeFile(path.join(dir,orphans[0]),snapshot('Uncommitted'));await writeFile(path.join(dir,orphans[1]),'{"settings":');
+  const store=new Store(dir);await store.init();
+  assert.deepEqual(store.removedTemps.sort(),[...orphans].sort());assert.deepEqual((await readdir(dir)).filter(name=>name!=='workspace').sort(),[...kept].sort());
+  assert.equal(store.state.conversations[0].messages[0].content,'Kept state.json');assert.equal(store.recovery,undefined);
+  await store.save();assert.deepEqual((await readdir(dir)).filter(name=>/\.tmp$/.test(name)).sort(),kept.filter(name=>/\.tmp$/.test(name)).sort());
+}));
+test('temporary cleanup treats a missing data folder as clean',()=>fixture(async dir=>{
+  assert.deepEqual(await removeOrphanedTemps(path.join(dir,'missing')),[]);
 }));

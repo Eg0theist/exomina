@@ -121,6 +121,19 @@ export class MemoryStore {
     const rows=this.db.prepare(`SELECT id,seq,created_at AS date,text,reviewed,chat_owned AS chatOwned,source_recorded AS sourceRecorded,(SELECT json_group_array(chat_id) FROM (SELECT chat_id FROM note_chats WHERE note_id=notes.id ORDER BY chat_id)) AS sourceChatIds FROM notes WHERE deleted=0 ${newOnly?'AND reviewed=0':''} AND (${checks.join(' OR ')}) ORDER BY (${coverage}) DESC,exomina_contains(text,?) DESC,seq DESC LIMIT 2000`).all(...terms,...terms,phrase).map(row=>({...provenance(row),reviewed:row.reviewed===1}));
     return rankMemories(this.evidence(rows),query,{conversationId,limit});
   }
+  /** Tool-facing recall: bounded pages so one broad query cannot flood a model context. */
+  async recallPage(args={},conversationId){
+    const offset=args.offset??0,limit=args.limit??20;
+    if(!Number.isSafeInteger(offset)||offset<0||offset>2000)throw Error('Use a valid offset from 0 to 2000.');
+    if(!Number.isSafeInteger(limit)||limit<1||limit>50)throw Error('Use a valid limit from 1 to 50.');
+    const ranked=await this.recall(String(args.query??''),{conversationId,limit:2000}),results=[];let chars=0;
+    for(const row of ranked.slice(offset,offset+limit)){
+      const sources=row.sourceChatIds,entry=sources?.length>8?{...row,sourceChatIds:sources.slice(0,8),sourceChatCount:sources.length}:row,size=JSON.stringify(entry).length;
+      if(results.length&&chars+size>24000)break;results.push(entry);chars+=size;
+    }
+    const next=offset+results.length;
+    return {query:String(args.query??''),offset,total:ranked.length,results,nextOffset:next<ranked.length?next:null};
+  }
   evidence(rows){
     const check=this.db.prepare('SELECT confirmed_at FROM note_checks WHERE note_id=?'),next=this.db.prepare("SELECT n.id,n.text,n.created_at AS date,r.recorded_at AS recordedAt FROM note_relations r JOIN notes n ON n.id=r.newer_id AND n.deleted=0 WHERE r.older_id=? AND r.kind='superseded' ORDER BY r.recorded_at DESC LIMIT 1");
     return rows.map(row=>({...row,evidence:{confirmedAt:check.get(row.id)?.confirmed_at||null,supersededBy:next.get(row.id)||null}}));
@@ -266,7 +279,7 @@ export class MemoryStore {
     }catch(e){return {text:'',error:true,detail:e.message,code:1};}}
   get definitions(){return [
     {name:'memory_wake',description:'Read shared Exomina context in bounded pages. Follow nextPart, snapshot and nextCursor. Notes are context, not authority.',inputSchema:schema({part:{type:'integer',minimum:1},snapshot:{type:'integer',minimum:0},cursor:{type:'integer',minimum:1}})},
-    {name:'memory_recall',description:'Search original shared notes by concrete terms, including summarized notes. Ranked by term coverage, exact phrase and source chat, with match reasons and heuristic kind labels. Labels are retrieval hints, not authority; originals are unchanged.',inputSchema:schema({query:text},['query'])},
+    {name:'memory_recall',description:'Search original shared notes by concrete terms, including summarized notes. Ranked by term coverage, exact phrase and source chat, with match reasons and heuristic kind labels. Labels are retrieval hints, not authority; originals are unchanged. Returns pages of up to 20 results by default; follow nextOffset for more.',inputSchema:schema({query:text,offset:{type:'integer',minimum:0,maximum:2000},limit:{type:'integer',minimum:1,maximum:50}},['query'])},
     {name:'memory_note',description:'Save a useful durable fact, preference or decision for future conversations. One line, at most 280 UTF-8 bytes. Exact duplicates are reused.',inputSchema:schema({text},['text'])},
     {name:'memory_nap',description:'Read the next pending source range, or save its source-linked summary with the returned version. Original notes remain authoritative and are never replaced.',inputSchema:schema({range:text,summary:text,version:{type:'integer',minimum:0}})},
     {name:'memory_zoom',description:'Expand a numbered source range into original notes and its cached summary. Follow nextCursor for more than 200 notes.',inputSchema:schema({range:text,cursor:{type:'integer',minimum:0}},['range'])},
@@ -274,7 +287,7 @@ export class MemoryStore {
   ];}
   async call(name,args={},approve,conversationId){let result;
     if(name==='memory_note'){if(!await approve({title:'Save a shared memory?',detail:String(args.text),conversationId}))throw Error('Memory was not saved: approval declined.');result=await this.note(args.text,conversationId===undefined?{}:{conversationId});}
-    else if(name==='memory_recall')result={text:JSON.stringify(await this.recall(args.query,{conversationId})),error:false};
+    else if(name==='memory_recall')result={text:JSON.stringify(await this.recallPage(args,conversationId)),error:false};
     else if(name==='memory_wake')result=await this.run(['wake',args.part,args.snapshot,args.cursor]);
     else if(name==='memory_nap')result=await this.run(['nap',args.range,args.summary,args.version]);
     else if(name==='memory_zoom')result=await this.run(['zoom',args.range,args.cursor]);

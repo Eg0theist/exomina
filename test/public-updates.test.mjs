@@ -1,11 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm,readdir} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,rm,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import {spawn} from 'node:child_process';
-import {EventEmitter} from 'node:events';
 import {createHash} from 'node:crypto';
 import {PublicUpdates,normalizeRelease,compareVersions,releaseIsNewer,updateUrl} from '../desktop/public-updates.mjs';
 import {Updater} from '../desktop/updates.mjs';
@@ -66,39 +64,53 @@ test('check-only mode finds the release without downloading or staging it',async
  const f=await fixture(t),updates=new PublicUpdates({stateDir:f.stateDir,allowLoopback:true});
  await updates.check({feedUrl:f.feedUrl,installed,download:false});assert.equal(updates.progress.phase,'available');assert.equal(await updates.ready(f.feedUrl),null);assert.equal(updates.release.version,'0.4.1');
 });
-test('automatic download verifies and extracts the real ZIP, but waits for explicit Apply', {skip:process.platform!=='win32'},async t=>{
- const f=await fixture(t),appDir=path.join(f.dir,'App'),resourcesDir=path.join(appDir,'resources'),calls=[];
+test('unsigned feeds cannot download even with matching feed-supplied hashes',async t=>{
+ const f=await fixture(t),requests=[],updates=new PublicUpdates({stateDir:f.stateDir,allowLoopback:true,fetchImpl:(url,options)=>{requests.push(url);return fetch(url,options);},extractImpl:()=>assert.fail('Unauthenticated package extracted')});
+ await assert.rejects(updates.check({feedUrl:f.feedUrl,installed}),/publisher authentication/);
+ assert.deepEqual(requests,[f.feedUrl]);assert.equal(updates.progress.phase,'error');assert.equal(await updates.ready(f.feedUrl),null);
+ assert.ok(!(await readdir(f.stateDir)).includes('downloads'));
+});
+
+test('updater default checks discover releases while preserving the automatic-download preference',async t=>{
+ const f=await fixture(t),appDir=path.join(f.dir,'App'),resourcesDir=path.join(appDir,'resources');
  await mkdir(path.join(resourcesDir,'app.asar.unpacked/scripts'),{recursive:true});await mkdir(path.join(resourcesDir,'app.asar.unpacked/desktop'),{recursive:true});
  await writeFile(path.join(appDir,'exomina.build.json'),JSON.stringify(installed));await writeFile(path.join(resourcesDir,'app.asar.unpacked/scripts/install-windows.ps1'),'Synthetic installed installer');await writeFile(path.join(resourcesDir,'app.asar.unpacked/desktop/update-runner.ps1'),'Synthetic installed runner');
- const updater=new Updater({packaged:true,appDir,resourcesDir,home:f.dir,stateDir:f.stateDir,exePath:path.join(appDir,'Exomina.exe'),allowLoopback:true,readyTimeoutMs:1500,isProcessAlive:()=>true,spawnImpl:(command,args,options)=>{
-  if(!options.detached)return spawn(command,args,options);
-  calls.push({command,args,options});const child=new EventEmitter();child.pid=12345;child.unref=()=>{};child.kill=()=>{};
-  writeFile(path.join(f.stateDir,'update-ready.json'),JSON.stringify({attemptId:args[args.indexOf('-AttemptId')+1],pid:child.pid}));return child;
- }});t.after(()=>updater.close());
- await updater.init({feedUrl:f.feedUrl});updater.start();
- const deadline=Date.now()+20000;while(updater.public.progress?.phase!=='ready'&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
- assert.equal(updater.public.progress.phase,'ready',JSON.stringify(updater.public.progress));assert.equal(calls.length,0,'Downloading must not start an installer');
- const status=await updater.status();assert.equal(status.available,true);assert.equal(status.source,'public');assert.equal(status.staged.version,'0.4.1');assert.ok(status.buildPath.startsWith(path.join(f.stateDir,'downloads')+path.sep));assert.equal(await readFile(path.join(status.buildPath,'Exomina.exe'),'utf8'),'SYNTHETIC PROGRAM: NOT EXECUTABLE');
- const restored=new PublicUpdates({stateDir:f.stateDir,allowLoopback:true});await restored.init();assert.equal((await restored.ready(f.feedUrl)).buildPath,status.buildPath);
- await updater.launch();assert.equal(calls.length,1);assert.equal(calls[0].args[calls[0].args.indexOf('-Build')+1],status.buildPath);assert.equal(calls[0].args[calls[0].args.indexOf('-Installer')+1],path.join(resourcesDir,'app.asar.unpacked/scripts/install-windows.ps1'));assert.equal(calls[0].options.windowsHide,true);
+ const updater=new Updater({packaged:true,appDir,resourcesDir,home:f.dir,stateDir:f.stateDir,exePath:path.join(appDir,'Exomina.exe'),allowLoopback:true,spawnImpl:()=>assert.fail('Discovery started a process')});t.after(()=>updater.close());
+ await updater.init({feedUrl:f.feedUrl,automatic:true});const status=await updater.check();
+ assert.equal(updater.automatic,true);assert.equal(status.remote.release.id,next.id);assert.equal(status.remote.downloadSupported,false);assert.equal(status.remote.progress.phase,'available');assert.equal(status.available,false);
+ await assert.rejects(updater.check({download:true}),/publisher authentication/);
 });
-test('bad hashes and mismatched build stamps are never published as ready', {skip:process.platform!=='win32'},async t=>{
- const f=await fixture(t),updates=new PublicUpdates({stateDir:f.stateDir,allowLoopback:true});f.manifest.windows.x64.sha256='0'.repeat(64);
- await assert.rejects(updates.check({feedUrl:f.feedUrl,installed}),/integrity check/);assert.equal(await updates.ready(f.feedUrl),null);
- f.manifest.windows.x64.sha256=createHash('sha256').update(f.archive).digest('hex');f.manifest.id='different-build-id';
- await assert.rejects(updates.check({feedUrl:f.feedUrl,installed}),/does not match/);assert.equal(await updates.ready(f.feedUrl),null);
+
+test('feed-supplied publisher and signature claims cannot enable downloads',async t=>{
+ const f=await fixture(t),updates=new PublicUpdates({stateDir:f.stateDir,allowLoopback:true});
+ Object.assign(f.manifest,{signature:'claimed-signature',publicKey:'feed-controlled-key',publisher:'claimed-publisher'});
+ await assert.rejects(updates.check({feedUrl:f.feedUrl,installed}),/publisher authentication/);
+ f.manifest.windows.x64.sha256='0'.repeat(64);
+ await assert.rejects(updates.check({feedUrl:f.feedUrl,installed}),/publisher authentication/);
+ assert.equal(await updates.ready(f.feedUrl),null);
 });
-test('a failed newer download keeps the previously verified update usable',{skip:process.platform!=='win32'},async t=>{
- const f=await fixture(t),updates=new PublicUpdates({stateDir:f.stateDir,allowLoopback:true});await updates.check({feedUrl:f.feedUrl,installed});const ready=await updates.ready(f.feedUrl);
- f.manifest.id='newer-but-corrupt-build';f.manifest.version='0.4.2';f.manifest.windows.x64.sha256='0'.repeat(64);
- await assert.rejects(updates.check({feedUrl:f.feedUrl,installed}),/integrity/);assert.equal((await updates.ready(f.feedUrl)).buildPath,ready.buildPath);
- assert.equal(await updates.ready('http://127.0.0.1/changed-source'),null,'A changed publisher does not use the old source');
+
+test('direct download rejects before fetching, extracting or creating any file',async t=>{
+ const dir=await directory(t),updates=new PublicUpdates({stateDir:path.join(dir,'updates'),allowLoopback:true,fetchImpl:()=>assert.fail('Unauthenticated download fetched'),extractImpl:()=>assert.fail('Unauthenticated package extracted')});
+ await assert.rejects(updates.download(next,'http://127.0.0.1/latest.json',AbortSignal.timeout(1000)),/publisher authentication/);
+ assert.deepEqual(await readdir(dir),[]);
 });
-test('cancelling a streamed download leaves no ready update or partial archive',async t=>{
- const f=await fixture(t),updates=new PublicUpdates({stateDir:f.stateDir,allowLoopback:true});f.slow();
- const check=updates.check({feedUrl:f.feedUrl,installed});const deadline=Date.now()+3000;while(updates.progress?.phase!=='downloading'&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,10));updates.cancel();await assert.rejects(check);
- assert.equal(updates.progress.phase,'cancelled');assert.equal(await updates.ready(f.feedUrl),null);const targets=await readdir(path.join(f.stateDir,'downloads'));for(const target of targets)assert.ok(!(await readdir(path.join(f.stateDir,'downloads',target))).some(file=>file.endsWith('.part')));
+
+test('preexisting and modified unsigned ready records cannot launch after restart',async t=>{
+ const f=await fixture(t),appDir=path.join(f.dir,'App'),resourcesDir=path.join(appDir,'resources'),buildPath=path.join(f.stateDir,'downloads','old-release','build');
+ await mkdir(path.join(resourcesDir,'app.asar.unpacked/scripts'),{recursive:true});await mkdir(path.join(resourcesDir,'app.asar.unpacked/desktop'),{recursive:true});
+ await writeFile(path.join(appDir,'exomina.build.json'),JSON.stringify(installed));await writeFile(path.join(resourcesDir,'app.asar.unpacked/scripts/install-windows.ps1'),'Synthetic installed installer');await writeFile(path.join(resourcesDir,'app.asar.unpacked/desktop/update-runner.ps1'),'Synthetic installed runner');
+ await mkdir(buildPath,{recursive:true});await writeFile(path.join(buildPath,'exomina.build.json'),JSON.stringify(next));
+ await writeFile(path.join(f.stateDir,'public-ready.json'),JSON.stringify({feedUrl:f.feedUrl,release:normalizeRelease(f.manifest,f.feedUrl,{allowLoopback:true}),buildPath}));
+ for(const contents of ['SYNTHETIC PROGRAM: NOT EXECUTABLE','MODIFIED SYNTHETIC PROGRAM']){
+  await writeFile(path.join(buildPath,'Exomina.exe'),contents);
+  const updater=new Updater({packaged:true,appDir,resourcesDir,home:f.dir,stateDir:f.stateDir,exePath:path.join(appDir,'Exomina.exe'),allowLoopback:true,spawnImpl:()=>assert.fail('Unsigned downloaded EXE executed')});t.after(()=>updater.close());
+  await updater.init({feedUrl:f.feedUrl});assert.equal(await updater.public.ready(f.feedUrl),null);
+  const status=await updater.status();assert.equal(status.available,false);assert.equal(status.remote.downloadSupported,false);assert.match(status.remote.reason,/publisher authentication/);
+  await assert.rejects(updater.launch(),/No downloaded or locally packaged update/);
+ }
 });
+
 test('the real extractor rejects traversal, private data, alternate streams and links',{skip:process.platform!=='win32'},async t=>{
  const dir=await directory(t),updates=new PublicUpdates({stateDir:dir});
  for(const[at,entry]of[{name:'../outside.txt'},{name:'Private/accounts/file.txt'},{name:'file.txt:secret'},{name:'link',attributes:0xa1ff0000}].entries()){

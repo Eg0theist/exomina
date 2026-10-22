@@ -14,6 +14,8 @@ const groups = [
   { id: 'integrations', label: 'Connections & sync', icon: Unplug, description: 'External tools, cloud sync and messaging.' },
 ];
 const sections = [
+  { id:'skills',group:'integrations',label:'Shared skills',description:'Reusable procedures with lazy references, evidence and version history.',keywords:'skills library procedures learning task refine version references',desktop:true},
+  { id:'workers',group:'integrations',label:'Workers',description:'Approved commands in isolated Docker projects or SSH workers.',keywords:'workers docker ssh containers remote isolated commands jobs',desktop:true},
   { id: 'general', group: 'general', label: 'App behavior', description: 'Project folder, quick access, automatic chat titles and tray behavior.', keywords: 'workspace directory terminal shortcut ctrl shift space startup close window name chats' },
   { id: 'updates', group: 'general', label: 'Updates', description: 'Check, download and apply updates; choose the release source.', keywords: 'version release automatic feed install restart', desktop: true },
   { id: 'about', group: 'general', label: 'About Exomina', description: 'Installed version and current theme.', keywords: 'build app information' },
@@ -28,6 +30,7 @@ const sections = [
   { id: 'sounds', group: 'experience', label: 'Sounds & notifications', description: 'Windows notifications, notification sounds, volume and previews.', keywords: 'notification audio alert tone mute toast popup question approval hidden taskbar tray', desktop: true },
   { id: 'voice', group: 'experience', label: 'Voice', description: 'Realtime voice, dictation, speech voices and playback.', keywords: 'microphone speech speaking read aloud windows sample sound realtime chatgpt', desktop: true },
   { id: 'permissions', group: 'privacy', label: 'Permissions', description: 'Default agent permissions, allow and deny rules and chat overrides.', keywords: 'approval ask safety read only full access command shell file editing tools security', desktop: true },
+  { id:'spending',group:'privacy',label:'Agent spending',description:'Budget policy and offline purchase trials. Live payments are unavailable.',keywords:'wallet stripe paypal payments budget purchases spending money',desktop:true},
   { id: 'memory', group: 'privacy', label: 'Memory & privacy', description: 'Saved notes, chat history, recovery backup and local data.', keywords: 'shared context summaries automatic capture review clear delete privacy encrypted encryption recovery certificate storage folder', },
   { id: 'data', group: 'privacy', label: 'Export & transfer', description: 'Export chats and context, or import saved context from another device.', keywords: 'download backup json markdown archive export import move migrate transfer new device' },
   { id: 'connections', group: 'integrations', label: 'AI connections', description: 'Connect an AI provider or manage an existing connection.', keywords: 'login sign in subscription chatgpt codex claude grok muse provider setup' },

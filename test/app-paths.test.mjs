@@ -78,7 +78,7 @@ test('macOS beta metadata belongs in signed Resources while Windows and Linux st
  assert.equal(distributionMetadataDirectory(exeDir,options),resources);
  const read=file=>{assert.equal(file,path.posix.join(resources,'exomina.distribution.json'));return '{"profile":"beta","manualUpdates":true}';};
  assert.deepEqual(installDistribution(exeDir,{...options,read}),{profile:'beta',manualUpdates:true});
- assert.throws(()=>installDistribution(exeDir,{...options,read:()=>'{"profile":"beta","manualUpdates":false}'}),/manual updates/);
+ assert.throws(()=>installDistribution(exeDir,{...options,read:()=>'{"profile":"beta","manualUpdates":false}'}),/supported public or beta distribution/);
  assert.equal(distributionMetadataDirectory('C:\\Programs\\Exomina',{platform:'win32',pathApi:path.win32}),'C:\\Programs\\Exomina');
  assert.equal(distributionMetadataDirectory('/opt/Exomina Beta',{platform:'linux',pathApi:path.posix}),'/opt/Exomina Beta');
 });
@@ -88,6 +88,16 @@ test('failed or partial protection never opens the gate',async()=>{
     await assert.rejects(gate(),/protection/);await assert.rejects(gate(),/protection/);assert.equal(calls,1);
   }
   const gate=privateGate({verify:async()=>{throw Error('unsafe file');}});await assert.rejects(gate(),/unsafe file/);
+});
+
+test('public distribution metadata cannot redirect profiles or bypass installation',()=>{
+  const read=()=>JSON.stringify({profile:'public',manualUpdates:false,repositoryUrl:'https://github.com/example/exomina/',home:'C:\\ignored'});
+  const distribution=installDistribution('C:\\Build',{read,pathApi:path.win32});
+  assert.deepEqual(distribution,{profile:'public',manualUpdates:false,repositoryUrl:'https://github.com/example/exomina'});
+  const options={packaged:true,root:'C:\\Build',distribution,localAppData:'C:\\Local',documents:'C:\\Docs',env:{},pathApi:path.win32};
+  assert.throws(()=>appPaths(options),/must be installed/);
+  assert.equal(appPaths({...options,home:'C:\\Program Files\\Exomina'}).dataDir,'C:\\Program Files\\Exomina\\Private\\data');
+  for(const repositoryUrl of ['https://github.com.evil.test/a/b','https://github.com/a/b/tree/main','file:///a','https://user@github.com/a/b'])assert.throws(()=>installDistribution('C:\\Build',{read:()=>JSON.stringify({profile:'public',manualUpdates:false,repositoryUrl}),pathApi:path.win32}),/public GitHub/);
 });
 
 test('an installation can keep its data beside the program', async () => {

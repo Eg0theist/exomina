@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { windowChromeOptions, applyWindowChromeTheme, windowChromeCommand, TITLEBAR_HEIGHT } from '../desktop/window-chrome.mjs';
+import { windowChromeOptions, applyWindowChromeTheme, windowChromeCommand, windowHudMode, TITLEBAR_HEIGHT } from '../desktop/window-chrome.mjs';
 import { normalizeAppearance, validateAppearance } from '../desktop/themes.mjs';
 
 test('borderless chrome uses native Windows controls and classic style remains selectable',()=>{
@@ -24,4 +24,11 @@ test('window actions toggle maximize, minimize and close through the normal wind
   const win={isDestroyed:()=>false,isMaximized:()=>maximized,maximize:()=>{maximized=true;calls.push('maximize');},unmaximize:()=>{maximized=false;calls.push('restore');},minimize:()=>calls.push('minimize'),close:()=>calls.push('close')};
   for(const action of ['maximize','maximize','minimize','close'])windowChromeCommand(win,action);
   assert.deepEqual(calls,['maximize','restore','minimize','close']);assert.throws(()=>windowChromeCommand(win,'execute'),/Unknown/);
+});
+
+test('Hide HUD clears the native caption strip and peeks only the buttons',()=>{
+  const calls=[],win={isDestroyed:()=>false,setTitleBarOverlay:value=>calls.push(value)};
+  for(const hud of ['hidden','peek',null])applyWindowChromeTheme(win,{borderless:true,ground:'#101010',ink:'#eeeeee',hud,platform:'win32'});
+  assert.deepEqual(calls.map(c=>[c.color,c.symbolColor]),[['#00000000','#00000000'],['#00000000','#eeeeee'],['#101010','#eeeeee']]);
+  assert.equal(windowHudMode('peek'),'peek');assert.equal(windowHudMode('anything'),null);
 });

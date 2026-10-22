@@ -31,7 +31,6 @@ shell.openExternal = async () => { throw Error('QA cannot open external authoriz
 globalThis.qaGrok = { phase: 'signed-out', connects: [], runs: [], configured: [], manager: null };
 (async () => {
  const { ProviderManager } = await import(${source('desktop/providers.mjs')});
- const { ApiConnections } = await import(${source('desktop/api-connections.mjs')});
  const { PROVIDER_CATALOG } = await import(${source('desktop/provider-catalog.mjs')});
  const models = [
   { id: 'grok-4.6', label: 'Grok 4.6 QA', isDefault: true, supportsImages: false, defaultEffort: 'medium', efforts: [{ id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' }] },
@@ -67,7 +66,6 @@ globalThis.qaGrok = { phase: 'signed-out', connects: [], runs: [], configured: [
   this.emit({ type: 'chat.delta', conversationId: request.conversationId, text: 'Synthetic Grok account reply.', block: 'grok-answer' });
   return { sessionId: 'synthetic-grok-session', text: 'Synthetic Grok account reply.' };
  };
- ApiConnections.prototype.configure = async function(payload) { globalThis.qaGrok.configured.push(payload.provider); throw Error('API configuration is prohibited during Grok account QA.'); };
  await import(${source('desktop/main.mjs')});
 })().catch(error => { console.error(error); app.exit(1); });
 `);

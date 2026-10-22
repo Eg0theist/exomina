@@ -10,18 +10,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const ANALYSIS_NODE_RUNTIME = Object.freeze({
   schemaVersion: 1,
   name: 'Node.js',
-  version: '24.13.0',
+  version: '24.22.1',
   platform: 'win32',
   architecture: 'x64',
   executable: 'node.exe',
-  sha256: 'd14ba95cdce1ef7dc9ad3ac74949ca5db38b27378ee30f30a23cf26f9e875a11',
-  executableSha256: 'd14ba95cdce1ef7dc9ad3ac74949ca5db38b27378ee30f30a23cf26f9e875a11',
+  sha256: 'd702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5',
+  executableSha256: 'd702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5',
   license: 'LICENSE',
-  licenseSha256: 'b4c7840e841ab8f14543646bd941d01a459fb0f8ce1249244341b2a63272ca79',
-  archive: 'node-v24.13.0-win-x64.zip',
-  archiveSha256: 'ca2742695be8de44027d71b3f53a4bdb36009b95575fe1ae6f7f0b5ce091cb88',
-  source: 'https://nodejs.org/dist/v24.13.0/node-v24.13.0-win-x64.zip',
-  checksums: 'https://nodejs.org/dist/v24.13.0/SHASUMS256.txt',
+  licenseSha256: 'ed34dd8e3f0a78dbaf00d0444ce8e285b015b765379c2e17880455f70370f8e9',
+  archive: 'node-v24.22.1-win-x64.zip',
+  archiveSha256: 'd2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5',
+  source: 'https://nodejs.org/dist/v24.22.1/node-v24.22.1-win-x64.zip',
+  checksums: 'https://nodejs.org/dist/v24.22.1/SHASUMS256.txt',
 });
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const maxArchiveBytes = 64 * 1024 * 1024;
@@ -47,7 +47,7 @@ async function regularFile(file, maxBytes) {
 
 // Read exactly two named files from the already checksum-verified official ZIP.
 // Archive names never become output paths, and no archive member is executed.
-function archiveMembers(bytes) {
+export function analysisNodeArchiveMembers(bytes, runtime = ANALYSIS_NODE_RUNTIME) {
   let end = -1;
   for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65557); offset--) {
     if (bytes.readUInt32LE(offset) === 0x06054b50 && offset + 22 + bytes.readUInt16LE(offset + 20) === bytes.length) { end = offset; break; }
@@ -56,7 +56,7 @@ function archiveMembers(bytes) {
   const count = bytes.readUInt16LE(end + 10), centralSize = bytes.readUInt32LE(end + 12);
   let offset = bytes.readUInt32LE(end + 16);
   if (count > 20000 || offset + centralSize !== end) throw Error('Invalid official Node ZIP bounds.');
-  const wanted = new Map(['node.exe', 'LICENSE'].map(name => [`node-v${ANALYSIS_NODE_RUNTIME.version}-win-x64/${name}`, name]));
+  const wanted = new Map(['node.exe', 'LICENSE'].map(name => [`node-v${runtime.version}-win-x64/${name}`, name]));
   const output = new Map();
   for (let index = 0; index < count; index++) {
     if (offset + 46 > end || bytes.readUInt32LE(offset) !== 0x02014b50) throw Error('Invalid official Node ZIP member.');
@@ -110,7 +110,7 @@ export async function prepareAnalysisNode({ target = path.join(root, 'vendor', '
       await immutableWrite(archiveFile, archive);
     }
     if (hash(archive) !== ANALYSIS_NODE_RUNTIME.archiveSha256) throw Error('Official Node archive checksum mismatch.');
-    const members = archiveMembers(archive);
+    const members = analysisNodeArchiveMembers(archive);
     for (const [name, expectedHash] of expected) if (hash(members.get(name)) !== expectedHash) throw Error('Official Node ' + name + ' checksum mismatch.');
     for (const [name, bytes] of members) await immutableWrite(path.join(target, name), bytes);
   }

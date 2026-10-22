@@ -1,1 +1,6 @@
-{"feedUrl":""}
+{
+  "format": 2,
+  "feedUrl": "",
+  "channel": "stable",
+  "trustedKeys": {}
+}

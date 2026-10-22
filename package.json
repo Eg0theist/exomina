@@ -1,8 +1,8 @@
 {
   "name": "exomina",
-  "version": "0.5.0-beta.94",
+  "version": "0.6.0",
   "private": true,
-  "description": "Exomina private cross-platform beta",
+  "description": "Exomina desktop workspace",
   "author": "Exomina",
   "license": "Apache-2.0",
   "type": "module",
@@ -13,11 +13,18 @@
     "start": "electron .",
     "test": "node --test test/*.test.mjs",
     "prepare:runtimes": "node scripts/prepare-beta-vendor.mjs && node scripts/prepare-grok-runtime.mjs && node scripts/prepare-analysis-node.mjs",
-    "package": "npm run build && npm run prepare:runtimes && node scripts/prepare-taskbar-icon.mjs && node scripts/prepare-windows-interop.mjs && electron-builder --config scripts/private-beta-installer-config.mjs --win nsis --x64",
+    "package": "node scripts/package-local.mjs",
     "package:mac": "node scripts/package-cross-platform.mjs darwin",
     "package:linux": "node scripts/package-cross-platform.mjs linux",
     "qa:package": "node scripts/qa-packaged.mjs",
-    "qa:installer": "node scripts/qa-beta-installer.mjs"
+    "qa:installer": "node scripts/qa-beta-installer.mjs",
+    "version:sync": "node scripts/prepare-version.mjs",
+    "package:public": "node scripts/release-windows.mjs",
+    "package:official": "node scripts/package-official.mjs",
+    "release:update": "node scripts/create-public-update.mjs",
+    "security:check": "node scripts/security-maintenance.mjs --check",
+    "security:prepare": "node scripts/security-maintenance.mjs --prepare",
+    "package:beta": "npm run build && npm run prepare:runtimes && node scripts/prepare-taskbar-icon.mjs && node scripts/prepare-windows-interop.mjs && electron-builder --config scripts/private-beta-installer-config.mjs --win nsis --x64"
   },
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",
@@ -36,9 +43,9 @@
     "smol-toml": "1.9.0"
   },
   "devDependencies": {
-    "electron": "44.5.1",
+    "electron": "44.9.3",
     "electron-builder": "26.15.3",
-    "vite": "8.3.2"
+    "vite": "8.3.5"
   },
   "build": {
     "electronDist": "node_modules/electron/dist",
@@ -58,15 +65,15 @@
       "build/update-channel.json",
       "package.json",
       "README.md",
-      "LICENSE",
-      "NOTICE",
       "PROVIDER-TOOLS.md",
       "TERMINAL.md",
       "PUBLIC-UPDATES.md",
       "VALIDATION.txt",
       "THIRD-PARTY-NOTICES.txt",
       "SECURITY-AUDIT.txt",
-      "scripts/install-windows.ps1"
+      "scripts/install-windows.ps1",
+      "LICENSE",
+      "NOTICE"
     ],
     "asarUnpack": [
       "desktop/**",

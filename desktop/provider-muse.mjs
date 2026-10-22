@@ -1,4 +1,4 @@
-import {mkdir,readFile,writeFile,access,unlink} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,lstat,unlink} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnMspConnection,Session,readSessionDurability} from '@muse-code/sdk';
@@ -12,7 +12,13 @@ import {museQuota} from './usage.mjs';
 import {DISTRIBUTION_PROFILE} from './distribution.mjs';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const exists=file=>access(file).then(()=>true,()=>false);
+const nativeFile=async(file,platform)=>{try{const entry=await lstat(file);return entry.isFile()&&!entry.isSymbolicLink()&&(platform==='win32'||(entry.mode&0o111)!==0);}catch{return false;}};
+export function museRuntimeCandidates({env=process.env,platform=process.platform}={}){
+  const p=platform==='win32'?path.win32:path.posix,filename=platform==='win32'?'muse.exe':'muse';
+  const search=env.PATH??env.Path??'';
+  return [...new Set(search.split(platform==='win32'?';':':').map(dir=>dir.trim()).filter(dir=>p.isAbsolute(dir)).map(dir=>p.join(dir,filename)))];
+}
+const missingRuntime='Install Meta’s official Muse Code client and add its native muse executable to PATH, then refresh Connections.';
 const optional=value=>typeof value==='string'&&value.trim()&&!['auto','default'].includes(value.trim())?value.trim():undefined;
 const modelLabel=row=>row.displayLabel&&row.displayLabel!==row.modelId?row.displayLabel:({'muse-wonder-1.0':'Muse Wonder','muse-wonder-full-1.0':'Muse Wonder Full','muse-spark-1.3':'Muse Spark 1.3','muse-spark-1.2':'Muse Spark 1.2'}[row.modelId]||row.modelId);
 const safe=value=>runtimeError(value).replace(/\b(?:mapi|meta)_[A-Za-z0-9_-]{16,}\b/g,'[redacted]');
@@ -60,18 +66,19 @@ export function applyMuseEvent(event,state,manager){
  * API-key environment variables are removed; every host disables Contributor
  * mode. Metadata queries never send a model turn or another app's credentials. */
 export class MuseProvider{
-  constructor(manager,{runtimePath,spawnMsp=spawnMspConnection}={}){Object.assign(this,{manager,runtimePath,spawnMsp});this.id='muse-code';this.name='Muse Code';this.hosts=new Set();this.clients=new Set();this.usageRequests=new Map();this.usageQueue=Promise.resolve();this.closed=false;}
+  constructor(manager,{runtimePath,spawnMsp=spawnMspConnection,platform=process.platform,runtimeEnvironment=process.env,distributionProfile=DISTRIBUTION_PROFILE}={}){Object.assign(this,{manager,runtimePath,spawnMsp,platform,runtimeEnvironment,distributionProfile});this.id='muse-code';this.name='Muse Code';this.hosts=new Set();this.clients=new Set();this.usageRequests=new Map();this.usageQueue=Promise.resolve();this.closed=false;}
   async executable(){
-    const name=process.platform==='win32'?'muse.exe':'muse';
-    const candidates=[this.runtimePath,...(DISTRIBUTION_PROFILE==='personal'?[unpackedPath(path.join(ROOT,'vendor','muse',name))]:[]),...String(process.env.PATH||'').split(path.delimiter).filter(Boolean).map(dir=>path.join(dir,name))].filter(Boolean);
-    for(const file of candidates)if(await exists(file))return file;
+    if(this.runtimePath)return path.isAbsolute(this.runtimePath)&&await nativeFile(this.runtimePath,this.platform)?this.runtimePath:null;
+    const candidates=museRuntimeCandidates({env:this.runtimeEnvironment,platform:this.platform});
+    if(this.distributionProfile==='personal'&&this.platform==='win32')candidates.unshift(unpackedPath(path.join(ROOT,'vendor','muse','muse.exe')));
+    for(const candidate of candidates)if(await nativeFile(candidate,this.platform))return candidate;
     return null;
   }
   async profile(){await this.manager.prepare();const profile=path.join(this.manager.dataDir,'muse-home');await Promise.all([path.join(profile,'.config','muse'),path.join(profile,'runtime-tmp')].map(dir=>mkdir(dir,{recursive:true})));return profile;}
   async accountMarker(){const profile=await this.profile();return path.join(profile,'account-signin.json');}
   async savedLogin(){try{const marker=JSON.parse(await readFile(await this.accountMarker(),'utf8'));return marker.method==='official-account'&&typeof marker.completedAt==='string';}catch{return false;}}
   async open({workspace,readOnly=false,provider='meta'}={}){
-    if(this.closed)throw Error('Muse connection is closed.');const executable=await this.executable();if(!executable)throw Error('Install Meta’s official Muse Code client, then reopen Exomina. See https://dev.meta.ai/docs/muse-code.');
+    if(this.closed)throw Error('Muse connection is closed.');const executable=await this.executable();if(!executable)throw Error(missingRuntime);
     // Native Windows shell preparation changes ACLs and cannot create files in
     // the EFS workspace. Use the existing, explicitly described Exomina terminal
     // through its permission gateway. Do not disable Muse's remaining sandbox.
@@ -113,7 +120,7 @@ export class MuseProvider{
     const info={usage:quota,fromCache:!live};if(publish)this.manager.emit({type:'usage',provider:this.id,info});return info;
   }
   async status(){const installed=!!await this.executable(),connected=installed&&await this.savedLogin();return{id:this.id,name:this.name,installed,connected,supportsTools:true,supportsToolFree:false,supportsImages:true,
-    detail:!installed?'Install Muse Code from dev.meta.ai/docs/muse-code, then reopen Exomina. This beta uses your own official Muse installation.':connected?'Muse account sign-in saved. Commands use Exomina’s terminal and chat permissions. Your Power subscription and model access are checked when you send. No API-key fallback.':'Sign in with your Meta account to use your Muse Code subscription, including eligible Wonder models.',contributorMode:false,shellMode:'exomina-terminal',nativeShell:false};}
+    detail:!installed?missingRuntime:connected?'Muse account sign-in saved. Commands use Exomina’s terminal and chat permissions. Your Power subscription and model access are checked when you send. No API-key fallback.':'Sign in with your Meta account to use your Muse Code subscription, including eligible Wonder models.',contributorMode:false,shellMode:'exomina-terminal',nativeShell:false};}
   async modelOptions(){if(!await this.savedLogin())return[];const client=await this.open({readOnly:true});try{
     let catalogue=await client.host.connection.request('model/list',{});
     if(!catalogue.models?.length){const result=await client.host.connection.command('session/start',{workspaceRoot:await this.profile(),providerId:'meta',approvalMode:'denyUnmatched'});catalogue=await client.host.connection.request('model/list',{sessionId:result.session.sessionId});}
@@ -121,7 +128,7 @@ export class MuseProvider{
   }finally{await client.close();}}
   async connect(){
     if(this.login)return{message:'Muse sign-in is already open. Finish the code in your browser.'};
-    const profile=await this.profile(),executable=await this.executable();if(!executable)throw Error('Install Meta’s official Muse Code client, then reopen Exomina. See https://dev.meta.ai/docs/muse-code.');
+    const profile=await this.profile(),executable=await this.executable();if(!executable)throw Error(missingRuntime);
     const child=this.manager.spawnImpl(executable,['login'],{cwd:profile,env:museEnvironment(this.manager.environment(this.id),profile),windowsHide:true,shell:false,stdio:['ignore','pipe','pipe']});this.login=child;
     child.stdout.setEncoding('utf8');child.stderr.setEncoding('utf8');let buffer='',url='',code='',done=false;
     const answer=()=>({message:'Complete Muse Code’s official Meta account sign-in, then refresh connections. Your subscription stays with Muse Code.',...(url?{url}:{}),...(code?{code}:{})});

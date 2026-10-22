@@ -1,0 +1,214 @@
+name: Qualified public Windows release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to build, matching package.json
+        required: false
+      commit:
+        description: Optional source commit already merged into the default branch
+        required: false
+      candidate_run_id:
+        description: Successful candidate run to publish after exact-artifact qualification; empty builds only
+        required: false
+      qualification_file:
+        description: Committed exact-candidate qualification JSON on the default branch
+        default: build/public-release-qualification.json
+        required: false
+      mark_latest:
+        description: Explicitly mark a qualified historical version as latest
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: public-release
+  cancel-in-progress: false
+jobs:
+  candidate:
+    if: vars.EXOMINA_PUBLIC_RELEASE_ENABLED == 'true' && !inputs.candidate_run_id
+    runs-on: windows-latest
+    environment: public-release
+    steps:
+      - name: Checkout and establish trusted candidate ancestry
+        id: source
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          REQUESTED_COMMIT: ${{ inputs.commit }}
+        run: |
+          gh repo clone $env:GITHUB_REPOSITORY . -- --filter=blob:none --no-checkout
+          if ($LASTEXITCODE) { throw 'Checkout failed.' }
+          git fetch origin $env:DEFAULT_BRANCH --tags
+          if ($LASTEXITCODE) { throw 'Trusted history fetch failed.' }
+          $target = $env:GITHUB_SHA
+          if ($env:REQUESTED_TAG -and $env:REQUESTED_COMMIT) { throw 'Choose a tag or a source commit.' }
+          if ($env:REQUESTED_COMMIT) {
+            if ($env:REQUESTED_COMMIT -notmatch '^[a-fA-F0-9]{40}$') { throw 'Invalid candidate commit.' }
+            $target = $env:REQUESTED_COMMIT
+          }
+          if ($env:REQUESTED_TAG) {
+            if ($env:REQUESTED_TAG -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw 'Invalid version tag.' }
+            $target = git rev-parse "$env:REQUESTED_TAG^{commit}"
+            if ($LASTEXITCODE) { throw 'Candidate tag does not exist.' }
+          }
+          git merge-base --is-ancestor $target "origin/$env:DEFAULT_BRANCH"
+          if ($LASTEXITCODE) { throw 'Signing requires code already merged into the trusted default branch.' }
+          git checkout --detach $target
+          if ($LASTEXITCODE) { throw 'Candidate checkout failed.' }
+          $version = (Get-Content -LiteralPath package.json -Raw -Encoding utf8 | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw 'Invalid package version.' }
+          $tag = "v$version"
+          if ($env:REQUESTED_TAG -and $tag -ne $env:REQUESTED_TAG) { throw 'Version differs from requested tag.' }
+          if ($env:GITHUB_REF -like 'refs/tags/*' -and $env:GITHUB_REF_NAME -ne $tag) { throw 'Version differs from pushed tag.' }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          $commit = git rev-parse HEAD
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+      - name: Qualify source without signing secrets
+        shell: pwsh
+        run: |
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE) { throw 'Dependency installation failed.' }
+          node node_modules/electron/install.js
+          if ($LASTEXITCODE) { throw 'Pinned Electron preparation failed.' }
+          node scripts/prepare-analysis-node.mjs
+          if ($LASTEXITCODE) { throw 'Analysis runtime preparation failed.' }
+          node scripts/prepare-beta-vendor.mjs --python-only
+          if ($LASTEXITCODE) { throw 'Pinned importer runtime preparation failed.' }
+          node scripts/security-maintenance.mjs --check --report .verification/public-security-report.json
+          if ($LASTEXITCODE) { throw 'Unresolved runtime security findings block candidates.' }
+          npm run build
+          if ($LASTEXITCODE) { throw 'Candidate build failed.' }
+          npm test
+          if ($LASTEXITCODE) { throw 'Candidate tests failed.' }
+          git diff --exit-code -- scripts src desktop package.json package-lock.json .github
+          if ($LASTEXITCODE) { throw 'Qualification changed protected source inputs.' }
+      - name: Build signed candidate and authenticated update artifacts
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          EXOMINA_PUBLISHER_THUMBPRINT: ${{ vars.EXOMINA_PUBLISHER_THUMBPRINT }}
+          EXOMINA_UPDATE_KEY_ID: ${{ vars.EXOMINA_UPDATE_KEY_ID }}
+          UPDATE_PRIVATE_KEY_PEM: ${{ secrets.EXOMINA_UPDATE_PRIVATE_KEY_PEM }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+          RELEASE_VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          if (-not $env:WIN_CSC_LINK -or -not $env:EXOMINA_PUBLISHER_THUMBPRINT -or -not $env:EXOMINA_UPDATE_KEY_ID -or -not $env:UPDATE_PRIVATE_KEY_PEM) { throw 'Provision protected signing and update identities before enabling candidates.' }
+          $key = Join-Path $env:RUNNER_TEMP 'exomina-update-signing.pem'
+          [IO.File]::WriteAllText($key, $env:UPDATE_PRIVATE_KEY_PEM, [Text.UTF8Encoding]::new($false))
+          $env:EXOMINA_UPDATE_PRIVATE_KEY_FILE = $key
+          try {
+            npm run package:public
+            if ($LASTEXITCODE) { throw 'Signed candidate packaging failed.' }
+            $candidates = @(Get-ChildItem -LiteralPath release -Directory | Where-Object { $_.Name -like "public-build-$env:RELEASE_VERSION-*" })
+            if ($candidates.Count -ne 1) { throw 'Expected one signed candidate build.' }
+            $build = Join-Path $candidates[0].FullName 'win-unpacked'
+            node scripts/create-public-update.mjs --build $build --output release/publish --base-url "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:RELEASE_TAG/"
+            if ($LASTEXITCODE) { throw 'Signed metadata creation failed.' }
+            Get-ChildItem -LiteralPath $candidates[0].FullName -File -Filter '*Setup.exe' | Copy-Item -Destination release/publish
+            node scripts/public-readiness.mjs --create-candidate --build $build --artifact-dir release/publish --source-revision $env:RELEASE_COMMIT --release-tag $env:RELEASE_TAG --output release/publish/candidate.json
+            if ($LASTEXITCODE) { throw 'Exact candidate receipt creation failed.' }
+          } finally { if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Force }; Remove-Item Env:\UPDATE_PRIVATE_KEY_PEM -ErrorAction SilentlyContinue }
+      - name: Retain exact candidate for independent qualification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-public-candidate
+          path: release/publish/*
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
+      - name: Explain pending publication
+        shell: pwsh
+        run: |
+          'Signed Windows candidate retained for testing. No release published. Qualify these exact hashes on clean machines, commit the hashed reports and qualification JSON, then dispatch this workflow with candidate_run_id.' >> $env:GITHUB_STEP_SUMMARY
+  publish:
+    if: vars.EXOMINA_PUBLIC_RELEASE_ENABLED == 'true' && github.event_name == 'workflow_dispatch' && inputs.candidate_run_id && github.ref_name == github.event.repository.default_branch
+    runs-on: windows-latest
+    environment: public-release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Read trusted qualification and successful candidate provenance
+        id: candidate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          QUALIFICATION_FILE: ${{ inputs.qualification_file }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          REQUESTED_COMMIT: ${{ inputs.commit }}
+          REQUESTED_LATEST: ${{ inputs.mark_latest }}
+        run: |
+          if ($env:CANDIDATE_RUN_ID -notmatch '^\d+$') { throw 'Choose a numeric successful candidate run ID.' }
+          if ($env:REQUESTED_COMMIT) { throw 'Publication uses the retained candidate source revision; omit commit.' }
+          gh repo clone $env:GITHUB_REPOSITORY . -- --filter=blob:none --no-checkout
+          if ($LASTEXITCODE) { throw 'Trusted source clone failed.' }
+          git checkout --detach "origin/$env:DEFAULT_BRANCH"
+          if ($LASTEXITCODE) { throw 'Trusted default branch checkout failed.' }
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:CANDIDATE_RUN_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -or $run.conclusion -ne 'success' -or $run.status -ne 'completed' -or $run.path -ne '.github/workflows/release.yml' -or $run.head_repository.full_name -ne $env:GITHUB_REPOSITORY -or $run.event -notin @('push','workflow_dispatch')) { throw 'Candidate must come from a successful trusted release workflow run in this repository.' }
+          git merge-base --is-ancestor $run.head_sha "origin/$env:DEFAULT_BRANCH"
+          if ($LASTEXITCODE) { throw 'Candidate workflow revision is outside trusted default-branch history.' }
+          gh run download $env:CANDIDATE_RUN_ID --repo $env:GITHUB_REPOSITORY --name windows-public-candidate --dir release/publish
+          if ($LASTEXITCODE) { throw 'The exact candidate artifact is unavailable. Rebuild and requalify instead of substituting files.' }
+          $candidate = Get-Content -LiteralPath release/publish/candidate.json -Raw -Encoding utf8 | ConvertFrom-Json
+          if ($candidate.sourceRevision -notmatch '^[a-f0-9]{40}$' -or $candidate.releaseTag -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw 'Invalid candidate source revision or version.' }
+          git merge-base --is-ancestor $candidate.sourceRevision $run.head_sha
+          if ($LASTEXITCODE) { throw 'Candidate source was not part of the trusted workflow revision history.' }
+          if ($env:REQUESTED_TAG -and $candidate.releaseTag -ne $env:REQUESTED_TAG) { throw 'Candidate differs from the requested tag.' }
+          $sourceVersion = git show "$($candidate.sourceRevision):package.json" | ConvertFrom-Json
+          if ($LASTEXITCODE -or $sourceVersion.version -ne $candidate.version) { throw 'Candidate version differs from its original source.' }
+          if (-not $env:QUALIFICATION_FILE) { $env:QUALIFICATION_FILE = 'build/public-release-qualification.json' }
+          $tracked = git ls-files --error-unmatch -- $env:QUALIFICATION_FILE
+          if ($LASTEXITCODE -or -not $tracked) { throw 'Qualification evidence must be committed on the trusted default branch.' }
+          "evidence=$env:QUALIFICATION_FILE" >> $env:GITHUB_OUTPUT
+          "tag=$($candidate.releaseTag)" >> $env:GITHUB_OUTPUT
+          "commit=$($candidate.sourceRevision)" >> $env:GITHUB_OUTPUT
+          $currentVersion = (Get-Content -LiteralPath package.json -Raw -Encoding utf8 | ConvertFrom-Json).version
+          $latest = $candidate.version -eq $currentVersion -or $env:REQUESTED_LATEST -eq 'true'
+          "latest=$($latest.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.22.1'
+      - name: Enforce exact-artifact release qualification
+        shell: pwsh
+        env:
+          EXOMINA_PUBLISHER_THUMBPRINT: ${{ vars.EXOMINA_PUBLISHER_THUMBPRINT }}
+          QUALIFICATION_FILE: ${{ steps.candidate.outputs.evidence }}
+          RELEASE_COMMIT: ${{ steps.candidate.outputs.commit }}
+        run: |
+          node scripts/public-readiness.mjs --strict --candidate release/publish/candidate.json --artifact-dir release/publish --source-revision $env:RELEASE_COMMIT --evidence $env:QUALIFICATION_FILE --repository "https://github.com/$env:GITHUB_REPOSITORY"
+          if ($LASTEXITCODE) { throw 'Exact-candidate qualification is missing or invalid. Nothing was published.' }
+      - name: Publish the qualified original artifacts
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.candidate.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.candidate.outputs.commit }}
+          MARK_LATEST: ${{ steps.candidate.outputs.latest }}
+        run: |
+          git fetch origin --tags
+          if ($LASTEXITCODE) { throw 'Could not verify existing version tags.' }
+          $existingTag = git rev-parse --verify "$env:RELEASE_TAG^{commit}" 2>$null
+          if ($LASTEXITCODE -eq 0 -and $existingTag -ne $env:RELEASE_COMMIT) { throw 'Existing version tag points at another commit.' }
+          $lookupError = Join-Path $env:RUNNER_TEMP 'release-lookup-error.txt'
+          gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" > $null 2> $lookupError
+          if ($LASTEXITCODE -eq 0) { throw 'Release already exists. Inspect it before taking further action.' }
+          if ((Get-Content -LiteralPath $lookupError -Raw -Encoding utf8) -notmatch '\(HTTP 404\)') { throw 'Release lookup failed. Inspect GitHub before retrying.' }
+          $receipt = Get-Content -LiteralPath release/publish/candidate.json -Raw -Encoding utf8 | ConvertFrom-Json
+          $artifacts = @($receipt.artifacts.installer.file,$receipt.artifacts.archive.file,$receipt.artifacts.metadata.file) | ForEach-Object { Join-Path 'release/publish' $_ }
+          gh release create $env:RELEASE_TAG @artifacts --target $env:RELEASE_COMMIT --title "Exomina $env:RELEASE_TAG" --generate-notes "--latest=$env:MARK_LATEST"
+          if ($LASTEXITCODE) { throw 'Publication outcome is uncertain. Inspect GitHub before retrying.' }

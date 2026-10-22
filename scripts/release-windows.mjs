@@ -17,6 +17,8 @@ export async function verifyPublicSignatures(build,installer=''){
 }
 async function run(file,args){return new Promise((resolve,reject)=>{const child=spawn(file,args,{cwd:project,windowsHide:true,shell:false,stdio:'inherit'});child.once('error',reject);child.once('close',code=>code===0?resolve():reject(Error(path.basename(file)+' failed ('+code+').')));});}
 async function main(){
+ const args=process.argv.slice(2);if(args.some(arg=>!['--beta','--check'].includes(arg)))throw Error('Use release-windows.mjs [--beta] [--check].');
+ const beta=args.includes('--beta');
  const check=signingPreflight();console.log(JSON.stringify(check,null,2));
  if(!check.ready){process.exitCode=1;return;}if(process.argv.includes('--check'))return;
  const node=process.execPath;
@@ -24,9 +26,9 @@ async function main(){
  for(const script of ['prepare-beta-vendor.mjs','prepare-grok-runtime.mjs','prepare-analysis-node.mjs','prepare-taskbar-icon.mjs','prepare-windows-interop.mjs'])await run(node,['scripts/'+script]);
  const {version}=JSON.parse(await readFile(path.join(project,'package.json'),'utf8'));
  const release=path.join(project,'release','public-build-'+version+'-'+randomUUID());
- await run(node,['node_modules/electron-builder/cli.js','--config','scripts/beta-installer-config.mjs','--config.directories.output='+release,'--win','nsis','--x64']);
+ await run(node,['node_modules/electron-builder/cli.js','--config',beta?'scripts/beta-installer-config.mjs':'scripts/public-installer-config.mjs','--config.directories.output='+release,'--win','nsis','--x64']);
  const installers=(await readdir(release)).filter(name=>/-windows-x64-Setup\.exe$/.test(name));
- const expected='Exomina-Beta-'+version+'-windows-x64-Setup.exe';if(!installers.includes(expected))throw Error('The expected installer is absent.');
+ const expected=(beta?'Exomina-Beta-':'Exomina-')+version+'-windows-x64-Setup.exe';if(!installers.includes(expected))throw Error('The expected installer is absent.');
  const signatures=await verifyPublicSignatures(path.join(release,'win-unpacked'),path.join(release,expected));
  const uninstaller=JSON.parse(await readFile(path.join(release,'review','uninstaller-signature.json'),'utf8'));
  const build=JSON.parse(await readFile(path.join(release,'win-unpacked','exomina.build.json'),'utf8'));

@@ -60,6 +60,7 @@ export function applyAppearance(value, { animate = false } = {}) {
   const chatWidth = CHAT_WIDTHS.find(item => item.id === appearance.chatWidth).px;
   root.style.setProperty('--chat-width', chatWidth === null ? '100%' : `${chatWidth}px`);
   root.dataset.theme = theme.id;
+  root.dataset.readingFont = appearance.readingFont;
   artworkAspect(theme);
   root.dataset.scheme = theme.scheme;
   root.dataset.motion = appearance.motion;
@@ -118,7 +119,15 @@ export function watchArtworkFrame() {
   };
   const observer = new ResizeObserver(update);
   const observeSurfaces = () => { observer.disconnect(); canvas = document.querySelector('.main-shell'); if (!canvas) return; observer.observe(canvas); canvas.querySelectorAll('.composer, .welcome, .messages').forEach(element => observer.observe(element)); update(); };
-  const changes = new MutationObserver(observeSurfaces); changes.observe(document.getElementById('root') || document.body, { childList: true, subtree: true }); observeSurfaces();
+  const surfaceSelector = '.main-shell, .composer, .welcome, .messages, .assistant, .user-bubble';
+  const changes = new MutationObserver(records => {
+    // React updates a textarea's default text on input. That does not change
+    // artwork framing, and must not rescan the complete conversation.
+    for (const record of records) for (const node of [...record.addedNodes, ...record.removedNodes]) {
+      if (node.nodeType === 1 && (node.matches(surfaceSelector) || node.querySelector(surfaceSelector))) { observeSurfaces(); return; }
+    }
+  });
+  changes.observe(document.getElementById('root') || document.body, { childList: true, subtree: true }); observeSurfaces();
   window.addEventListener('exomina-artwork-change',update);
   return () => {observer.disconnect();changes.disconnect();window.removeEventListener('exomina-artwork-change',update);};
 }

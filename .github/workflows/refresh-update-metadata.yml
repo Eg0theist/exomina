@@ -1,0 +1,89 @@
+name: Refresh signed update metadata
+on:
+  schedule:
+    - cron: '7 5 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-release
+  cancel-in-progress: false
+jobs:
+  refresh:
+    if: vars.EXOMINA_PUBLIC_RELEASE_ENABLED == 'true' && vars.EXOMINA_UPDATE_METADATA_REFRESH == 'true' && github.ref_name == github.event.repository.default_branch
+    runs-on: windows-latest
+    environment: public-release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout trusted default branch and current release metadata
+        id: original
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          gh repo clone $env:GITHUB_REPOSITORY . -- --filter=blob:none --no-checkout
+          if ($LASTEXITCODE) { throw 'Checkout failed.' }
+          git checkout --detach "origin/$env:DEFAULT_BRANCH"
+          if ($LASTEXITCODE) { throw 'Trusted branch checkout failed.' }
+          $release = gh release view --json tagName | ConvertFrom-Json
+          if ($LASTEXITCODE -or -not $release.tagName) { throw 'Current published release is unavailable.' }
+          if ($release.tagName -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw 'The current release tag is not a qualified version.' }
+          $original = Join-Path $env:RUNNER_TEMP 'metadata-original'
+          New-Item -ItemType Directory -Path $original | Out-Null
+          gh release download $release.tagName --pattern latest.json --dir $original
+          if ($LASTEXITCODE) { throw 'Current signed metadata could not be read.' }
+          $sha = (Get-FileHash -LiteralPath (Join-Path $original 'latest.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+          "tag=$($release.tagName)" >> $env:GITHUB_OUTPUT
+          "sha256=$sha" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.22.1'
+      - name: Verify current metadata and renew dates only
+        id: renewed
+        shell: pwsh
+        env:
+          EXOMINA_UPDATE_KEY_ID: ${{ vars.EXOMINA_UPDATE_KEY_ID }}
+          UPDATE_PRIVATE_KEY_PEM: ${{ secrets.EXOMINA_UPDATE_PRIVATE_KEY_PEM }}
+          ORIGINAL_SHA256: ${{ steps.original.outputs.sha256 }}
+          RELEASE_TAG: ${{ steps.original.outputs.tag }}
+        run: |
+          $replacement = Join-Path $env:RUNNER_TEMP 'metadata-replacement'
+          New-Item -ItemType Directory -Path $replacement | Out-Null
+          $key = Join-Path $env:RUNNER_TEMP 'metadata-refresh-key.pem'
+          if ($env:UPDATE_PRIVATE_KEY_PEM) { [IO.File]::WriteAllText($key, $env:UPDATE_PRIVATE_KEY_PEM, [Text.UTF8Encoding]::new($false)); $env:EXOMINA_UPDATE_PRIVATE_KEY_FILE=$key }
+          try {
+            $receipt = node scripts/refresh-update-metadata.mjs --input (Join-Path $env:RUNNER_TEMP 'metadata-original/latest.json') --output (Join-Path $replacement 'latest.json') --trust-file build/update-channel.json --expected-sha256 $env:ORIGINAL_SHA256 --expected-version $env:RELEASE_TAG.Substring(1) --expected-base-url "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:RELEASE_TAG/"
+            if ($LASTEXITCODE) { throw 'Renewal failed. Expired metadata, key rotation and signature failures require publisher review.' }
+            $receipt | Set-Content -LiteralPath (Join-Path $replacement 'receipt.json') -Encoding utf8
+            $result = $receipt | ConvertFrom-Json
+            "changed=$($result.changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+            "sha256=$($result.sha256)" >> $env:GITHUB_OUTPUT
+          } finally { if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Force }; Remove-Item Env:\UPDATE_PRIVATE_KEY_PEM -ErrorAction SilentlyContinue }
+      - name: Reread exact remote capability before replacing metadata
+        if: steps.renewed.outputs.changed == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.original.outputs.tag }}
+          ORIGINAL_SHA256: ${{ steps.original.outputs.sha256 }}
+          RENEWED_SHA256: ${{ steps.renewed.outputs.sha256 }}
+        run: |
+          $current = gh release view --json tagName | ConvertFrom-Json
+          if ($LASTEXITCODE -or $current.tagName -ne $env:RELEASE_TAG) { throw 'The current release changed. Nothing was uploaded.' }
+          $reread = Join-Path $env:RUNNER_TEMP 'metadata-reread'
+          New-Item -ItemType Directory -Path $reread | Out-Null
+          gh release download $env:RELEASE_TAG --pattern latest.json --dir $reread
+          if ($LASTEXITCODE) { throw 'Could not revalidate current remote metadata.' }
+          if ((Get-FileHash -LiteralPath (Join-Path $reread 'latest.json') -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:ORIGINAL_SHA256) { throw 'Remote metadata changed. Nothing was uploaded.' }
+          # GitHub release assets offer no atomic If-Match replacement. The shared
+          # concurrency group excludes these workflows from racing each other;
+          # a simultaneous manual publisher remains a bounded residual race.
+          gh release upload $env:RELEASE_TAG (Join-Path $env:RUNNER_TEMP 'metadata-replacement/latest.json') --clobber
+          if ($LASTEXITCODE) { throw 'Upload outcome is uncertain. Inspect the release before retrying.' }
+          $verified = Join-Path $env:RUNNER_TEMP 'metadata-confirmed'
+          New-Item -ItemType Directory -Path $verified | Out-Null
+          gh release download $env:RELEASE_TAG --pattern latest.json --dir $verified
+          if ($LASTEXITCODE -or (Get-FileHash -LiteralPath (Join-Path $verified 'latest.json') -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:RENEWED_SHA256) { throw 'Renewed metadata could not be confirmed. Inspect the release before retrying.' }
+          "Renewed metadata for $env:RELEASE_TAG; previous SHA256 $env:ORIGINAL_SHA256; current SHA256 $env:RENEWED_SHA256. Original envelope and receipt remain in this runner's temporary evidence folders." >> $env:GITHUB_STEP_SUMMARY

@@ -130,35 +130,35 @@ try {
     'desktop/preload.cjs', 'desktop/mcp-stdio.mjs', 'desktop/read-export.py', 'desktop/windows-control.ps1',
     'desktop/provider-usage.mjs', 'desktop/usage-poller.mjs', 'desktop/usage.mjs',
     'desktop/provider-grok.mjs', 'vendor/grok/grok.exe',
-    'desktop/workbench.mjs', 'desktop/model-assist.mjs', 'desktop/local-models.mjs',
+    'desktop/workbench.mjs', 'desktop/model-assist.mjs', 'desktop/chat-memory-search.mjs', 'desktop/chat-memory-search-worker.mjs', 'desktop/github.mjs', 'desktop/request-guard.mjs',
     'desktop/browser.mjs', 'desktop/browser-runtime.mjs',
     'vendor/python/python.exe', 'vendor/python/python313.zip', 'desktop/note-store.mjs', 'desktop/vault-windows.ps1', 'desktop/conversation-tools.mjs',
     'vendor/cua-driver/cua-driver.exe', 'vendor/cua-driver/cua-driver-uia.exe', 'vendor/cua-driver/cua_driver_sdk.dll',
     'node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe',
-    'node_modules/@google/gemini-cli/bundle/gemini.js',
-    'node_modules/@moonshot-ai/kimi-code/dist/main.mjs',
-    'node_modules/@github/copilot-sdk/dist/index.js',
-    'node_modules/@github/copilot-sdk-win32-x64/prebuilds/win32-x64/copilot-runtime.exe',
   ];
+  paths.push('desktop/local-models.mjs');
   if (PROVIDER_CATALOG.some(provider => provider.id === 'claude' && !provider.optIn)) paths.push('node_modules/@anthropic-ai/claude-code-win32-x64/claude.exe');
   for (const relative of paths) await access(path.join(runtimeRoot, relative));
   report.checks.runtimeFiles = paths.length;
-  report.checks.nativeRuntimeSmoke = {};
-  const packageFile = path.join(runtimeRoot, 'package.json');
-  const nativeLoad = await runNativeSmoke('gemini-cli', ['-e', `const r=require('node:module').createRequire(${JSON.stringify(packageFile)});for(const name of ['@github/keytar','@lydell/node-pty','koffi','@mariozechner/clipboard'])r(name);console.log('PACKAGED_NATIVE_MODULES_OK');process.exit(0);`]);
-  assert.ok(nativeLoad.includes('PACKAGED_NATIVE_MODULES_OK'));
-  report.checks.nativeRuntimeSmoke.prebuiltModules = { loaded: ['@github/keytar', '@lydell/node-pty', 'koffi', '@mariozechner/clipboard'], rebuilt: false, credentialsRead: false, clipboardRead: false };
-  for (const [id, relative, version] of [['gemini-cli', 'node_modules/@google/gemini-cli/bundle/gemini.js', '0.62.0'], ['kimi-code', 'node_modules/@moonshot-ai/kimi-code/dist/main.mjs', '2.1.1']]) {
-    const output = await runNativeSmoke(id, [path.join(runtimeRoot, relative), '--version']);
-    assert.ok(output.includes(version), `${id} packaged version must match the pinned runtime.`);
-    report.checks.nativeRuntimeSmoke[id] = { version, loadedPackagedDependencies: true };
+  for (const relative of ['desktop/provider-gemini.mjs', 'node_modules/@google/gemini-cli', 'node_modules/@google/gemini-cli-core']) {
+    await assert.rejects(access(path.join(runtimeRoot, relative)), { code: 'ENOENT' });
   }
-  const managerUrl = pathToFileURL(path.join(runtimeRoot, 'desktop/providers.mjs')).href;
-  const smokeData = path.join(profile, 'qa-native-runtimes'), smokeWorkspace = path.join(profile, 'workspace');
-  const copilotSmoke = await runNativeSmoke('copilot', ['--input-type=module', '-e', `const {ProviderManager}=await import(${JSON.stringify(managerUrl)});const m=new ProviderManager({dataDir:${JSON.stringify(smokeData)},workspace:${JSON.stringify(smokeWorkspace)}});try{const s=await m.adapters.get('copilot').status();if(!s.installed||s.connected||!s.detail.startsWith('Sign in to GitHub Copilot'))throw new Error(s.detail);console.log('COPILOT_SIGNED_OUT_RUNTIME_OK');}finally{m.close();}`]);
-  assert.ok(copilotSmoke.includes('COPILOT_SIGNED_OUT_RUNTIME_OK'));
-  report.checks.nativeRuntimeSmoke.copilot = { sdk: '1.0.16', loadedPackagedDependencies: true, signedOut: true, modelRequests: 0 };
-  const env = { ...process.env, EXOMINA_DATA_DIR: profile };
+  assert.equal(PROVIDER_CATALOG.some(item => item.id === 'gemini-cli'), false);
+  const shippedPackage = JSON.parse(extractFile(path.join(path.dirname(executable), 'resources/app.asar'), 'package.json').toString('utf8'));
+  assert.equal(shippedPackage.dependencies?.['@google/gemini-cli'], undefined);
+  report.checks.legacyGeminiRemoved = { catalog: true, adapter: true, cliPackage: true, corePackage: true, dependency: true };
+  for (const relative of ['desktop/provider-copilot.mjs', 'desktop/provider-kimi-config.mjs', 'node_modules/@moonshot-ai/kimi-code', 'node_modules/@github/copilot-sdk']) {
+    await assert.rejects(access(path.join(runtimeRoot, relative)), { code: 'ENOENT' }, `${relative} must not ship.`);
+  }
+  for (const id of ['codex', 'claude', 'antigravity', 'grok', 'muse-code', 'openai-api', 'anthropic-api', 'gemini', 'xai']) assert.ok(PROVIDER_CATALOG.some(item => item.id === id));
+  for(const relative of ['desktop/api-agent.mjs','desktop/api-connections.mjs','desktop/request-guard.mjs','desktop/github.mjs','desktop/extensions.mjs','desktop/chat-memory-recall.mjs'])await access(path.join(runtimeRoot,relative));
+  assert.equal(shippedPackage.dependencies?.['@moonshot-ai/kimi-code'], undefined);
+  assert.equal(shippedPackage.dependencies?.['@github/copilot-sdk'], undefined);
+  report.checks.removedConnections = { catalog: PROVIDER_CATALOG.map(item => item.id), kimiAndCopilotPackages: false, apiModulesRetained:true,localModules:true };
+  // Keep this synthetic test process attached to its runner. The independent
+  // Windows relay is tested separately and would detach the debugging pipes.
+  const env = { ...process.env, EXOMINA_DATA_DIR: profile, EXOMINA_WINDOWS_INDEPENDENT: randomUUID() };
+  report.checks.windowsLifetimeRelay = 'Skipped for the attached synthetic QA process; tested separately.';
   delete env.ELECTRON_RUN_AS_NODE;
   child = spawn(executable, ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1'], { cwd: path.dirname(executable), env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   const endpoint = await new Promise((resolve, reject) => {
@@ -216,6 +216,15 @@ try {
   assert.equal(await readFile(legacyCache,'utf8'),'Synthetic legacy cache retained without importing.');
   report.checks.legacyCacheDirectoryMigration={startupPassed:true,cachePreserved:true};
   const bootstrap = await until(() => page.evaluate(() => window.studio.invoke('bootstrap')), state => state.connections.length === PROVIDER_CATALOG.length && state.connections.every(c=>!c.checking),60000);
+  const cloudTools=bootstrap.tools.filter(tool=>tool.name.startsWith('codex_cloud_'));
+  assert.equal(cloudTools.length,4);assert.equal(cloudTools.every(tool=>tool.enabled),true);
+  const cloudInfo=await page.evaluate(()=>window.studio.invoke('codexCloud.info'));
+  assert.equal(cloudInfo.connected,false);assert.deepEqual(cloudInfo.environments,[]);
+  const savedCloud=await page.evaluate(()=>window.studio.invoke('codexCloud.configure',{id:'env-synthetic-qa',name:'Synthetic cloud setup'}));
+  assert.equal(savedCloud.environments[0].id,'env-synthetic-qa');
+  const cloudFailure=await page.evaluate(async()=>{try{await window.studio.invoke('codexCloud.list');return null;}catch(e){return e.message;}});
+  assert.match(cloudFailure,/subscription sign-in/);
+  report.checks.codexCloudHost={registeredTools:4,enabled:true,signedOutGuard:true,savedSetup:true,realCloudRequests:0};
   assert.equal((await page.evaluate(() => window.studio.invoke('security.status'))).protected,true);
   assert.equal((await page.evaluate(() => window.studio.invoke('security.status'))).recoveryAudit.status,'pending');
   assert.equal(bootstrap.settings.memoryCapture,'automatic');
@@ -301,9 +310,10 @@ try {
   await page.evaluate(()=>document.querySelector('.browser-toggle').click());
   report.checks.packagedBrowserLoading={readableBeforeLoadEnds:true,stopButtonEndsLoad:true,isolatedBrowserRenderer:true,modelRequests:0};
   console.log('Packaged QA: embedded browser remains readable during loading and Stop ends the load.');
-  // Claude is opt-in: it starts off and uses the user's own Claude Code, so it is not a packaged runtime.
-  assert.equal(bootstrap.connections.filter(connection => connection.id !== 'claude').every(connection => connection.installed), true);
+  assert.equal(bootstrap.connections.filter(connection => !['antigravity','claude'].includes(connection.id)).every(connection => connection.installed), true);
   assert.equal(bootstrap.connections.some(connection => connection.id === 'claude' && connection.installed), false);
+  assert.equal(bootstrap.connections.some(connection => connection.id === 'gemini-cli'), false);
+  assert.equal(bootstrap.connections.some(connection => connection.id === 'antigravity'), true);
   assert.equal(bootstrap.connections.every(connection => !connection.connected), true);
   report.checks.providers = bootstrap.connections.map(({ id, installed, connected }) => ({ id, installed, connected }));
   assert.equal(path.resolve(bootstrap.settings.workspace), path.join(profile, 'workspace'));

@@ -1,0 +1,185 @@
+name: Security maintenance
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  repository_dispatch:
+    types: [upstream-release]
+  workflow_dispatch:
+    inputs:
+      validate_only:
+        type: boolean
+        default: false
+  pull_request:
+    paths: ['package.json', 'package-lock.json', 'scripts/**', 'desktop/**', 'src/**', 'test/**', '.github/**']
+permissions:
+  contents: read
+concurrency:
+  group: security-maintenance-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.validate_only)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout exact candidate without signing credentials
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh repo clone $env:GITHUB_REPOSITORY . -- --filter=blob:none --no-checkout
+          if ($LASTEXITCODE) { throw 'Checkout failed.' }
+          if ($env:PR_NUMBER) {
+            if ($env:PR_NUMBER -notmatch '^\d+$') { throw 'Invalid pull request.' }
+            git fetch origin "refs/pull/$env:PR_NUMBER/merge"
+          } else { git fetch origin $env:GITHUB_SHA }
+          if ($LASTEXITCODE) { throw 'Candidate fetch failed.' }
+          git checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE) { throw 'Candidate checkout failed.' }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+      - name: Prepare runtimes, build and test candidate
+        shell: pwsh
+        run: |
+          node -e "if(Number(process.versions.node.split('.')[0])<24)throw Error('The runner needs Node.js 24 or newer. Configure its trusted runtime before enabling this job.')"
+          if ($LASTEXITCODE) { throw 'Unsupported runner Node runtime.' }
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE) { throw 'Dependency installation failed.' }
+          node node_modules/electron/install.js
+          if ($LASTEXITCODE) { throw 'Pinned Electron preparation failed.' }
+          node scripts/prepare-analysis-node.mjs
+          if ($LASTEXITCODE) { throw 'Pinned analysis runtime preparation failed.' }
+          node scripts/prepare-beta-vendor.mjs --python-only
+          if ($LASTEXITCODE) { throw 'Pinned importer runtime preparation failed.' }
+          npm run build
+          if ($LASTEXITCODE) { throw 'Build failed.' }
+          npm test
+          if ($LASTEXITCODE) { throw 'Tests failed.' }
+  prepare:
+    if: github.event_name != 'pull_request' && !inputs.validate_only && github.ref_name == github.event.repository.default_branch
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Checkout trusted default branch
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          gh repo clone $env:GITHUB_REPOSITORY . -- --filter=blob:none --no-checkout
+          if ($LASTEXITCODE) { throw 'Checkout failed.' }
+          git checkout -B security/maintenance "origin/$env:DEFAULT_BRANCH"
+          if ($LASTEXITCODE) { throw 'Default branch checkout failed.' }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+      - name: Prepare and qualify compatible security candidates
+        id: candidate
+        shell: pwsh
+        run: |
+          node -e "if(Number(process.versions.node.split('.')[0])<24)throw Error('The runner needs a trusted Node.js 24+ runtime.')"
+          if ($LASTEXITCODE) { throw 'Unsupported runner Node runtime.' }
+          node scripts/security-maintenance.mjs --prepare --report build/security-maintenance-report.json
+          if ($LASTEXITCODE) { throw 'Security candidate preparation failed.' }
+          git diff --quiet -- package.json package-lock.json scripts/prepare-analysis-node.mjs desktop/app-analysis-node.mjs
+          if ($LASTEXITCODE -eq 0) { 'changed=false' >> $env:GITHUB_OUTPUT; exit 0 }
+          if ($LASTEXITCODE -ne 1) { throw 'Candidate diff could not be inspected.' }
+          node scripts/prepare-version.mjs --release patch
+          if ($LASTEXITCODE) { throw 'Candidate version advance failed.' }
+          $report = Get-Content -LiteralPath build/security-maintenance-report.json -Raw -Encoding utf8 | ConvertFrom-Json
+          $version = (Get-Content -LiteralPath package.json -Raw -Encoding utf8 | ConvertFrom-Json).version
+          $report | Add-Member -NotePropertyName releaseVersion -NotePropertyValue $version -Force
+          $report | Add-Member -NotePropertyName sourcePolicy -NotePropertyValue 'compatible-security-maintenance' -Force
+          [IO.File]::WriteAllText((Join-Path $PWD 'build/security-maintenance-report.json'), ($report | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE) { throw 'Dependency installation failed.' }
+          node node_modules/electron/install.js
+          if ($LASTEXITCODE) { throw 'Pinned Electron preparation failed.' }
+          node scripts/prepare-analysis-node.mjs
+          if ($LASTEXITCODE) { throw 'Analysis runtime preparation failed.' }
+          node scripts/prepare-beta-vendor.mjs --python-only
+          if ($LASTEXITCODE) { throw 'Pinned importer runtime preparation failed.' }
+          npm run build
+          if ($LASTEXITCODE) { throw 'Security candidate build failed.' }
+          npm test
+          if ($LASTEXITCODE) { throw 'Security candidate tests failed.' }
+          'changed=true' >> $env:GITHUB_OUTPUT
+      - name: Open or refresh maintenance pull request
+        if: steps.candidate.outputs.changed == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SECURITY_AUTOMERGE: ${{ vars.EXOMINA_SECURITY_AUTOMERGE }}
+        run: |
+          git config user.name 'Exomina maintenance'
+          git config user.email 'maintenance@users.noreply.github.com'
+          gh auth setup-git
+          if ($LASTEXITCODE) { throw 'Git authentication setup failed.' }
+          git add package.json package-lock.json desktop/app-version.json scripts/prepare-analysis-node.mjs desktop/app-analysis-node.mjs build/security-maintenance-report.json
+          git commit -m 'Update verified security maintenance candidates'
+          if ($LASTEXITCODE) { throw 'Candidate commit failed.' }
+          $remoteHead = git ls-remote origin refs/heads/security/maintenance
+          if ($LASTEXITCODE) { throw 'Could not inspect the previous maintenance branch.' }
+          $expectedHead = if ($remoteHead) { ($remoteHead -split '\s+')[0] } else { '' }
+          git push "--force-with-lease=refs/heads/security/maintenance:$expectedHead" origin HEAD:refs/heads/security/maintenance
+          if ($LASTEXITCODE) { throw 'Candidate push failed.' }
+          $body = Join-Path $env:RUNNER_TEMP 'security-maintenance-body.md'
+          [IO.File]::WriteAllText($body, "Compatible dependency and verified Node runtime maintenance. Full tests and production build passed. Native provider binaries need separate publisher review. See build/security-maintenance-report.json for findings.", [Text.UTF8Encoding]::new($false))
+          $existing = gh pr list --head security/maintenance --base $env:DEFAULT_BRANCH --json number | ConvertFrom-Json
+          if ($existing.Count -eq 0) { gh pr create --head security/maintenance --base $env:DEFAULT_BRANCH --title 'Security maintenance' --body-file $body }
+          if ($LASTEXITCODE) { throw 'Maintenance pull request failed.' }
+          # workflow_dispatch is intentionally allowed with GITHUB_TOKEN; ordinary
+          # token-created pull_request events do not recursively launch workflows.
+          gh workflow run security-maintenance.yml --ref security/maintenance -f validate_only=true
+          if ($LASTEXITCODE) { throw 'Candidate validation dispatch failed.' }
+          if ($env:SECURITY_AUTOMERGE -eq 'true') {
+            $protection = gh api "repos/$env:GITHUB_REPOSITORY/branches/$env:DEFAULT_BRANCH/protection" | ConvertFrom-Json
+            if ($LASTEXITCODE -or -not $protection.required_status_checks.strict -or $protection.required_status_checks.contexts -notcontains 'validate' -or -not $protection.enforce_admins.enabled) { throw 'Configure strict branch protection, enforced required validate checks and admin enforcement before automatic merging.' }
+            $head = git rev-parse HEAD
+            gh pr merge security/maintenance --auto --squash --match-head-commit $head
+            if ($LASTEXITCODE) { throw 'Automatic merge request failed.' }
+          }
+  candidate-merged:
+    needs: prepare
+    if: needs.prepare.result == 'success' && github.ref_name == github.event.repository.default_branch && vars.EXOMINA_SECURITY_AUTO_CANDIDATE == 'true' && vars.EXOMINA_PUBLIC_RELEASE_ENABLED == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      # Token-created merges do not trigger ordinary push workflows. Poll the
+      # trusted merged report and dispatch signed candidate creation only.
+      # Exact clean-machine evidence and an explicit publish dispatch remain required.
+      - name: Dispatch an unpublished maintenance candidate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          gh repo clone $env:GITHUB_REPOSITORY . -- --filter=blob:none --no-checkout
+          if ($LASTEXITCODE) { throw 'Trusted source clone failed.' }
+          git checkout --detach "origin/$env:DEFAULT_BRANCH"
+          if ($LASTEXITCODE) { throw 'Trusted default branch checkout failed.' }
+          $commit = git log -1 --format=%H -- build/security-maintenance-report.json
+          if (-not $commit) { exit 0 }
+          $report = git show "${commit}:build/security-maintenance-report.json" | ConvertFrom-Json
+          if ($LASTEXITCODE) { throw 'Merged maintenance report could not be read.' }
+          $package = git show "${commit}:package.json" | ConvertFrom-Json
+          if ($LASTEXITCODE) { throw 'Merged maintenance version could not be read.' }
+          $currentPackage = Get-Content -LiteralPath package.json -Raw -Encoding utf8 | ConvertFrom-Json
+          if ($package.version -ne $currentPackage.version) { exit 0 }
+          if (-not $report.prepared -or $report.sourcePolicy -ne 'compatible-security-maintenance' -or $report.releaseVersion -ne $package.version) { exit 0 }
+          $tag = "v$($package.version)"
+          $lookup = Join-Path $env:RUNNER_TEMP 'maintenance-release-lookup.txt'
+          gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$tag" > $null 2> $lookup
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          if ((Get-Content -LiteralPath $lookup -Raw -Encoding utf8) -notmatch '\(HTTP 404\)') { throw 'Release lookup failed; no candidate was dispatched.' }
+          gh workflow run release.yml --ref $env:DEFAULT_BRANCH -f "commit=$commit"
+          if ($LASTEXITCODE) { throw 'Protected candidate dispatch failed.' }

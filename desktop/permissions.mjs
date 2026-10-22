@@ -28,11 +28,39 @@ function wildcard(pattern, value) {
   const source = String(pattern).toLowerCase().split('*').map(part => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*');
   return new RegExp(`^${source}$`, 's').test(String(value).toLowerCase());
 }
+// Reusable command prefixes cover one literal invocation. Anything requiring
+// shell parsing stays exact: separators, expansion, quoting, redirection,
+// comments and escapes can otherwise run a second operation under the first.
+const simpleCommand = value => /^[^\s"'`$;&|<>(){}#^%!]+(?:[ \t]+[^\s"'`$;&|<>(){}#^%!]+)*$/.test(value);
+// Browser suggestions store "https://host/*" (earlier: "https://host*"). Match their parsed
+// origin so a suffix host or a different port cannot reuse that permission.
+// Deliberately authored host/path globs retain their normal wildcard meaning.
+function browserOriginGrant(pattern, target) {
+  if (!/^https?:\/\/[^/?#*]+\/?\*$/i.test(pattern)) return null;
+  try {
+    const allowed = new URL(pattern.slice(0, -1)), requested = new URL(target);
+    if (allowed.username || allowed.password) return null;
+    return !requested.username && !requested.password && requested.origin === allowed.origin;
+  } catch { return false; }
+}
 /** A rule's match is a prefix unless it contains a wildcard; empty matches the whole tool. */
 function matches(rule, action) {
   if (!wildcard(rule.tool, action.tool || '')) return false;
   if (!rule.match) return true;
   const target = String(action.target || '').trim();
+  if (action.kind === 'browser' && rule.effect !== 'deny') {
+    const sameOrigin = browserOriginGrant(rule.match, target);
+    if (sameOrigin !== null) return sameOrigin;
+  }
+  if (action.kind === 'execute' && rule.effect !== 'deny') {
+    const match = rule.match.trim();
+    if (!simpleCommand(match)) return target === match;
+    // An explicit wildcard is deliberately broader, including a whole-tool '*'.
+    if (match.includes('*')) return wildcard(match, target);
+    if (!simpleCommand(target)) return false;
+    const command = target.toLowerCase(), prefix = match.toLowerCase();
+    return command === prefix || command.startsWith(prefix + ' ') || command.startsWith(prefix + '\t');
+  }
   return rule.match.includes('*') ? wildcard(rule.match, target) : target.toLowerCase().startsWith(rule.match.toLowerCase());
 }
 export {matches as permissionRuleMatches};
@@ -58,7 +86,9 @@ export function normalizeRules(rules) {
  * after approving `npm test` without also allowing every other npm command.
  */
 export function commandPrefix(command) {
-  const words = String(command || '').trim().split(/\s+/).filter(Boolean);
+  const target = String(command || '').trim();
+  if (target && !simpleCommand(target)) return target;
+  const words = target.split(/\s+/).filter(Boolean);
   if (!words.length) return '';
   const head = words[0].replace(/^["']|["']$/g, '');
   const subcommand = words[1] && /^[a-z][\w:-]*$/i.test(words[1]) ? ` ${words[1]}` : '';
@@ -71,7 +101,7 @@ export function suggestRule(action = {}) {
   if (action.kind === 'execute' && action.target) return { tool, match: commandPrefix(action.target), label: `${commandPrefix(action.target)} commands` };
   if (action.kind === 'network' && action.target) return { tool, match: action.target, label: action.target };
   if (action.kind === 'browser' && action.target && /^https?:\/\//i.test(action.target)) {
-    try { const origin = new URL(action.target).origin; return { tool, match: origin + '*', label: new URL(action.target).host }; } catch { /* fall through */ }
+    try { const origin = new URL(action.target).origin; return { tool, match: origin + '/*', label: new URL(action.target).host }; } catch { /* fall through */ }
   }
   return { tool, match: '', label: action.toolLabel || tool };
 }
@@ -132,6 +162,10 @@ export class PermissionPolicy {
 /** Classification for the tools Exomina itself hosts. */
 export function hostAction(name, args = {}) {
   const tool = String(name || '');
+  if(tool==='skill_library')return {kind:['catalog','read'].includes(args.action)?'read':'write',tool,target:String(args.id||args.scope||'chat')};
+  if(tool==='worker_run')return {kind:args.action==='list'?'read':'execute',tool,target:String(args.id||'')};
+  if(tool==='tool_pipeline')return {kind:'read',tool,target:String(args.action||'run')};
+  if(tool==='spending_preview')return {kind:'read',tool,target:String(args.merchant||'')};
   if (tool === 'app_inspect') return { kind: 'read', tool, target: String(args.section || 'overview') };
   if (tool === 'model_available') return { kind: 'read', tool, target: '' };
   if (tool === 'task_refine') return {kind:'read',tool,target:String(args.action||'view')}; // Chat bookkeeping only; probes keep their own permissions.

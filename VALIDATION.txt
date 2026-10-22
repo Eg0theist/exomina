@@ -1,7 +1,8 @@
-Beta validation
+Exomina 0.6 source validation
 
-The release includes a separate VALIDATION.md with exact source commits,
-artifact checksums and native startup/installation results.
+The existing beta download includes its own VALIDATION.md with artifact checksums
+and native startup/installation results. Those results apply to that beta's
+artifacts; they do not qualify a newly built 0.6 installer.
 
 Fresh installs use ordinary private per-user storage on Windows (including Home),
 macOS and Linux. Existing EFS profiles retain encryption/recovery checks. API
@@ -10,5 +11,13 @@ refused while the app stays usable without stored connection credentials.
 
 Tests use synthetic signed-out profiles.
 
-Windows is unsigned. macOS has no Developer ID/notarization configuration.
-Beta updates are manual. Uninstall keeps app data and project files.
+The source combines the 0.6 features and security changes with the public
+cross-platform runtime, storage, packaging and documentation work. Automated
+source and renderer results are recorded separately during reconciliation.
+Fresh Windows/macOS/Linux installation, live provider sign-in, real worker jobs
+and authenticated public update delivery remain separate qualification work.
+
+The current beta's Windows installer is unsigned and its macOS builds are not
+notarized. Public signed Windows release tooling refuses missing publisher
+identity or qualification evidence. Beta/native updates remain manual.
+Uninstall keeps app data and project files.
