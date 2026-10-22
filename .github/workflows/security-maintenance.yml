@@ -9,8 +9,9 @@ on:
       validate_only:
         type: boolean
         default: false
+  # This is the required branch-protection check, so every PR must produce it,
+  # including documentation-only and website-only changes.
   pull_request:
-    paths: ['package.json', 'package-lock.json', 'scripts/**', 'desktop/**', 'src/**', 'test/**', '.github/**']
 permissions:
   contents: read
 concurrency:
@@ -20,6 +21,7 @@ jobs:
   validate:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.validate_only)
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout exact candidate without signing credentials
         shell: pwsh

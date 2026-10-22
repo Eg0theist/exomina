@@ -1,0 +1,3 @@
+# Runtime metadata must retain the exact bytes emitted by preparation scripts.
+# Windows checkout line-ending conversion would fail the integrity comparison.
+vendor/analysis-node/** -text
