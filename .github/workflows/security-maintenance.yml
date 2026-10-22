@@ -22,10 +22,6 @@ jobs:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.validate_only)
     runs-on: windows-latest
     timeout-minutes: 30
-    env:
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
-      TMPDIR: ${{ runner.temp }}
     steps:
       - name: Checkout exact candidate without signing credentials
         shell: pwsh
@@ -33,6 +29,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          foreach ($name in @('TEMP','TMP','TMPDIR')) {
+            [Environment]::SetEnvironmentVariable($name, $env:RUNNER_TEMP)
+            "$name=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          }
           gh repo clone $env:GITHUB_REPOSITORY . -- --filter=blob:none --no-checkout
           if ($LASTEXITCODE) { throw 'Checkout failed.' }
           if ($env:PR_NUMBER) {
