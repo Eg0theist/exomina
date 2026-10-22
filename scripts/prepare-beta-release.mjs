@@ -2,7 +2,7 @@
 import {cp,mkdir,readFile,writeFile,readdir,lstat} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {applyPublicTemplate,reconcilePublicBase} from './public-export.mjs';
+import {applyPublicTemplate,applyPublicRuntimeScope,reconcilePublicBase} from './public-export.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const args=process.argv.slice(2),arg=name=>args[args.indexOf(name)+1];
@@ -80,4 +80,5 @@ else {
 }
 try{const p=path.join(output,'vendor/cua-driver/provenance.json'),provenance=JSON.parse(await readFile(p,'utf8'));delete provenance.validation;delete provenance.authenticode;await writeFile(p,JSON.stringify(provenance,null,2)+'\n');}catch{}
 const reconciliation=publicBase?await reconcilePublicBase(output,publicBase,publicAncestor):undefined;
+if(publicContents)await applyPublicRuntimeScope(output);
 console.log(JSON.stringify({output,repository,version:pkg.version,profile:publicRelease?'public':'beta',personalDataCopied:false,claudeCodeBundled:false,reconciliation},null,2));

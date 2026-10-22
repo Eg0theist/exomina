@@ -58,7 +58,6 @@ import {GhidraWorkspaces} from './ghidra-workspaces.mjs';
 import {dataExportInfo,writeDataExportFile} from './data-export.mjs';
 import {createLibraryBackup,inspectLibraryBackup,restoreLibraryBackup} from './library-backup.mjs';
 import {characterProfile} from './character-profile.mjs';
-import {AgentSpending,SPENDING_TOOLS} from './agent-spending.mjs';
 import {saveReplyExport} from './reply-export-files.mjs';
 import {CloudClient} from './cloud-client.mjs';
 import {RemoteAccess} from './remote-access.mjs';
@@ -200,7 +199,6 @@ let decisionLayer,nextPromptGate,agentTriggers=null,tier2Download=null;
 const decisions=()=>{decisionLayer||=new DecisionLayer({file:path.join(dataDir,'decision-layer.json'),nli:new NliRuntime({root:tier2Root})});decisionLayer.pauseWhileBusy=decisionSettings().makeWay;return decisionLayer;};
 const promptGate=()=>nextPromptGate||=createNextPromptGate(decisions(),{enabled:()=>decisionSettings().enabled});
 let marketingQ;const marketingQueue=()=>marketingQ||=new MarketingQueue({store});
-let spendingService;const spending=()=>spendingService||=new AgentSpending({store});
 let libraryBackupActive=false;
 const marketingView=()=>({settings:marketingSettings(store.state.settings.marketing),style:store.state.marketingStyle||{ready:false},drafts:marketingQueue().items.slice(0,100)});
 const decisionView=async()=>{const settings=decisionSettings();return {settings,status:settings.enabled?await decisions().status():null,models:Object.values(NLI_MODELS).map(({id,name,sizeMb,license})=>({id,name,sizeMb,license})),download:tier2Download&&{id:tier2Download.id,done:tier2Download.done||0,total:tier2Download.total||0,error:tier2Download.error||null,running:!tier2Download.error},agent:agentTriggers?.view()||null};};
@@ -352,7 +350,7 @@ const permissionTool={name:'request_permission',description:'Claude Code interna
 /** Chat-mode runs see only conversation tools, plus request_tools when they may escalate. */
 function leanDefinitions(allowEscalation){return [...definitions().filter(tool=>LEAN_TOOLS.test(tool.name)),...(allowEscalation?[REQUEST_TOOLS]:[])];}
 function toolsFor(id){const side=liveFollowups?.readScope(id);if(side)return liveFollowups.liveRead(side)?followupReadDefinitions(toolsFor(side.parent)):[];const run=active.get(id);return run?.discovery?definitions().filter(tool=>DISCOVERY_TOOLS.has(tool.name)):run?.lean?leanDefinitions(run.allowEscalation):definitions();}
-function definitions(){return [...SKILL_LIBRARY_TOOLS,...WORKER_TOOLS,...PIPELINE_TOOLS,TASK_REFINEMENT_TOOL,...SPENDING_TOOLS,...APP_INSPECTION_TOOLS,...NOTES_TOOLS,FOLLOWUP_TOOL,HANDOFF_TOOL,...QUESTION_TOOLS,...(assist?.definitions||[]),...(codexCloud?.definitions||[]),...(github?.definitions||[]),...EXTENSION_TOOLS,...updateDefinitions,...personalizationDefinitions,...memory.definitions,...archive.definitions,...conversationTools.definitions,...imageSupport.definitions,...browser.definitions,...(workspaceTools?.definitions||[]),...(terminalPty?.definitions||[]),...(appAnalysis?.definitions||[]),...(diskSpace?.definitions||[]),...(ghidraWorkspaces?.definitions||[]),...computer.definitions.filter(t=>t.name.startsWith('desktop_')),...(external?.definitions||[]),permissionTool]}
+function definitions(){return [...SKILL_LIBRARY_TOOLS,...WORKER_TOOLS,...PIPELINE_TOOLS,TASK_REFINEMENT_TOOL,...APP_INSPECTION_TOOLS,...NOTES_TOOLS,FOLLOWUP_TOOL,HANDOFF_TOOL,...QUESTION_TOOLS,...(assist?.definitions||[]),...(codexCloud?.definitions||[]),...(github?.definitions||[]),...EXTENSION_TOOLS,...updateDefinitions,...personalizationDefinitions,...memory.definitions,...archive.definitions,...conversationTools.definitions,...imageSupport.definitions,...browser.definitions,...(workspaceTools?.definitions||[]),...(terminalPty?.definitions||[]),...(appAnalysis?.definitions||[]),...(diskSpace?.definitions||[]),...(ghidraWorkspaces?.definitions||[]),...computer.definitions.filter(t=>t.name.startsWith('desktop_')),...(external?.definitions||[]),permissionTool]}
 function callTool(name,args,conversationId,nativeScope){
   if(liveFollowups?.readScope(conversationId))return liveFollowups.read(conversationId,name,args,(tool,input,parent)=>toolContext.run({...toolContext.getStore(),followupId:conversationId},()=>callTool(tool,input,parent,nativeScope))).catch(error=>({isError:true,content:[{type:'text',text:error.message}]}));
   const run=active.get(conversationId),historyKey=randomUUID(),toolStartedAt=new Date().toISOString();
@@ -439,7 +437,6 @@ async function hostTool(name,args,conversationId){
       else value=await toolPipeline.call(args,conversationId,{signal:run.toolController?.signal});
       return {content:[{type:'text',text:JSON.stringify(value)}],...(value?.isError===true?{isError:true}:{})};
     }
-    if(name==='spending_preview'){const verdict=policy.evaluate(hostAction(name,args),conversationId);if(verdict.decision==='deny')throw Error(verdict.reason);return {content:[{type:'text',text:JSON.stringify({...spending().quote(args),liveProviderConnected:false})}]};}
     if(name==='task_refine'){const verdict=policy.evaluate(hostAction(name,args),conversationId);if(verdict.decision==='deny')throw Error(verdict.reason);if(args.action==='adopt'&&args.scope==='project'&&!await memoryApproval(store.state.settings,approve)({title:'Keep a project approach lesson?',detail:JSON.stringify(args,null,2),conversationId}))throw Error('Project lesson was not saved: approval declined.');return {content:[{type:'text',text:JSON.stringify(await refinements().call(args,conversationId))}]};}
     if(name==='app_inspect')return appInspection.call(args,conversationId);
     let result;
@@ -1503,10 +1500,6 @@ case 'bootstrap':return {guard:requestGuard.view(),connectorForms:connectorForms
     case 'quick.dismiss':quickWindow?.hide();return {};
     case 'chat.send':{const {channel:_ignored,...request}=payload;return send(request);}
     case 'messaging.status':return hub.view();
-    case 'spending.view':return spending().view();
-    case 'spending.configure':return spending().configure(payload);
-    case 'spending.trial':return spending().trial(payload);
-    case 'spending.resolve':return spending().resolve(payload);
     case 'messaging.tasks':return hub.setTaskExecution(payload.enabled);
     case 'messaging.permissions':return hub.setPairedTaskMode(String(payload.userId||''),payload.mode);
     case 'messaging.connect':return hub.connect(payload.channel,payload.token);
