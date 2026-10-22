@@ -4,6 +4,7 @@ import {mkdtemp,mkdir,writeFile,readFile,readdir,lstat,rm,rmdir,symlink,link,ren
 import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
+import {finished} from 'node:stream/promises';
 import {createPackage} from '@electron/asar';
 import {stagingPaths,stageBuild,recoverStaging,inspectPackage,withStagingLock,assertPackageIdle} from '../scripts/stage-build.mjs';
 import {packageLocal} from '../scripts/package-local.mjs';
@@ -20,7 +21,10 @@ async function fixture(t){
     await mkdir(path.join(dir,'resources','app.asar.unpacked','desktop'),{recursive:true});
     const input=path.join(home,'asar-input-'+revision);await mkdir(input);
     if(padding)await writeFile(path.join(input,'a-padding.bin'),Buffer.alloc(padding,revision));
-    await writeFile(path.join(input,'package.json'),JSON.stringify({version:build.version}));await createPackage(input,path.join(dir,'resources','app.asar'));
+    await writeFile(path.join(input,'package.json'),JSON.stringify({version:build.version}));
+    // The pinned ASAR API resolves with its output stream before the final
+    // buffered write finishes. Inventory only a completed fixture archive.
+    const archive=await createPackage(input,path.join(dir,'resources','app.asar'));await finished(archive);
     await writeFile(path.join(dir,'Exomina.exe'),'synthetic executable '+revision);await writeFile(path.join(dir,'exomina.build.json'),JSON.stringify(build));
     await writeFile(path.join(dir,'resources','app.asar.unpacked','desktop','app-version.json'),JSON.stringify({version:build.version}));
     return build;
