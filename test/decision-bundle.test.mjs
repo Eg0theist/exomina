@@ -89,6 +89,14 @@ function timers() {
   return {jobs,setTimer:(fn,ms)=>{const key=++id;jobs.set(key,{fn,ms});return key;},clearTimer:key=>jobs.delete(key),async fire(){const [key,job]=jobs.entries().next().value;jobs.delete(key);await job.fn();return job.ms;}};
 }
 const question={type:'chat.question',conversationId:'chat',question:{id:'q',status:'waiting',questions:[{question:'Choose the scope.'}]}};
+
+test('connector forms notify without exposing their content and resolution clears reminders',async()=>{
+  const timer=timers(),notes=[];
+  const notify=createAttentionNotifier({...timer,attended:()=>false,enabled:()=>true,show:note=>notes.push(note)});
+  notify({type:'connector.form',request:{id:'form',conversationId:'chat',serverName:'Example connector',message:'PRIVATE_REQUEST_CONTENT'}});
+  await timer.fire();assert.equal(notes[0].conversationId,'chat');assert.match(notes[0].title,/needs your input/);assert.ok(!JSON.stringify(notes).includes('PRIVATE_REQUEST_CONTENT'));
+  notify({type:'connector.resolved',id:'form'});assert.equal(timer.jobs.size,0);
+});
 test('hidden-window questions notify with sound, defer in quiet states, remind and cancel after answering', async () => {
   const timer=timers(),notes=[],sounds=[];let quiet=true,focused=false;
   const notify=createAttentionNotifier({...timer,quiet:async()=>quiet,attended:()=>focused,enabled:()=>true,show:note=>notes.push(note),sound:note=>sounds.push(note)});
