@@ -44,7 +44,7 @@ function execution(file,values,{timeoutMs=600000,tempRoot=qaBase,...options}={})
     const child=spawn(file,values,{cwd:output,windowsHide:true,windowsVerbatimArguments:true,shell:false,stdio:['ignore','pipe','pipe'],...options,env:{...process.env,...options.env,TEMP:tempRoot,TMP:tempRoot,TMPDIR:tempRoot}});
     let stdout='',stderr='',settled=false;
     const finish=(error,result)=>{if(settled)return;settled=true;clearTimeout(timer);error?reject(error):resolve(result);};
-    const timer=setTimeout(()=>{child.kill();finish(Error('The synthetic installer process timed out.'));},timeoutMs);
+    const timer=setTimeout(()=>{child.kill();finish(Error(`The synthetic installer process timed out after ${Date.now()-started} ms (budget ${timeoutMs} ms).`));},timeoutMs);
     child.stdout.on('data',bytes=>{stdout=(stdout+bytes).slice(-4000);});child.stderr.on('data',bytes=>{stderr=(stderr+bytes).slice(-4000);});
     child.on('error',error=>finish(error));child.on('close',code=>finish(null,{code,stdout,stderr,durationMs:Date.now()-started}));
   });
@@ -281,9 +281,15 @@ Add-Type -TypeDefinition 'public static class ExominaFailingOwnedUninstallerQA {
 @{ created = $true } | ConvertTo-Json -Compress
 `,{root:output,path:failingUninstaller});
   try{
-    await copyFile(failingUninstaller,uninstaller);
-    const failedManifest=await programManifest();
-    result=await execution(installer,['/S','/currentuser','/D='+installDir],{tempRoot:boundaryTemps.accepted,timeoutMs:30000});
+      await copyFile(failingUninstaller,uninstaller);
+      const failedManifest=await programManifest();
+      // This path still verifies the complete installed program before invoking
+      // the failing uninstaller. Allow the measured successful reinstall cost,
+      // with headroom for runner variability, while retaining a bounded hang check.
+      const timeoutMs=Math.min(600000,Math.max(120000,Math.ceil(report.checks.reinstall.durationMs*2)));
+      report.oldUninstallerFailureBudgetMs=timeoutMs;
+      console.log(`Failing-uninstaller timeout budget: ${timeoutMs} ms.`);
+      result=await execution(installer,['/S','/currentuser','/D='+installDir],{tempRoot:boundaryTemps.accepted,timeoutMs});
     assert.equal(result.code,10);assert.equal(await programManifest(),failedManifest);assert.deepEqual(await registration(),registrationBefore);
     report.checks.oldUninstallerFailure={durationMs:result.durationMs,returnedSilently:true,programFilesPreserved:true,ownRegistrationPreserved:true};
   }finally{await copyFile(originalUninstaller,uninstaller);}
