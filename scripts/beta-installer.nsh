@@ -103,12 +103,19 @@
   ; Never let the whole-installer path erase a customized or unverified program.
   SetOutPath "$PLUGINSDIR"
   File /oname=verify-beta-update.ps1 "${PROJECT_DIR}\scripts\verify-beta-update.ps1"
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -WindowStyle Hidden -File "$PLUGINSDIR\verify-beta-update.ps1" -App "$INSTDIR"'
+  ; NSIS is 32-bit. Select the same 64-bit host used during packaging, with
+  ; Windows PowerShell's own module path in this installer process.
+  System::Call 'kernel32::SetEnvironmentVariableW(w "PSModulePath", p 0)'
+  nsExec::ExecToStack '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\verify-beta-update.ps1" -App "$INSTDIR"'
   Pop $0
   Pop $1
   ${If} $0 != 0
-    MessageBox MB_OK|MB_ICONSTOP "$1" /SD IDOK
-    SetErrorLevel 12
+    MessageBox MB_OK|MB_ICONSTOP "Program verification returned $0: $1" /SD IDOK
+    ${If} $0 == 12
+      SetErrorLevel 12
+    ${Else}
+      SetErrorLevel 13
+    ${EndIf}
     Quit
   ${EndIf}
   System::Call 'kernel32::CreateFileW(w "$INSTDIR\Exomina.exe", i 0x40000000, i 7, p 0, i 3, i 0, p 0) p.r0'

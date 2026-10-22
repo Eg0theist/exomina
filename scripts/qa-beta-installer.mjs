@@ -103,6 +103,34 @@ async function programManifest(){
   const files=[];async function walk(relative=''){for(const entry of await readdir(path.join(installDir,relative),{withFileTypes:true})){const child=relative?path.join(relative,entry.name):entry.name;if(entry.isDirectory())await walk(child);else if(entry.isFile()){const item=await stat(path.join(installDir,child));files.push([child,item.size,item.mtimeMs]);}else throw Error('Unexpected link in the synthetic installed program.');}}
   await walk();files.sort((left,right)=>left[0].localeCompare(right[0]));return JSON.stringify(files);
 }
+async function recordReinstallRefusal(result,baseline){
+  const expected=new Map(baseline.files.map(file=>[file.path.replaceAll('\\','/').toLowerCase(),file]));
+  const diagnostic={installerExitCode:result.code,added:[],changed:[],missing:[]};
+  async function visit(relative=''){
+    for(const entry of await readdir(path.join(installDir,relative),{withFileTypes:true})){
+      const child=relative?relative+'/'+entry.name:entry.name;
+      if(entry.isDirectory())await visit(child);
+      else if(entry.isFile()){
+        const item=expected.get(child.toLowerCase());
+        if(!item)diagnostic.added.push(child);
+        else{
+          expected.delete(child.toLowerCase());
+          const actual=await stat(path.join(installDir,child));
+          if(actual.size!==item.size||await hash(path.join(installDir,child))!==item.sha256)diagnostic.changed.push(child);
+        }
+      }else diagnostic.added.push(child+' [unexpected filesystem entry]');
+    }
+  }
+  await visit();diagnostic.missing=[...expected.values()].map(file=>file.path);
+  const host=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
+  const env={...process.env,TEMP:qaBase,TMP:qaBase,TMPDIR:qaBase};delete env.PSModulePath;
+  try{
+    const output=await nativeRun(host,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',path.join(project,'scripts','verify-beta-update.ps1'),'-App',installDir],{windowsHide:true,encoding:'utf8',timeout:600000,env});
+    diagnostic.guard={code:0,stdout:output.stdout,stderr:output.stderr};
+  }catch(error){diagnostic.guard={code:error.code,stdout:error.stdout||'',stderr:error.stderr||'',message:error.message};}
+  report.checks.reinstallRefusal=diagnostic;
+  console.log('Installed baseline diagnostic: '+JSON.stringify(diagnostic));
+}
 async function prepareProgramFolder(){
   await mkdir(installDir);
   // Workspace fixtures may inherit EFS. Clear it only on this empty, dedicated
@@ -201,6 +229,7 @@ try{
   assert.equal(await readFile(sentinel,'utf8'),sentinelValue);
   console.log('Checking actual silent reinstall and preservation of the external synthetic data.');
   result=await execution(installer,['/S','/currentuser','/D='+installDir],{tempRoot:boundaryTemps.accepted});
+  if(result.code!==0)await recordReinstallRefusal(result,baseline);
   assert.equal(result.code,0,'The silent synthetic reinstall must succeed.');
   assert.equal(await hash(installedExe),await hash(path.join(build,'Exomina.exe')));
   assert.equal(await readFile(sentinel,'utf8'),sentinelValue);

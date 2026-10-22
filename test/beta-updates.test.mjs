@@ -15,7 +15,7 @@ test('private beta updates never launch the legacy Program Files updater',async(
 test('manual beta installer refuses changed program files and missing legacy baseline',async t=>{
  const app=await mkdtemp(path.join(tmpdir(),'exomina-beta-guard-'));t.after(()=>rm(app,{recursive:true,force:true}));
  await mkdir(path.join(app,'resources'));await writeFile(path.join(app,'Exomina.exe'),'synthetic never executed');await writeFile(path.join(app,'exomina.build.json'),JSON.stringify({id:'synthetic-beta'}));
- const check=()=>runProcess('powershell.exe',['-NoProfile','-NonInteractive','-WindowStyle','Hidden','-File',path.resolve('scripts/verify-beta-update.ps1'),'-App',app]);
+ const check=()=>runProcess('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',path.resolve('scripts/verify-beta-update.ps1'),'-App',app]);
  assert.notEqual((await check()).code,0);
  const files=await new UpdateMerge({}).programTree(app);await writeFile(path.join(app,'exomina.release-integrity.json'),JSON.stringify({format:1,buildId:'synthetic-beta',files}));const verified=await check();assert.equal(verified.code,0,verified.stdout+'\n'+verified.stderr);
  await writeFile(path.join(app,'Uninstall Exomina.exe'),'Synthetic installer-generated uninstaller, never executed');
