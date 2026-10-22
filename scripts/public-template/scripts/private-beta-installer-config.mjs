@@ -1,9 +1,9 @@
 import {readFileSync} from 'node:fs';
-import {writeBetaInstallerPathLimits} from './beta-installer-path-limits.mjs';
-import {writeFile} from 'node:fs/promises';
+import verifiedBeta from './beta-installer-config.mjs';
 import path from 'node:path';
-import {randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const metadata=JSON.parse(readFileSync(path.join(project,'package.json'),'utf8'));
@@ -57,12 +57,13 @@ export default {
     warningsAsErrors:true,
   },
   npmRebuild:false,
-  async afterPack(context){
-    await writeBetaInstallerPathLimits(context.appOutDir,path.join(project,'scripts','beta-installer-path-limits.nsh'));
-    const marker={profile:'beta',manualUpdates:true};
-    if(typeof metadata.homepage==='string'&&/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/.test(metadata.homepage))marker.repositoryUrl=metadata.homepage.replace(/\/$/,'');
-    const stamp={id:randomUUID(),version:context.packager.appInfo.version,builtAt:new Date().toISOString()};
-    await writeFile(path.join(context.appOutDir,'exomina.distribution.json'),JSON.stringify(marker,null,2)+'\n');
-    await writeFile(path.join(context.appOutDir,'exomina.build.json'),JSON.stringify(stamp,null,2)+'\n');
+  // Manual installers need the same source snapshot and post-edit inventory
+  // as signed betas so an unchanged installation can pass the update guard.
+  afterPack:verifiedBeta.afterPack,
+  async afterSign(context){
+    await verifiedBeta.afterSign(context);
+    // Check the final edited program before spending time compressing NSIS.
+    const powershell=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
+    await promisify(execFile)(powershell,['-NoProfile','-NonInteractive','-File',path.join(project,'scripts','verify-beta-update.ps1'),'-App',context.appOutDir],{windowsHide:true,encoding:'utf8',timeout:180000});
   },
 };
