@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdtemp,mkdir,readFile,writeFile,copyFile,stat,readdir,realpath} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,copyFile,stat,readdir,realpath,rm} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createHash,randomUUID} from 'node:crypto';
 import path from 'node:path';
@@ -238,6 +238,24 @@ try{
   assert.equal(installedBaseline.changed.length,0,'The installed program contains changed baseline files: '+installedBaseline.changed.join(', '));
   report.checks.freshInstall={durationMs:result.durationMs,exeMatchesBuild:true,markerMatchesBuild:true,stampMatchesBuild:true,separatePerUserRegistration:true,shortcutTargetsOwnExe:true,noPersonalHomeMarker:true,everyBaselineFileMatches:true};
   assert.equal(await readFile(sentinel,'utf8'),sentinelValue);
+  const customizationFile=path.join(installDir,'synthetic-customization.txt');
+  const relocatedDir=path.join(output,'Relocated Beta');await mkdir(relocatedDir);
+  await writeFile(customizationFile,sentinelValue);
+  try{
+    const customizedManifest=await programManifest(),customizedRegistration=await registration(),shortcutHash=await hash(shortcut);
+    console.log('Checking that choosing another folder cannot uninstall the registered customized beta.');
+    result=await execution(installer,['/S','/currentuser','/D='+relocatedDir],{tempRoot:boundaryTemps.accepted});
+    assert.equal(result.code,10);assert.equal(await programManifest(),customizedManifest);
+    assert.deepEqual(await registration(),customizedRegistration);assert.equal(await hash(shortcut),shortcutHash);
+    assert.deepEqual(await readdir(relocatedDir),[]);assert.equal(await readFile(customizationFile,'utf8'),sentinelValue);
+    report.checks.relocationRefusal={refused:true,registeredProgramPreserved:true,customizationPreserved:true,noFilesCopied:true};
+    console.log('Checking that a same-folder update preserves customized program files.');
+    result=await execution(installer,['/S','/currentuser','/D='+installDir],{tempRoot:boundaryTemps.accepted});
+    assert.equal(result.code,12);assert.equal(await programManifest(),customizedManifest);
+    assert.deepEqual(await registration(),customizedRegistration);assert.equal(await hash(shortcut),shortcutHash);
+    assert.equal(await readFile(customizationFile,'utf8'),sentinelValue);assert.equal(await readFile(sentinel,'utf8'),sentinelValue);
+    report.checks.customizedUpdate={refused:true,everyProgramFilePreserved:true,ownRegistrationPreserved:true,externalDataPreserved:true};
+  }finally{await rm(customizationFile,{force:true});}
   console.log('Checking actual silent reinstall and preservation of the external synthetic data.');
   result=await execution(installer,['/S','/currentuser','/D='+installDir],{tempRoot:boundaryTemps.accepted});
   if(result.code!==0)await recordReinstallRefusal(result,baseline);
