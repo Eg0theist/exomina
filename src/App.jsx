@@ -92,7 +92,6 @@ import Companion from './Companion.jsx';
 import LibraryBackup from './LibraryBackup.jsx';
 import MemoryEvidence from './MemoryEvidence.jsx';
 import {mergeChatSnapshot} from './chat-snapshot.js';
-import AgentSpending from './AgentSpending.jsx';
 import './priorities.css';
 import TerminalPanel from './TerminalPanel.jsx';
 import WorkflowWorkspace, {useWorkflowWorkspace, WorkflowControls} from './WorkflowWorkspace.jsx';
@@ -1064,7 +1063,6 @@ export default function App({ session = {} }) {
         <SettingsPanel section="models"><ModelSettings value={settings.modelPreferences} catalog={catalog} connections={data.connections} models={data.providerModels} Toggle={Toggle} onChange={saveModelPreferences} onConnections={() => navigate('connections')} /></SettingsPanel>
         <SettingsPanel section="local-ai">{isDesktop && <LocalAISettings settings={settings} saveSettings={saveSettings} Toggle={Toggle} tasks={data.workbench?.schedules || []} onOpen={async id => { await refresh(); await selectConversation({id}); }} onTasks={() => navigate('workbench')} />}</SettingsPanel>
         <SettingsPanel section="marketing">{isDesktop && <MarketingSettings settings={settings} saveSettings={saveSettings} Toggle={Toggle} providers={(data.connections||[]).filter(c=>["claude","codex"].includes(c.id)&&c.connected)} />}</SettingsPanel>
-        <SettingsPanel section="spending">{isDesktop&&<AgentSpending/>}</SettingsPanel>
         <SettingsPanel section="personalization"><PersonalizationSettings appearance={appearance} onAppearanceChange={saveAppearance} personalization={settings.personalization} onChange={(next, options) => options?.local ? setData(previous => ({ ...previous, settings: { ...previous.settings, personalization: next } })) : saveSettings({ personalization: next })} /></SettingsPanel>
         <SettingsPanel section="appearance"><AppearanceSettings appearance={appearance} onChange={saveAppearance} Toggle={Toggle} windowState={isDesktop ? data.window : null} /></SettingsPanel>
         <SettingsPanel section="usage">{isDesktop && <UsageSettings usage={data.usage} connections={data.connections} onRefresh={refreshUsageDetails} onManage={openUsagePage} onReset={useResetCredit} resetPending={data.usageResetPending} />}{isDesktop && <SafetyLimits initial={data.guard} />}</SettingsPanel>

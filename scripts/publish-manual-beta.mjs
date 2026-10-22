@@ -28,7 +28,7 @@ export async function qualifyManualBeta(directory,version){
   const name=`Exomina-Beta-${version}-${suffix}`,file=one(name);installers.push({platform,arch,name,file,sha256:await digest(file)});
  }
  const install=await read('windows-install.json'),startup=await read('windows-startup.json'),connector=await read('windows-connector.json'),windows=installers[0];
- if(install.ok!==true||startup.ok!==true||connector.passed!==true||install.installerSha256!==windows.sha256||startup.installerSha256!==windows.sha256||install.build?.version!==version||startup.buildStamp?.version!==version)throw Error('Windows qualification does not match the exact installer and version.');
+ if(install.ok!==true||startup.ok!==true||connector.passed!==true||install.installerSha256!==windows.sha256||startup.installerSha256!==windows.sha256||connector.installerSha256!==windows.sha256||install.build?.version!==version||startup.buildStamp?.version!==version||connector.version!==version)throw Error('Windows qualification does not match the exact installer and version.');
  const native=[];
  for(const file of files.filter(file=>path.basename(file)==='native-install-report.json'))native.push(JSON.parse(await readFile(file,'utf8')));
  for(const item of installers.slice(1)){
@@ -44,9 +44,14 @@ async function main(){
  if(!args.includes('--publish')){console.log(JSON.stringify(qualified,null,2));return;}
  const commit=option('--commit'),repository=option('--repository');
  if(!/^[a-f0-9]{40}$/.test(commit||'')||!/^[-\w.]+\/[-\w.]+$/.test(repository||''))throw Error('Publication requires an exact trusted source commit and repository.');
+ if(!/^\d+$/.test(process.env.GITHUB_RUN_ID||'')||commit!==process.env.GITHUB_SHA||repository!==process.env.GITHUB_REPOSITORY)throw Error('Publication requires the current workflow source and repository identity.');
  const run=promisify(execFile),gh=(...values)=>run('gh',values,{encoding:'utf8',maxBuffer:1048576});
  const tag='v'+version;
  try{await gh('api',`repos/${repository}/releases/tags/${tag}`);throw Error('This release already exists. Inspect it before publishing.');}
+ catch(error){if(!String(error.stderr||'').includes('(HTTP 404)'))throw error;}
+ const releaseTags=(await gh('api','--paginate',`repos/${repository}/releases?per_page=100`,'--jq','.[].tag_name')).stdout.split(/\r?\n/);
+ if(releaseTags.includes(tag))throw Error('An existing release or draft requires review before publication.');
+ try{await gh('api',`repos/${repository}/git/ref/tags/${tag}`);throw Error('This version tag already exists. Inspect it before publishing.');}
  catch(error){if(!String(error.stderr||'').includes('(HTTP 404)'))throw error;}
  const output=path.resolve('.verification','manual-beta-publication');await mkdir(output,{recursive:true});
  const receipt=path.join(output,'QUALIFICATION.json'),checksums=path.join(output,'SHA256SUMS.txt'),notes=path.join(output,'RELEASE-NOTES.md');
@@ -55,6 +60,9 @@ async function main(){
  await writeFile(checksums,qualified.installers.map(item=>item.sha256+'  '+item.name).join('\n')+'\n','utf8');
  await writeFile(notes,`# Exomina ${version} public beta\n\nA desktop workspace for AI models, continuing memory and tools.\n\n## Changes\n\n- Shared versioned skills, Docker and SSH workers, filtered tool pipelines, and context/cache metrics.\n- Updated runtimes and stronger permission checks.\n- Improved pending connector requests in no-HUD mode, with explicit cancellation and notifications.\n\n## Downloads\n\n${qualified.installers.map(item=>`- [${item.platform} ${item.arch}](${`https://github.com/${repository}/releases/download/${tag}/${item.name}`})`).join('\n')}\n\nSee SHA256SUMS.txt and QUALIFICATION.json for exact installer hashes and automated checks.\n\n## Beta status\n\nWindows installers are unsigned. Mac installers are ad-hoc signed and are not notarized. The automated checks cover fresh installation, packaged startup and removal; Windows also checks reinstallation and no-HUD connector input. Physical devices, live provider sign-in, microphone use, third-party antivirus acceptance and upgrades of customized installations remain unverified.\n\nUpdates are manual. Back up your library before upgrading. Signed automatic delivery remains disabled in this beta.\n`,'utf8');
  try{
+  await gh('api','--method','POST',`repos/${repository}/git/refs`,'-f',`ref=refs/tags/${tag}`,'-f',`sha=${commit}`);
+  const reference=JSON.parse((await gh('api',`repos/${repository}/git/ref/tags/${tag}`)).stdout);
+  if(reference.object?.type!=='commit'||reference.object.sha!==commit)throw Error('The release tag does not match the qualified source.');
   await gh('release','create',tag,...qualified.installers.map(item=>item.file),checksums,receipt,'--repo',repository,'--target',commit,'--title',`Exomina ${version} public beta`,'--notes-file',notes,'--draft','--prerelease');
   await gh('release','edit',tag,'--repo',repository,'--draft=false','--prerelease','--latest=false');
  }catch(error){throw Error('Release publication did not finish. Inspect the existing tag and draft before any retry: '+error.message);}
