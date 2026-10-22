@@ -17,7 +17,11 @@ test('relay diagnostics distinguish service, identity, TLS, DNS and protocol fai
  assert.ok(!relayFailure({message:'sensitive transport bytes'}).message.includes('sensitive'));
 });
 test('relay reconnect preserves paired identity and recovers after a bounded connection failure',async t=>{
- const e=await setup(t);await pair(e);const original=e.desktop.client.devices.bind(e.desktop.client),peers=structuredClone(e.desktop.config.peers);let attempts=0;e.desktop.client.devices=async()=>{attempts++;throw Object.assign(Error('offline'),{cause:{code:'ENOTFOUND'}});};
+ const e=await setup(t);await pair(e);
+ // This case drives refresh explicitly. Drain the periodic poll before fault
+ // injection so an already successful request cannot absorb the forced call.
+ clearInterval(e.desktop.timer);e.desktop.timer=null;if(e.desktop.refreshing)await e.desktop.refreshing;
+ const original=e.desktop.client.devices.bind(e.desktop.client),peers=structuredClone(e.desktop.config.peers);let attempts=0;e.desktop.client.devices=async()=>{attempts++;throw Object.assign(Error('offline'),{cause:{code:'ENOTFOUND'}});};
  await e.desktop.refresh({force:true});assert.equal(e.desktop.status().errorCode,'dns');await e.desktop.refresh({force:false});assert.equal(attempts,1);assert.ok(e.desktop.status().retryAt);e.desktop.client.devices=original;await e.desktop.reconnect();assert.equal(e.desktop.status().connected,true);assert.deepEqual(e.desktop.config.peers,peers);assert.equal(e.desktop.status().errorCode,'');assert.deepEqual(await e.phone.invoke('chat.send',{text:'after reconnect'}),{conversationId:'c1',ok:true});
 });
 test('overlapping relay saves serialize complete snapshots without sharing temporary filenames',async t=>{
