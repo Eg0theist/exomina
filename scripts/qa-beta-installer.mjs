@@ -152,6 +152,9 @@ try{
   const marker=JSON.parse(await readFile(path.join(build,'exomina.distribution.json'),'utf8'));
   assert.equal(marker.profile,'beta');assert.equal(marker.manualUpdates,true);assert.equal(marker.home,undefined);
   const sourceStamp=JSON.parse(await readFile(path.join(build,'exomina.build.json'),'utf8'));
+  const baseline=JSON.parse(await readFile(path.join(build,'exomina.release-integrity.json'),'utf8'));
+  assert.equal(baseline.format,1);assert.equal(baseline.buildId,sourceStamp.id);
+  assert.ok(baseline.files.some(file=>file.path==='Exomina.exe'),'The manual installer needs its program baseline.');
   await prepareProgramFolder();
   const existingProject=path.join(output,'Exomina Beta P'),projectFile=path.join(existingProject,'preserve.txt');
   assert.ok(existingProject.length<=limits.maxInstallRootChars,'Nonempty-folder refusal must exercise ownership rather than the long-path guard.');
