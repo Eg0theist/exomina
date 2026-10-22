@@ -64,6 +64,7 @@ export default {
     await verifiedBeta.afterSign(context);
     // Check the final edited program before spending time compressing NSIS.
     const powershell=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
-    await promisify(execFile)(powershell,['-NoProfile','-NonInteractive','-File',path.join(project,'scripts','verify-beta-update.ps1'),'-App',context.appOutDir],{windowsHide:true,encoding:'utf8',timeout:180000});
+    const env={...process.env};delete env.PSModulePath;
+    await promisify(execFile)(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(project,'scripts','verify-beta-update.ps1'),'-App',context.appOutDir],{windowsHide:true,encoding:'utf8',timeout:180000,env});
   },
 };
