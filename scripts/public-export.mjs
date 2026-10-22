@@ -14,7 +14,7 @@ export function publicPathAllowed(relative){
  const normalized=relative.replaceAll('\\','/');
  if(!normalized||normalized.startsWith('/')||normalized.split('/').some(part=>part==='..'))return false;
  if(!publicRoots.has(normalized.split('/')[0])&&!rootDocuments.has(normalized))return false;
- return !/(^|\/)(?:data|Private|accounts|\.git|\.verification|node_modules|dist|release(?:-[^/]+)?|output|__pycache__)(\/|$)/i.test(normalized)&&
+ return !/(^|\/)(?:data|Private|accounts|\.git|\.verification|node_modules|dist|output|__pycache__)(\/|$)/i.test(normalized)&&!/(^|\/)release(?:-[^/]+)?\//i.test(normalized)&&
   !/(?:^|\/)theme-art(?:\/|$)/.test(normalized)&&!/^src\/assets\/(?:voice-previews|voice-previews-clear|claude-voice-previews)(?:\/|$)/.test(normalized)&&
   !/(?:theme-catalog-full\.mjs|voice-preview-clips-personal\.js)$/.test(normalized)&&! /\.(?:log|sqlite(?:3)?|db|pfx|p12|key|pem|pyc|pyo)$/i.test(normalized)&&
   !(path.posix.basename(normalized).startsWith('.env')&&!normalized.endsWith('.example'));
@@ -25,6 +25,25 @@ export async function applyPublicTemplate(sourceRoot,output){
  await cp(template,output,{recursive:true,filter:entry=>path.basename(entry)!=='package-overlay.json'});
  const text=await readFile(path.join(template,'package-overlay.json'),'utf8');
  return JSON.parse(text.replace(/^\uFEFF/,''));
+}
+
+// Keep runtime registration consistent with the qualified public beta surface.
+export async function applyPublicRuntimeScope(output){
+ const rules={
+  'desktop/main.mjs':line=>/^(?:import \{AgentSpending,SPENDING_TOOLS\}|let spendingService;)/.test(line)||/^\s*(?:if\(name==='spending_preview'\)|case 'spending\.)/.test(line),
+  'src/App.jsx':line=>/^import AgentSpending /.test(line)||/^\s*<SettingsPanel section="spending">/.test(line),
+  'src/SettingsLayout.jsx':line=>/^\s*\{ id:'spending',/.test(line),
+ };
+ for(const [relative,remove]of Object.entries(rules)){
+  const file=path.join(output,relative),before=await readFile(file,'utf8');
+  const after=before.split(/\r?\n/).filter(line=>!remove(line)).join(before.includes('\r\n')?'\r\n':'\n').replaceAll('...SPENDING_TOOLS,','');
+  if(/AgentSpending|SPENDING_TOOLS|spending_preview|spendingService|\bspending\s*[(.]|case 'spending\./.test(after))throw Error('Public runtime registration needs review: '+relative);
+  if(after!==before)await writeFile(file,after,'utf8');
+ }
+ const file=path.join(output,'package.json'),pkg=JSON.parse(await readFile(file,'utf8'));
+ await run(process.execPath,['--check',path.join(output,'desktop/main.mjs')],{timeout:30000});
+ pkg.build.files=[...pkg.build.files.filter(file=>file!=='!desktop/agent-spending.mjs'),'!desktop/agent-spending.mjs'];
+ await writeFile(file,JSON.stringify(pkg,null,2)+'\n','utf8');
 }
 
 // Preserve unrelated changes in the public branch and local release. Conflicts

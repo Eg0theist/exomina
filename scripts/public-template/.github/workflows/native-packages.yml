@@ -1,5 +1,10 @@
 name: Native beta packages
 on:
+  workflow_call:
+    inputs:
+      native_family:
+        type: string
+        default: all
   push:
     branches: [accessibility-beta]
   workflow_dispatch:

@@ -4,9 +4,12 @@ import {mkdtemp,mkdir,writeFile,readFile,rm,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {chooseCompatibleVersion,dependencyPlan,officialNodeBytes,verifyNodeCandidate,stageNodeCandidate,promoteNodeCandidate,runtimeAdvisoryBlockers,NODE_MAINTENANCE_POLICY} from '../scripts/security-maintenance.mjs';
+import {chooseCompatibleVersion,dependencyPlan,officialNodeBytes,verifyNodeCandidate,stageNodeCandidate,promoteNodeCandidate,runtimeAdvisoryBlockers,NODE_MAINTENANCE_POLICY,maintenanceNpm} from '../scripts/security-maintenance.mjs';
 import {ANALYSIS_NODE_RUNTIME} from '../scripts/prepare-analysis-node.mjs';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+test('Windows maintenance launches npm flags without adding literal quotes',{skip:process.platform!=='win32'},async()=>{
+ const result=await maintenanceNpm(['--version']);assert.equal(result.code,0,result.stdout+result.stderr);assert.match(result.stdout.trim(),/^\d+\.\d+\.\d+$/);
+});
 function zip(entries){const parts=[],directory=[];let offset=0;for(const[name,value]of entries){const nameBytes=Buffer.from(name),bytes=Buffer.from(value),local=Buffer.alloc(30);local.writeUInt32LE(0x04034b50);local.writeUInt32LE(bytes.length,18);local.writeUInt32LE(bytes.length,22);local.writeUInt16LE(nameBytes.length,26);parts.push(local,nameBytes,bytes);const central=Buffer.alloc(46);central.writeUInt32LE(0x02014b50);central.writeUInt32LE(bytes.length,20);central.writeUInt32LE(bytes.length,24);central.writeUInt16LE(nameBytes.length,28);central.writeUInt32LE(offset,42);directory.push(central,nameBytes);offset+=local.length+nameBytes.length+bytes.length;}const central=Buffer.concat(directory),end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(entries.length,8);end.writeUInt16LE(entries.length,10);end.writeUInt32LE(central.length,12);end.writeUInt32LE(offset,16);return Buffer.concat([...parts,central,end]);}
 function nodeFixture(){const pieces=ANALYSIS_NODE_RUNTIME.version.split('.').map(Number),next=[pieces[0],pieces[1],pieces[2]+1].join('.'),exe=Buffer.from('SYNTHETIC NODE, NEVER EXECUTED'),license=Buffer.from('Synthetic license'),name=`node-v${next}-win-x64.zip`,archive=zip([[`node-v${next}-win-x64/node.exe`,exe],[`node-v${next}-win-x64/LICENSE`,license]]),checksums=`${hash(archive)}  ${name}\n${hash(exe)}  win-x64/node.exe\n`,signature={status:'Valid',thumbprint:NODE_MAINTENANCE_POLICY.signerThumbprints[0],productVersion:next};return{next,exe,archive,checksums,signature};}
 test('compatible candidates stay within the stable major, and pre-1.0 dependencies stay within their minor',()=>{
