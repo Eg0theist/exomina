@@ -13,7 +13,7 @@ Download the installer for your operating system and processor from [Releases](h
 For example, on Debian/Ubuntu x64, run this from the download folder:
 
 ```sh
-sudo apt install ./Exomina-Beta-0.5.0-beta.94-linux-amd64.deb
+sudo apt install ./Exomina-Beta-0.6.0-linux-amd64.deb
 ```
 
 Use the `linux-arm64.deb` file on ARM64. A normal local user profile and a graphical desktop are required. See each release's validation report for the exact tested OS versions.
