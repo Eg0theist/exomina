@@ -12,9 +12,11 @@ import {fileURLToPath} from 'node:url';
 import {distributionMetadataDirectory} from '../desktop/app-paths.mjs';
 import {assertLinuxQaSocketLength} from './native-qa-paths.mjs';
 import {probeOwnedBrowser} from './native-qa-cdp.mjs';
+import {prepareWindowsQaOwner} from './native-qa-windows-owner.mjs';
 
 const option=name=>{const index=process.argv.indexOf(name);return index<0?undefined:process.argv[index+1];};
 if(!option('--executable'))throw Error('Pass the exact native packaged executable with --executable.');
+const windowsQaOwner=await prepareWindowsQaOwner();
 const executable=await realpath(path.resolve(option('--executable')));
 const output=path.resolve(option('--output')||path.join(os.tmpdir(),'exomina-native-desktop-report'));
 await mkdir(output,{recursive:true});
@@ -71,6 +73,7 @@ assert.ok(!entries.some(name=>/(?:theme-art[\/]|voice-previews[\/]|voice-preview
 const report={platform:process.platform,arch:process.arch,executable,version:stamp.version,buildId:stamp.id,
  startedAt:new Date().toISOString(),scope:'Exact native packaged UI, fresh synthetic profile, signed-out runtimes. No account sign-in, model inference, microphone, desktop capture/input or external navigation. OS installer and physical hardware behavior are not covered.',checks:{manualBetaMarker:true,programOnlyArchive:true},errors:[]};
 if(socketLength)report.checks.linuxSingletonSocketPathBound=socketLength;
+if(windowsQaOwner)report.checks.windowsQaProcessOwner=windowsQaOwner;
 let child,browser,endpoint,page,childStderr='',childStdout='',childExit=null;
 async function stop(){
  if(!child)return;
