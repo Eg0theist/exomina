@@ -13,6 +13,8 @@ export function attentionFor(event, chatTitle = '') {
   }
   if (event?.type === 'approval' && event.id)
     return {key: 'approval:' + event.id, conversationId: event.conversationId, title: where ? 'Approval needed in “' + where + '”' : 'Approval needed', body: clip(event.title || 'An AI is asking for permission.', 180)};
+  if(event?.type==='connector.form'&&event.request?.id)
+    return {key:'connector:'+event.request.id,conversationId:event.request.conversationId,title:clip(event.request.serverName||'Connector',60)+' needs your input',body:'Open Exomina to review this connector request.'};
   return null;
 }
 
@@ -44,6 +46,7 @@ export function createAttentionNotifier({attended, enabled, show, sound = () => 
   }
   function onEvent(event) {
     if (event?.type === 'approval.resolved') { cancel('approval:' + event.id); return; }
+    if (event?.type === 'connector.resolved') { cancel('connector:' + event.id); return; }
     if (event?.type === 'chat.question' && !['waiting', 'open'].includes(event.question?.status)) { cancel('question:' + event.question?.id); return; }
     const note = attentionFor(event, event?.conversationId ? titleOf(event.conversationId) : '');
     if (!note || pending.has(note.key)) return;

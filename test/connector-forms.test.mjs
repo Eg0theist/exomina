@@ -71,12 +71,17 @@ test('replaced runs and ended native ownership cancel rather than accepting a la
     assert.throws(()=>forms.respond({id,action:'accept',content:{x:'late'}}),/ended/);assert.deepEqual(await promise,{action:'cancel'});
   }
 });
-test('stop, shutdown and timeout cancel every waiting form without answers',async()=>{
-  for(const method of ['cancel','close','timeout']){
+test('stop and shutdown cancel every waiting form without answers',async()=>{
+  for(const method of ['cancel','close']){
     const {forms,timers}=fixture(),promise=forms.request('chat',params({x:{type:'string'}}));
-    if(method==='timeout')timers[0]();else if(method==='cancel')forms.cancel('chat');else forms.close();
+    if(method==='cancel')forms.cancel('chat');else forms.close();
     assert.deepEqual(await promise,{action:'cancel'});assert.deepEqual(forms.view(),[]);
   }
+});
+test('an unanswered form remains pending after its reminder and still requires an explicit response',async()=>{
+  const {forms,timers,events}=fixture(),promise=forms.request('chat',params({ok:{type:'boolean'}},['ok'])),id=forms.view()[0].id;
+  timers[0]();assert.equal(forms.view()[0].id,id);assert.equal(events.at(-1).type,'chat.notice');
+  forms.respond({id,action:'accept',content:{ok:false}});assert.deepEqual(await promise,{action:'accept',content:{ok:false}});
 });
 test('scheduled and remote channel tasks cannot wait for local connector input',async()=>{
   for(const chat of [{background:true},{channel:{type:'telegram'}}]){const {forms}=fixture();forms.getChat=()=>chat;assert.deepEqual(await forms.request('chat',params({})),{action:'cancel'});assert.deepEqual(forms.view(),[]);}

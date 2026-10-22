@@ -43,7 +43,7 @@ test('only the explicit catch-up provider run uses the catch-up counter', async 
 });
 
 test('progress counts committed summaries, pages contents, scopes chats and survives restart', async t => {
-  const parent = process.platform === 'win32' ? 'C:/Program Files/Exomina/Workspace/.exomina-qa-temp' : os.tmpdir();
+  const parent = os.tmpdir();
   await mkdir(parent, { recursive: true }); const directory = await mkdtemp(path.join(parent, 'memory-progress-'));
   let tree = await new ChatMemoryTree(directory).init();
   t.after(async () => { await tree.close(); await rm(directory, { recursive: true, force: true }); });

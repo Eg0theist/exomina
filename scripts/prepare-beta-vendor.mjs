@@ -9,11 +9,14 @@ const arguments_=process.argv.slice(2);
 if(arguments_.some(argument=>argument!=='--python-only'))throw Error('Only --python-only is supported.');
 const pythonOnly=arguments_.includes('--python-only');
 const programs=[
- {dir:'python',probe:'python.exe',url:'https://www.python.org/ftp/python/3.13.7/python-3.13.7-embed-amd64.zip',hash:'f6cca216a359be84797cabb54149ce5e062afb16cc7567eb7fc51cacb2d86b65'},
+ {dir:'python',probe:'python.exe',url:'https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd64.zip',hash:'9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38'},
  {dir:'cua-driver',probe:'cua-driver.exe',url:'https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.33.4/cua-driver-rs-0.33.4-windows-x86_64-binary.zip',hash:'93f658ac02080ac1fac709f88f79ba38980ce77b816725ec2a0128aeba1811f5'},
 ];
 for(const item of programs.filter(item=>!pythonOnly||item.dir==='python')){
- const target=path.join(root,'vendor',item.dir);try{await stat(path.join(target,item.probe));console.log('Using prepared '+item.dir+' runtime.');continue;}catch{}
+ const target=path.join(root,'vendor',item.dir);
+ // A cached Python executable may predate an emergency security release.
+ // Refresh its exact pinned archive instead of treating presence as currency.
+ if(item.dir!=='python')try{await stat(path.join(target,item.probe));console.log('Using prepared '+item.dir+' runtime.');continue;}catch{}
  if(process.platform!=='win32')throw Error('Windows runtime preparation requires Windows.');
  const response=await fetch(item.url,{signal:AbortSignal.timeout(120000)});if(!response.ok)throw Error('Official runtime download failed: '+response.status);
  const bytes=Buffer.from(await response.arrayBuffer());if(createHash('sha256').update(bytes).digest('hex')!==item.hash)throw Error('Official '+item.dir+' archive checksum mismatch.');
