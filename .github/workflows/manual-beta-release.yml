@@ -92,13 +92,23 @@ jobs:
           $connector | Add-Member -NotePropertyName installerSha256 -NotePropertyValue $installReceipt.installerSha256
           $connector | Add-Member -NotePropertyName version -NotePropertyValue $installReceipt.build.version
           $connector | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $destination 'windows-connector.json') -Encoding utf8
+      - name: Collect synthetic installer diagnostics on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $qaRoot = Join-Path (Split-Path $PWD -Parent) '.exomina-qa-temp'
+          if (Test-Path -LiteralPath $qaRoot) {
+            $destination = New-Item -ItemType Directory -Path release/failure-diagnostics -Force
+            foreach ($report in @(Get-ChildItem -LiteralPath $qaRoot -Filter report.json -File -Recurse)) {
+              Copy-Item -LiteralPath $report.FullName -Destination (Join-Path $destination ($report.Directory.Name + '-report.json'))
+            }
+          }
       - name: Retain synthetic installer diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: exomina-beta-windows-failure-diagnostics
-          path: ../.exomina-qa-temp/**/report.json
-          include-hidden-files: true
+          path: release/failure-diagnostics/*.json
           if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
