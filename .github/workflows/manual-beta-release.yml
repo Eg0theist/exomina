@@ -32,9 +32,9 @@ jobs:
     timeout-minutes: 45
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      TEMP: ${{ github.workspace }}/.ci-test-temp
-      TMP: ${{ github.workspace }}/.ci-test-temp
-      TMPDIR: ${{ github.workspace }}/.ci-test-temp
+      TEMP: ${{ runner.temp }}
+      TMP: ${{ runner.temp }}
+      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
