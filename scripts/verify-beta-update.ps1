@@ -32,7 +32,7 @@ try {
       if ($entry.PSIsContainer) { $pending.Push($entry.FullName) }
       elseif (-not $seen.Contains($entry.FullName)) {
         $generatedAtRoot = $entry.DirectoryName -ieq $root -and $entry.Name -in @('exomina.release-integrity.json','Uninstall Exomina.exe','Uninstall Exomina Beta.exe','debug.log')
-        if (-not $generatedAtRoot) { throw 'Added beta program files require manual review.' }
+        if (-not $generatedAtRoot) { throw "Added beta program files require manual review: $($entry.FullName)." }
       }
     }
   }
