@@ -19,6 +19,14 @@ const base=metadata.build||{};
 export const BETA_APP_ID='local.exomina.beta.desktop';
 export const BETA_INSTALLER_GUID='d17f0bea-3625-4b86-a9c6-8b9d8a7c99ea';
 
+export function configureBetaArchiveCompression(){
+  // 7-Zip's automatic ARM64 filter is newer than NSIS's bundled decoder.
+  // BCJ is supported by both and restores every input byte unchanged.
+  const filter=process.env.ELECTRON_BUILDER_7Z_FILTER;
+  if(filter&&filter.toUpperCase()!=='BCJ')throw Error('Windows NSIS installers require the pinned BCJ compression filter.');
+  process.env.ELECTRON_BUILDER_7Z_FILTER='BCJ';
+}
+
 // This configuration is for the clean beta checkout. It deliberately keeps the
 // official runtime trees intact and does not use the personal Program Files
 // updater or data-home marker.
@@ -70,6 +78,7 @@ export default {
   },
   npmRebuild:false,
   async beforePack(context){
+    configureBetaArchiveCompression();
     // Verify the exact temporary uninstaller before NSIS embeds and removes it.
     if(!context.packager.exominaSignerVerified){
       const sign=context.packager.signIf.bind(context.packager);

@@ -71,6 +71,17 @@
   ${OrIf} $2 == "$DOCUMENTS\Exomina\Workspace"
     Goto beta_reject_destination
   ${EndIf}
+  ; The standard old-uninstaller uses its registered location, even when the
+  ; destination is a different empty folder. Never erase an unchecked copy.
+  ReadRegStr $1 HKCU "${INSTALL_REGISTRY_KEY}" "InstallLocation"
+  ${If} $1 != ""
+    GetFullPathName $1 $1
+    ${If} $1 != $2
+      MessageBox MB_OK|MB_ICONSTOP "Update Exomina Beta in its registered installation folder. To move or replace an older or customized installation, preserve its program files and source before uninstalling it. No program files have been changed." /SD IDOK
+      SetErrorLevel 10
+      Quit
+    ${EndIf}
+  ${EndIf}
   IfFileExists "$INSTDIR\Exomina.exe" 0 beta_check_first_destination
   IfFileExists "$INSTDIR\exomina.distribution.json" 0 beta_reject_destination
   ; A marker alone is not ownership proof. Reinstall/uninstall is permitted

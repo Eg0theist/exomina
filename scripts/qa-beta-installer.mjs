@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdtemp,mkdir,readFile,writeFile,copyFile,stat,readdir,realpath} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,copyFile,stat,readdir,realpath,rm} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createHash,randomUUID} from 'node:crypto';
 import path from 'node:path';
@@ -103,9 +103,9 @@ async function programManifest(){
   const files=[];async function walk(relative=''){for(const entry of await readdir(path.join(installDir,relative),{withFileTypes:true})){const child=relative?path.join(relative,entry.name):entry.name;if(entry.isDirectory())await walk(child);else if(entry.isFile()){const item=await stat(path.join(installDir,child));files.push([child,item.size,item.mtimeMs]);}else throw Error('Unexpected link in the synthetic installed program.');}}
   await walk();files.sort((left,right)=>left[0].localeCompare(right[0]));return JSON.stringify(files);
 }
-async function recordReinstallRefusal(result,baseline){
+async function installedBaselineDiff(baseline){
   const expected=new Map(baseline.files.map(file=>[file.path.replaceAll('\\','/').toLowerCase(),file]));
-  const diagnostic={installerExitCode:result.code,added:[],changed:[],missing:[]};
+  const diagnostic={added:[],changed:[],missing:[]};
   async function visit(relative=''){
     for(const entry of await readdir(path.join(installDir,relative),{withFileTypes:true})){
       const child=relative?relative+'/'+entry.name:entry.name;
@@ -122,6 +122,10 @@ async function recordReinstallRefusal(result,baseline){
     }
   }
   await visit();diagnostic.missing=[...expected.values()].map(file=>file.path);
+  return diagnostic;
+}
+async function recordReinstallRefusal(result,baseline){
+  const diagnostic={installerExitCode:result.code,...await installedBaselineDiff(baseline)};
   const host=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
   const env={...process.env,TEMP:qaBase,TMP:qaBase,TMPDIR:qaBase};delete env.PSModulePath;
   try{
@@ -155,7 +159,10 @@ async function stopOwnedLock(){
 }
 async function uninstallOwned(){
   const registered=await registration();
-  if(!registered||path.resolve(registered.InstallLocation)!==installDir)return;
+  if(!registered||path.resolve(registered.InstallLocation)!==installDir){
+    assert.equal(await exists(installDir),false,'An unregistered synthetic program directory remains; cleanup is incomplete.');
+    return;
+  }
   assert.ok(await exists(uninstaller),'Only the matching synthetic installation may be uninstalled.');
   const helper=path.join(output,'synthetic-uninstaller.exe');await copyFile(uninstaller,helper);
   assert.equal(await hash(helper),await hash(uninstaller));
@@ -225,8 +232,30 @@ try{
     child.stdout.on('data',bytes=>{text+=bytes;});child.stderr.resume();child.on('error',reject);child.on('close',code=>{try{if(code!==0)throw Error('Synthetic shortcut readback failed.');resolve(JSON.parse(text));}catch(error){reject(error);}});child.stdin.end(JSON.stringify({path:shortcut}));
   });
   assert.equal(path.resolve(shortcutData.target),installedExe);
-  report.checks.freshInstall={durationMs:result.durationMs,exeMatchesBuild:true,markerMatchesBuild:true,stampMatchesBuild:true,separatePerUserRegistration:true,shortcutTargetsOwnExe:true,noPersonalHomeMarker:true};
+  const installedBaseline=await installedBaselineDiff(baseline);
+  report.checks.installedBaseline={files:baseline.files.length,...installedBaseline};
+  assert.equal(installedBaseline.missing.length,0,'The installed program is missing baseline files: '+installedBaseline.missing.join(', '));
+  assert.equal(installedBaseline.changed.length,0,'The installed program contains changed baseline files: '+installedBaseline.changed.join(', '));
+  report.checks.freshInstall={durationMs:result.durationMs,exeMatchesBuild:true,markerMatchesBuild:true,stampMatchesBuild:true,separatePerUserRegistration:true,shortcutTargetsOwnExe:true,noPersonalHomeMarker:true,everyBaselineFileMatches:true};
   assert.equal(await readFile(sentinel,'utf8'),sentinelValue);
+  const customizationFile=path.join(installDir,'synthetic-customization.txt');
+  const relocatedDir=path.join(output,'Relocated Beta');await mkdir(relocatedDir);
+  await writeFile(customizationFile,sentinelValue);
+  try{
+    const customizedManifest=await programManifest(),customizedRegistration=await registration(),shortcutHash=await hash(shortcut);
+    console.log('Checking that choosing another folder cannot uninstall the registered customized beta.');
+    result=await execution(installer,['/S','/currentuser','/D='+relocatedDir],{tempRoot:boundaryTemps.accepted});
+    assert.equal(result.code,10);assert.equal(await programManifest(),customizedManifest);
+    assert.deepEqual(await registration(),customizedRegistration);assert.equal(await hash(shortcut),shortcutHash);
+    assert.deepEqual(await readdir(relocatedDir),[]);assert.equal(await readFile(customizationFile,'utf8'),sentinelValue);
+    report.checks.relocationRefusal={refused:true,registeredProgramPreserved:true,customizationPreserved:true,noFilesCopied:true};
+    console.log('Checking that a same-folder update preserves customized program files.');
+    result=await execution(installer,['/S','/currentuser','/D='+installDir],{tempRoot:boundaryTemps.accepted});
+    assert.equal(result.code,12);assert.equal(await programManifest(),customizedManifest);
+    assert.deepEqual(await registration(),customizedRegistration);assert.equal(await hash(shortcut),shortcutHash);
+    assert.equal(await readFile(customizationFile,'utf8'),sentinelValue);assert.equal(await readFile(sentinel,'utf8'),sentinelValue);
+    report.checks.customizedUpdate={refused:true,everyProgramFilePreserved:true,ownRegistrationPreserved:true,externalDataPreserved:true};
+  }finally{await rm(customizationFile,{force:true});}
   console.log('Checking actual silent reinstall and preservation of the external synthetic data.');
   result=await execution(installer,['/S','/currentuser','/D='+installDir],{tempRoot:boundaryTemps.accepted});
   if(result.code!==0)await recordReinstallRefusal(result,baseline);
