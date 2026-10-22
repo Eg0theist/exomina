@@ -1,5 +1,5 @@
 import {readFileSync} from 'node:fs';
-import verifiedBeta from './beta-installer-config.mjs';
+import verifiedBeta,{configureBetaArchiveCompression} from './beta-installer-config.mjs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFile} from 'node:child_process';
@@ -57,6 +57,7 @@ export default {
     warningsAsErrors:true,
   },
   npmRebuild:false,
+  beforePack:configureBetaArchiveCompression,
   // Manual installers need the same source snapshot and post-edit inventory
   // as signed betas so an unchanged installation can pass the update guard.
   afterPack:verifiedBeta.afterPack,
