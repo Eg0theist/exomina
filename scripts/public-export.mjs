@@ -27,6 +27,24 @@ export async function applyPublicTemplate(sourceRoot,output){
  return JSON.parse(text.replace(/^\uFEFF/,''));
 }
 
+// Keep runtime registration consistent with the qualified public beta surface.
+export async function applyPublicRuntimeScope(output){
+ const rules={
+  'desktop/main.mjs':line=>/^(?:import \{AgentSpending,SPENDING_TOOLS\}|let spendingService;)/.test(line)||/^\s*(?:if\(name==='spending_preview'\)|case 'spending\.)/.test(line),
+  'src/App.jsx':line=>/^import AgentSpending /.test(line)||/^\s*<SettingsPanel section="spending">/.test(line),
+  'src/SettingsLayout.jsx':line=>/^\s*\{ id:'spending',/.test(line),
+ };
+ for(const [relative,remove]of Object.entries(rules)){
+  const file=path.join(output,relative),before=await readFile(file,'utf8');
+  const after=before.split(/\r?\n/).filter(line=>!remove(line)).join('\n').replaceAll('...SPENDING_TOOLS,','');
+  if(/AgentSpending|SPENDING_TOOLS|spending_preview|case 'spending\./.test(after))throw Error('Public runtime registration needs review: '+relative);
+  if(after!==before)await writeFile(file,after,'utf8');
+ }
+ const file=path.join(output,'package.json'),pkg=JSON.parse(await readFile(file,'utf8'));
+ pkg.build.files=[...new Set([...pkg.build.files,'!desktop/agent-spending.mjs'])];
+ await writeFile(file,JSON.stringify(pkg,null,2)+'\n','utf8');
+}
+
 // Preserve unrelated changes in the public branch and local release. Conflicts
 // stay explicit; neither branch silently wins when both changed the same value.
 const absent=Symbol('absent');
