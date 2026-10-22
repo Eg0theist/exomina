@@ -86,7 +86,11 @@ jobs:
           if ($install.Count -ne 1 -or $startup.Count -ne 1 -or $forms.Count -ne 1) { throw 'Exact Windows qualification reports are ambiguous.' }
           Copy-Item -LiteralPath $install[0].FullName -Destination (Join-Path $destination 'windows-install.json')
           Copy-Item -LiteralPath $startup[0].FullName -Destination (Join-Path $destination 'windows-startup.json')
-          Copy-Item -LiteralPath $forms[0].FullName -Destination (Join-Path $destination 'windows-connector.json')
+          $connector = Get-Content -LiteralPath $forms[0].FullName -Raw -Encoding utf8 | ConvertFrom-Json
+          $installReceipt = Get-Content -LiteralPath $install[0].FullName -Raw -Encoding utf8 | ConvertFrom-Json
+          $connector | Add-Member -NotePropertyName installerSha256 -NotePropertyValue $installReceipt.installerSha256
+          $connector | Add-Member -NotePropertyName version -NotePropertyValue $installReceipt.build.version
+          $connector | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $destination 'windows-connector.json') -Encoding utf8
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: exomina-beta-windows-x64-installer

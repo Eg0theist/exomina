@@ -14,7 +14,7 @@ export function publicPathAllowed(relative){
  const normalized=relative.replaceAll('\\','/');
  if(!normalized||normalized.startsWith('/')||normalized.split('/').some(part=>part==='..'))return false;
  if(!publicRoots.has(normalized.split('/')[0])&&!rootDocuments.has(normalized))return false;
- return !/(^|\/)(?:data|Private|accounts|\.git|\.verification|node_modules|dist|release(?:-[^/]+)?|output|__pycache__)(\/|$)/i.test(normalized)&&
+ return !/(^|\/)(?:data|Private|accounts|\.git|\.verification|node_modules|dist|output|__pycache__)(\/|$)/i.test(normalized)&&!/(^|\/)release(?:-[^/]+)?\//i.test(normalized)&&
   !/(?:^|\/)theme-art(?:\/|$)/.test(normalized)&&!/^src\/assets\/(?:voice-previews|voice-previews-clear|claude-voice-previews)(?:\/|$)/.test(normalized)&&
   !/(?:theme-catalog-full\.mjs|voice-preview-clips-personal\.js)$/.test(normalized)&&! /\.(?:log|sqlite(?:3)?|db|pfx|p12|key|pem|pyc|pyo)$/i.test(normalized)&&
   !(path.posix.basename(normalized).startsWith('.env')&&!normalized.endsWith('.example'));
@@ -36,12 +36,13 @@ export async function applyPublicRuntimeScope(output){
  };
  for(const [relative,remove]of Object.entries(rules)){
   const file=path.join(output,relative),before=await readFile(file,'utf8');
-  const after=before.split(/\r?\n/).filter(line=>!remove(line)).join('\n').replaceAll('...SPENDING_TOOLS,','');
-  if(/AgentSpending|SPENDING_TOOLS|spending_preview|case 'spending\./.test(after))throw Error('Public runtime registration needs review: '+relative);
+  const after=before.split(/\r?\n/).filter(line=>!remove(line)).join(before.includes('\r\n')?'\r\n':'\n').replaceAll('...SPENDING_TOOLS,','');
+  if(/AgentSpending|SPENDING_TOOLS|spending_preview|spendingService|\bspending\s*[(.]|case 'spending\./.test(after))throw Error('Public runtime registration needs review: '+relative);
   if(after!==before)await writeFile(file,after,'utf8');
  }
  const file=path.join(output,'package.json'),pkg=JSON.parse(await readFile(file,'utf8'));
- pkg.build.files=[...new Set([...pkg.build.files,'!desktop/agent-spending.mjs'])];
+ await run(process.execPath,['--check',path.join(output,'desktop/main.mjs')],{timeout:30000});
+ pkg.build.files=[...pkg.build.files.filter(file=>file!=='!desktop/agent-spending.mjs'),'!desktop/agent-spending.mjs'];
  await writeFile(file,JSON.stringify(pkg,null,2)+'\n','utf8');
 }
 
