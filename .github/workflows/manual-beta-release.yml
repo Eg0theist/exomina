@@ -91,6 +91,14 @@ jobs:
           $connector | Add-Member -NotePropertyName installerSha256 -NotePropertyValue $installReceipt.installerSha256
           $connector | Add-Member -NotePropertyName version -NotePropertyValue $installReceipt.build.version
           $connector | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $destination 'windows-connector.json') -Encoding utf8
+      - name: Retain synthetic installer diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exomina-beta-windows-failure-diagnostics
+          path: ../.exomina-qa-temp/**/report.json
+          include-hidden-files: true
+          if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: exomina-beta-windows-x64-installer
