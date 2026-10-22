@@ -82,8 +82,12 @@ async function run(file,values,{timeoutMs=600000,verbatim=false}={}){
 }
 async function powershell(name,source,input){
   const script=path.join(output,name+'.ps1');await writeFile(script,source);
+  // Windows PowerShell must discover its own modules rather than inherit a
+  // PowerShell 7 module path from the Actions runner's parent shell.
+  const environment={...process.env,TEMP:qaBase,TMP:qaBase,TMPDIR:qaBase};
+  for(const key of Object.keys(environment))if(key.toLowerCase()==='psmodulepath')delete environment[key];
   return new Promise((resolve,reject)=>{
-    const child=spawn(path.join(system,'WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script],{windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env:{...process.env,TEMP:qaBase,TMP:qaBase,TMPDIR:qaBase}});
+    const child=spawn(path.join(system,'WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script],{windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env:environment});
     let stdout='',stderr='',settled=false;
     const finish=(error,value)=>{if(settled)return;settled=true;clearTimeout(timer);error?reject(error):resolve(value);};
     const timer=setTimeout(()=>{child.kill();finish(Error('The synthetic path/shortcut helper timed out.'));},30000);

@@ -33,6 +33,7 @@ jobs:
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       ELECTRON_BUILDER_7Z_FILTER: 'BCJ'
+      ELECTRON_BUILDER_COMPRESSION_LEVEL: '3'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -68,6 +69,13 @@ jobs:
           if ($LASTEXITCODE) { throw 'Packaged program encryption check failed.' }
           node --input-type=module -e "import {verifyVendorBinaries} from './scripts/verify-vendor-binaries.mjs'; const r=await verifyVendorBinaries('release/win-unpacked',process.cwd()); if(!r.passed)throw Error('Vendor verification failed'); console.log('Verified '+r.files.length+' unchanged vendor binaries.');"
           if ($LASTEXITCODE) { throw 'Packaged vendor verification failed.' }
+      - name: Retain exact Windows installer before qualification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exomina-beta-windows-x64-installer
+          path: release/*-windows-x64-Setup.exe
+          if-no-files-found: error
+          compression-level: 0
       - name: Qualify exact Windows installer and packaged approval UI
         shell: pwsh
         env:
@@ -110,12 +118,6 @@ jobs:
           name: exomina-beta-windows-failure-diagnostics
           path: release/failure-diagnostics/*.json
           if-no-files-found: warn
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: exomina-beta-windows-x64-installer
-          path: release/*-windows-x64-Setup.exe
-          if-no-files-found: error
-          compression-level: 0
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: exomina-beta-windows-x64-qa
