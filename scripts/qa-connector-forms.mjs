@@ -67,6 +67,7 @@ try{
   await until(()=>app.evaluate(()=>globalThis.qaConnector.results.length),n=>n===4);
   assert.deepEqual(await app.evaluate(()=>globalThis.qaConnector.results[3]),{action:'accept',content:{}});
   assert.equal((await page.evaluate(()=>window.studio.invoke('bootstrap'))).connectorForms.length,0);
+  await confirmation.waitFor({state:'hidden'});await until(attached,value=>value===1);
   const browserValue=await app.evaluate(async()=>[...globalThis.qaConnector.pages].find(item=>item.visible).wc.executeJavaScript('document.querySelector("input").value'));assert.equal(browserValue,'Unchanged');
   const approval=page.locator('.approval-card');await approval.waitFor();await app.evaluate(()=>globalThis.qaConnector.live=false);await approval.getByRole('button',{name:'Allow once',exact:true}).click();await until(()=>app.evaluate(()=>globalThis.qaConnector.writeResult));
   const staleWrite=await app.evaluate(()=>globalThis.qaConnector.writeResult);assert.equal(staleWrite.isError,true);assert.match(JSON.stringify(staleWrite),/originating native agent or turn has ended/);await assert.rejects(access(path.join(workspace,'scoped.txt')));await approval.waitFor({state:'hidden'});assert.equal(await page.locator('.approval-card').count(),0);

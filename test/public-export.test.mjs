@@ -20,7 +20,7 @@ async function fixture(directory,name,files){
 }
 
 test('public path policy allows source and docs while excluding credential and output paths',()=>{
- for(const relative of ['desktop/main.mjs','scripts/package-cross-platform.mjs','docs/de/index.html','build/entitlements.mac.plist','LICENSE'])assert.equal(publicPathAllowed(relative),true,relative);
+ for(const relative of ['desktop/main.mjs','scripts/package-cross-platform.mjs','scripts/release-windows.mjs','docs/release-notes.md','docs/de/index.html','build/entitlements.mac.plist','LICENSE'])assert.equal(publicPathAllowed(relative),true,relative);
  for(const relative of ['accounts/key.json','desktop/accounts/key.json','data/chats.json','node_modules/tool/index.js','scripts/.env','scripts/signing.pem','scripts/output/key.json','src/assets/theme-art/a.png','../desktop/main.mjs','release-linux/app','unknown-root.txt'])assert.equal(publicPathAllowed(relative),false,relative);
 });
 

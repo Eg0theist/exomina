@@ -18,7 +18,7 @@ async function fixture(t){
  const windowsHash=sha(await readFile(files[0]));
  await writeFile(path.join(directory,'windows-install.json'),JSON.stringify({ok:true,installerSha256:windowsHash,build:{version}}));
  await writeFile(path.join(directory,'windows-startup.json'),JSON.stringify({ok:true,installerSha256:windowsHash,buildStamp:{version}}));
- await writeFile(path.join(directory,'windows-connector.json'),JSON.stringify({passed:true}));
+ await writeFile(path.join(directory,'windows-connector.json'),JSON.stringify({passed:true,installerSha256:windowsHash,version}));
  return {directory,version,files};
 }
 test('manual beta qualification requires every exact Windows and native installer',async t=>{
@@ -31,4 +31,8 @@ test('tampering after qualification cannot substitute another installer',async t
 });
 test('failed Windows startup or connector checks block the manual beta',async t=>{
  const {directory,version}=await fixture(t);await writeFile(path.join(directory,'windows-connector.json'),JSON.stringify({passed:false}));await assert.rejects(qualifyManualBeta(directory,version),/Windows qualification/);
+});
+
+test('a connector pass for another installer cannot qualify the release',async t=>{
+ const {directory,version}=await fixture(t);await writeFile(path.join(directory,'windows-connector.json'),JSON.stringify({passed:true,installerSha256:'0'.repeat(64),version}));await assert.rejects(qualifyManualBeta(directory,version),/Windows qualification/);
 });
