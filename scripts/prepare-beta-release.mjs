@@ -38,7 +38,7 @@ for(const file of ['PROVIDER-TOOLS.md','PUBLIC-UPDATES.md','TERMINAL.md'])await 
 let publicOverlay;
 if(publicContents){
  publicOverlay=await applyPublicTemplate(root,output);
- await cp(path.join(root,'.github'),path.join(output,'.github'),{recursive:true});
+ if(publicSource)await cp(path.join(root,'.github'),path.join(output,'.github'),{recursive:true});
  // Re-exporting a reconciled public tree retains its documentation and website.
  // The selected release's own docs take precedence over default templates.
  if(publicSource)for(const relative of ['README.md','LICENSE','NOTICE','BETA.md','BUILDING.md','BUILD-WINDOWS.md','CHAT-MEMORY.md','FEEDBACK.md','START-HERE.txt','SUPPORT.md','THIRD-PARTY-NOTICES.txt','SECURITY-AUDIT.txt','VALIDATION.txt','docs','scripts'])await copy(relative);
