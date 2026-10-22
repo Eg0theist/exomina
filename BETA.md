@@ -26,6 +26,8 @@ Windows builds are unsigned. Mac builds use ad-hoc signing without Apple notariz
 
 Download and install the next release using the same method. On macOS, replace the app in Applications; on Linux, install the newer DEB. Updates are manual for this beta.
 
+On Windows, update in the existing installation folder. Setup refuses to replace customized program files or move a registered installation to another folder. For an older beta without a verified baseline, preserve its program files and source before uninstalling it, then install the new release into an empty folder. Keep app data and projects separate from the program folder.
+
 Uninstall removes the program and keeps app data and project files. Program updates also preserve those files.
 
 ## Your data
