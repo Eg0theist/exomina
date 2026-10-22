@@ -22,10 +22,10 @@ export function dependencyPlan(manifest,available){
   const selected=chooseCompatibleVersion(current,available[name]||[]);if(selected)updates.push({section,name,current,version:selected});
  }return{updates,manual};
 }
-async function npm(args,{cwd=project}={}){
+export async function maintenanceNpm(args,{cwd=project}={}){
  if(args.some(arg=>/[&|<>^%!"\r\n]/.test(arg)))throw Error('Unsafe npm maintenance argument.');
  const windows=process.platform==='win32',command=windows?path.join(process.env.SystemRoot||'C:\\Windows','System32','cmd.exe'):'npm',argv=windows?['/d','/s','/c','npm.cmd '+args.map(arg=>'"'+arg+'"').join(' ')]:args;
- return new Promise((resolve,reject)=>{const child=spawn(command,argv,{cwd,windowsHide:true,stdio:['ignore','pipe','pipe']});let stdout='',stderr='';const timer=setTimeout(()=>{child.kill();reject(Error('npm maintenance request timed out.'));},180000);child.stdout.on('data',chunk=>{stdout+=chunk;if(stdout.length>8*1024**2)child.kill();});child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(-4000);});child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('close',code=>{clearTimeout(timer);resolve({code,stdout,stderr});});});
+ return new Promise((resolve,reject)=>{const child=spawn(command,argv,{cwd,windowsHide:true,windowsVerbatimArguments:windows,stdio:['ignore','pipe','pipe']});let stdout='',stderr='';const timer=setTimeout(()=>{child.kill();reject(Error('npm maintenance request timed out.'));},180000);child.stdout.on('data',chunk=>{stdout+=chunk;if(stdout.length>8*1024**2)child.kill();});child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(-4000);});child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('close',code=>{clearTimeout(timer);resolve({code,stdout,stderr});});});
 }
 export async function officialNodeBytes(url,{maximum=64*1024**2,fetchImpl=fetch}={}){
  const address=new URL(url);if(address.origin!==NODE_MAINTENANCE_POLICY.origin||!/^\/dist\/(?:index\.json|v\d+\.\d+\.\d+\/(?:SHASUMS256\.txt|node-v\d+\.\d+\.\d+-win-x64\.zip))$/.test(address.pathname)||address.search||address.hash)throw Error('Node maintenance only accepts exact official distribution URLs.');
@@ -74,7 +74,7 @@ export async function promoteNodeCandidate(candidate,{root=project}={}){
  let moved=false,activated=false,moduleChanged=false;try{if(await lstat(expected).catch(()=>null)){await rename(expected,old);moved=true;}await rename(candidate.runtime,expected);activated=true;await rename(temporary,candidate.modulePath);moduleChanged=true;await rename(runtimeTemporary,candidate.runtimeModulePath);}catch(error){if(moduleChanged){const restore=candidate.modulePath+'.'+randomUUID()+'.restore';await writeFile(restore,before,{flag:'wx'});await rename(restore,candidate.modulePath);}if(activated)await rename(expected,candidate.runtime);if(moved)await rename(old,expected);throw error;}
  return{version:candidate.manifest.version,stage,previousRuntime:moved?old:null};
 }
-export async function maintain({root=project,prepare=false,reportFile=path.join(root,'.verification','security-maintenance-report.json'),runNpm=npm,fetchBytes=officialNodeBytes}={}){
+export async function maintain({root=project,prepare=false,reportFile=path.join(root,'.verification','security-maintenance-report.json'),runNpm=maintenanceNpm,fetchBytes=officialNodeBytes}={}){
  const manifest=JSON.parse(await readFile(path.join(root,'package.json'),'utf8')),lock=JSON.parse(await readFile(path.join(root,'package-lock.json'),'utf8')),available={};
  const audit=await runNpm(['audit','--json','--registry=https://registry.npmjs.org'],{cwd:root});let auditReport;try{auditReport=JSON.parse(audit.stdout);}catch{throw Error('npm audit did not return a usable report.');}if(audit.code>1||auditReport.error)throw Error('npm advisory check failed.');
  for(const name of Object.keys({...manifest.dependencies,...manifest.devDependencies})){if(providerBinary(name))continue;const result=await runNpm(['view',name,'versions','--json','--registry=https://registry.npmjs.org'],{cwd:root});if(result.code!==0)throw Error('Registry version check failed for '+name);const versions=JSON.parse(result.stdout);available[name]=Array.isArray(versions)?versions:[versions];}

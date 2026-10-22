@@ -57,6 +57,7 @@
     "files": [
       "dist/**",
       "desktop/**",
+      "!desktop/agent-spending.mjs",
       "!desktop/antigravity-browser/**",
       "vendor/**",
       "build/icon.png",
