@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { WindowsVault } from '../desktop/vault.mjs';
+import { prepareWindowsQaOwner } from './native-qa-windows-owner.mjs';
 
 const work = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.verification');
 
@@ -13,6 +14,8 @@ const work = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.ver
  */
 export async function createProtectedQaProfile(label) {
   assert.match(label, /^[a-z][a-z0-9-]{0,40}$/);
+  // Elevated CI runners default new files to Administrators; the app refuses those.
+  const windowsQaOwner = await prepareWindowsQaOwner();
   await mkdir(work, { recursive: true });
   const output = await mkdtemp(path.join(work, `qa-${label}-`));
   assert.equal(path.dirname(output), work);
@@ -32,7 +35,7 @@ export async function createProtectedQaProfile(label) {
     notice: 'TEST ONLY: no recovery PFX was exported or verified. Never use this acknowledgement for personal data.',
   }, null, 2), { mode: 0o600 });
   const report = {
-    syntheticOnly: true, realWindowsEfs: true, initialProtection: protection,
+    syntheticOnly: true, realWindowsEfs: true, initialProtection: protection, windowsQaOwner,
     recoveryAcknowledgement: 'Simulated for this fresh synthetic profile only. No PFX export, password handling, or personal recovery test.',
     personalProfileAccessed: false,
   };
