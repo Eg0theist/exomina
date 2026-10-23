@@ -3,10 +3,31 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
 import {chooseCompatibleVersion,dependencyPlan,officialNodeBytes,verifyNodeCandidate,stageNodeCandidate,promoteNodeCandidate,runtimeAdvisoryBlockers,NODE_MAINTENANCE_POLICY,maintenanceNpm} from '../scripts/security-maintenance.mjs';
 import {ANALYSIS_NODE_RUNTIME} from '../scripts/prepare-analysis-node.mjs';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+
+test('the REA dependency uses the patched Zod parser and rejects oversized arrays before validating their contents',()=>{
+ const requireRea=createRequire(import.meta.resolve('rea-agents/package.json')),{z}=requireRea('zod');let parsed=0;
+ const schema=z.array(z.string().refine(()=>{parsed++;return true;})).max(2);
+ assert.equal(schema.safeParse(['valid']).success,true);assert.equal(parsed,1);parsed=0;
+ const rejected=schema.safeParse(Array(100).fill('sample'));
+ assert.equal(rejected.success,false);assert.equal(parsed,0);assert.equal(rejected.error.issues.length,1);assert.equal(rejected.error.issues[0].code,'too_big');
+});
+
+test('both maintenance jobs and the public workflow template use runner temporary paths',async()=>{
+ const workflow=(await readFile(new URL('../.github/workflows/security-maintenance.yml',import.meta.url),'utf8')).replaceAll('\r\n','\n');
+ assert.equal(workflow,(await readFile(new URL('../scripts/public-template/.github/workflows/security-maintenance.yml',import.meta.url),'utf8')).replaceAll('\r\n','\n'));
+ assert.match(workflow,/--check --report build\/security-maintenance-validation.json/);
+ for(const name of ['validate','prepare']){
+  const job=workflow.split(`\n  ${name}:\n`)[1]?.split(/\n  [a-z-]+:\n/)[0];assert.ok(job,name);
+  assert.match(job,/foreach \(\$name in @\('TEMP','TMP','TMPDIR'\)\)/);
+  assert.match(job,/\[Environment\]::SetEnvironmentVariable\(\$name, \$env:RUNNER_TEMP\)/);
+  assert.match(job,/"\$name=\$env:RUNNER_TEMP" >> \$env:GITHUB_ENV/);
+ }
+});
 test('Windows maintenance launches npm flags without adding literal quotes',{skip:process.platform!=='win32'},async()=>{
  const result=await maintenanceNpm(['--version']);assert.equal(result.code,0,result.stdout+result.stderr);assert.match(result.stdout.trim(),/^\d+\.\d+\.\d+$/);
 });

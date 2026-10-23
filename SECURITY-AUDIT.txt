@@ -20,7 +20,11 @@ update, recovery and antivirus qualification are required for public Windows
 delivery. The configured source tree does not activate a public update feed.
 macOS/Linux packages retain their existing manual update process.
 
-Open findings from the dependency review: the coverage of the October 21 Node
-fixes in Electron's embedded Node 24.22.0 has not been independently established;
-the build-time sprintf-js denial-of-service advisory has no verified published
-fix in the reviewed dependency chain. Neither finding is represented as fixed.
+Compatible maintenance dependencies have been refreshed. REA's transitive Zod
+dependency is explicitly overridden to 4.6.7 because REA 6.7.0 pins an affected
+version; this scope can be removed after an upstream release supplies the fix.
+Candidate validation checks advisories before building or running the tests.
+
+The refreshed lockfile's npm audit reports no advisories. The coverage of the
+October 21 Node fixes in Electron's embedded Node 24.22.0 has not been
+independently established and is not represented as fixed.

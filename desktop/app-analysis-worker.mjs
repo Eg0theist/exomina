@@ -4,6 +4,7 @@ import {readFile,writeFile,lstat,realpath} from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import reaPackage from 'rea-agents/package.json' with {type:'json'};
 import {analyzeJavaScriptStaticSource} from 'rea-agents/dist/domain/javascript/javascriptStaticAnalysis.js';
 import {inspectManagedArtifactBytes} from 'rea-agents/dist/dotnet/ManagedArtifactInspector.js';
 import {inspectManagedMembersBytes} from 'rea-agents/dist/dotnet/ManagedMemberInspector.js';
@@ -21,7 +22,7 @@ async function main(){
   const [, , operation,requestFile]=process.argv;
   if(operation==='native-dependencies'){
     const {inspectNativeDependencies}=await import('./app-analysis-native.mjs');
-    process.stdout.write(JSON.stringify(inspectNativeDependencies(JSON.parse(requestFile||'{}'))));return;
+    process.stdout.write(JSON.stringify(await inspectNativeDependencies(JSON.parse(requestFile||'{}'))));return;
   }
   if(!OPERATIONS.has(operation)||!requestFile)throw Error('Unknown static analysis operation.');
   const request=JSON.parse(await readFile(requestFile,'utf8'));
@@ -88,7 +89,7 @@ async function main(){
       analyze(entry.path,bytes);
     }catch(error){if(failures.length<100)failures.push({path:entry.path,error:String(error.message||error).slice(0,1000)});}
   }
-  const result={engine:'REA',engineVersion:'6.1.0',operation,analyzedFiles:analyzed,files,failures,limitations:[...new Set(limitations)],limits:LIMITS};
+  const result={engine:'REA',engineVersion:reaPackage.version,operation,analyzedFiles:analyzed,files,failures,limitations:[...new Set(limitations)],limits:LIMITS};
   await writeFile(request.output,JSON.stringify(result),'utf8');
   process.stdout.write(JSON.stringify({completed:true,analyzedFiles:analyzed,evidenceFiles:files.length,failures:failures.length}));
 }

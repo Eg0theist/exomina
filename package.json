@@ -29,23 +29,28 @@
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",
     "@lydell/node-pty": "1.1.0",
-    "@muse-code/sdk": "1.4.6",
+    "@muse-code/sdk": "1.4.12",
     "@openai/codex": "0.160.1",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "lucide-react": "^0.468.0",
     "onnxruntime-node": "1.30.0",
-    "playwright": "^1.56.0",
+    "playwright": "1.64.1",
     "qrcode": "1.5.4",
-    "rea-agents": "6.1.0",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "smol-toml": "1.9.0"
+    "rea-agents": "6.7.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "smol-toml": "1.9.1"
   },
   "devDependencies": {
     "electron": "44.9.3",
-    "electron-builder": "26.15.3",
+    "electron-builder": "26.18.0",
     "vite": "8.3.5"
+  },
+  "overrides": {
+    "rea-agents": {
+      "zod": "4.6.7"
+    }
   },
   "build": {
     "electronDist": "node_modules/electron/dist",
