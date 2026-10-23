@@ -13,7 +13,7 @@ Exomina brings ChatGPT, Claude, Antigravity, Grok, Muse and local models into on
 
 Your chat library stays on your computer; content sent to a cloud provider is processed by that provider.
 
-**[Website](https://eg0theist.github.io/exomina/)** · **[Download the current beta](https://github.com/Eg0theist/exomina/releases/tag/v0.5.0-beta.94)** · [Quick start](START-HERE.txt) · [Installation](BETA.md) · [Platform support](SUPPORT.md)
+**[Website](https://eg0theist.github.io/exomina/)** · **[Download the current beta](https://github.com/Eg0theist/exomina/releases/tag/v0.6.0)** · [Quick start](START-HERE.txt) · [Installation](BETA.md) · [Platform support](SUPPORT.md)
 
 Open source under [Apache-2.0](LICENSE). Forks, modifications and your own versions are welcome.
 
