@@ -54,6 +54,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'Unsupported runner Node runtime.' }
           npm ci --ignore-scripts
           if ($LASTEXITCODE) { throw 'Dependency installation failed.' }
+          node scripts/security-maintenance.mjs --check --report build/security-maintenance-validation.json
+          if ($LASTEXITCODE) { throw 'Candidate security validation failed.' }
           node node_modules/electron/install.js
           if ($LASTEXITCODE) { throw 'Pinned Electron preparation failed.' }
           node scripts/prepare-analysis-node.mjs
@@ -78,6 +80,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          foreach ($name in @('TEMP','TMP','TMPDIR')) {
+            [Environment]::SetEnvironmentVariable($name, $env:RUNNER_TEMP)
+            "$name=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          }
           gh repo clone $env:GITHUB_REPOSITORY . -- --filter=blob:none --no-checkout
           if ($LASTEXITCODE) { throw 'Checkout failed.' }
           git checkout -B security/maintenance "origin/$env:DEFAULT_BRANCH"

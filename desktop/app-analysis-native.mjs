@@ -3,11 +3,12 @@
 import {readFile,lstat,realpath} from 'node:fs/promises';
 import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
+import reaPackage from 'rea-agents/package.json' with {type:'json'};
 import {GhidraProvider} from 'rea-agents/dist/ghidra/GhidraProvider.js';
 import {GHIDRA_INVENTORY_OPERATIONS,parseGhidraInventoryInput} from 'rea-agents/dist/ghidra/GhidraInventoryValues.js';
 import {parseGhidraFunctionInput} from 'rea-agents/dist/ghidra/GhidraFunctionValues.js';
 import {parseExecutableHeader} from 'rea-agents/dist/domain/binaryTarget.js';
-import {SUPPORTED_GHIDRA_VERSION,ghidraReleaseLine} from 'rea-agents/dist/ghidra/GhidraInstallationPolicy.js';
+import {SUPPORTED_GHIDRA_VERSION,ghidraReleaseLine} from 'rea-agents/dist/ghidra/GhidraReleasePolicy.js';
 import {NATIVE_QUERIES,NATIVE_OPERATIONS,NATIVE_TARGET_SCOPE} from './app-analysis-contract.mjs';
 
 export {NATIVE_QUERIES};
@@ -26,9 +27,16 @@ function validateConfiguration(config={}){
 }
 
 /** Run this in the bundled Node worker; Electron must not load REA's native addon. */
-export function inspectNativeDependencies(config={}){
-  const provider=new GhidraProvider(validateConfiguration(config),logger);
-  return {...provider.inspectAvailability(),requirements:{ghidraVersion:SUPPORTED_GHIDRA_VERSION,ghidraReleaseLine:ghidraReleaseLine(),java:'A 64-bit full JDK 21 or newer, within the Ghidra release\'s declared Java range.',host:'Windows x64, Windows 10 or later, local NTFS snapshots and private runtime.',targets:NATIVE_TARGET_SCOPE+' Managed EXEs and DLLs use the separate .NET inspections.',targetExecution:false,network:'Authenticated IPv4 loopback between the local Node worker and Ghidra only.'}};
+export async function inspectNativeDependencies(config={}){
+  const provider=new GhidraProvider(validateConfiguration(config),logger,process.env);
+  try{
+    return {...await provider.inspectAvailability(),requirements:{ghidraVersion:SUPPORTED_GHIDRA_VERSION,ghidraReleaseLine:ghidraReleaseLine(),java:'A 64-bit full JDK 21 or newer, within the Ghidra release\'s declared Java range.',host:'Windows x64, Windows 10 or later, local NTFS snapshots and private runtime.',targets:NATIVE_TARGET_SCOPE+' Managed EXEs and DLLs use the separate .NET inspections.',targetExecution:false,network:'Authenticated IPv4 loopback between the local Node worker and Ghidra only.'}};
+  }finally{await closeProvider(provider);}
+}
+
+async function closeProvider(provider){
+  const result=await provider.closeOwnedResources?.();
+  if(result?.ok===false)throw result.error;
 }
 
 /** Reject mutation and oversized inputs before any Ghidra process is launched. */
@@ -111,9 +119,7 @@ export async function runNativeAnalysis(request,{signal,onProgress,providerFacto
   const selected=request.nativeFile?request.files.filter(entry=>entry?.path===request.nativeFile):request.files.filter(entry=>/\.exe$/i.test(entry?.path??''));
   if(request.nativeFile&&selected.length!==1)throw Error('The requested native file is absent from the selected snapshot.');
   if(query&&selected.length!==1)throw Error('Choose one native executable file for this query.');
-  const provider=providerFactory?providerFactory(config,logger):new GhidraProvider(config,logger);
-  const availability=provider.inspectAvailability();
-  if(availability.status!=='available')throw Error(`Native analysis unavailable: ${availability.reason||availability.code}`);
+  const provider=providerFactory?providerFactory(config,logger):new GhidraProvider(config,logger,process.env);
   const controller=new AbortController(),onAbort=()=>controller.abort(Error('Native analysis was cancelled.'));
   if(signal?.aborted)onAbort();else signal?.addEventListener('abort',onAbort,{once:true});
   const timer=setTimeout(()=>controller.abort(Error('Native analysis exceeded its ten-minute limit.')),NATIVE_LIMITS.timeoutMs);timer.unref?.();
@@ -122,10 +128,15 @@ export async function runNativeAnalysis(request,{signal,onProgress,providerFacto
   let analyzedFiles=0,outputBytes=0;
   try{
     cancelled(controller.signal);
+    const availability=await provider.inspectAvailability({signal:controller.signal});
+    cancelled(controller.signal);
+    if(availability.status!=='available')throw Error(`Native analysis unavailable: ${availability.reason||availability.code}`);
     for(const entry of selected.slice(0,NATIVE_LIMITS.analyzedFiles)){
       cancelled(controller.signal);let client;
       try{
         const {target}=await snapshotEntry(root,entry);
+        if(target.managed)throw Error('Use Exomina\'s separate .NET inspections for this managed target.');
+        if(target.format!=='pe'||target.executableRole!=='application'||!['x86','x86_64'].includes(target.architecture))throw Error(NATIVE_TARGET_SCOPE);
         const supported=provider.inspectTargetSupport(target);
         if(supported.status!=='supported')throw Error((target.managed?'Use Exomina\'s separate .NET inspections for this managed target. ':NATIVE_TARGET_SCOPE+' ')+(supported.reason?`REA target check: ${supported.reason}`:'This target is outside the current native workflow.'));
         analyzedFiles++;
@@ -166,6 +177,6 @@ export async function runNativeAnalysis(request,{signal,onProgress,providerFacto
     }
     cancelled(controller.signal);
     if(selected.length===0)limitations.push('No .exe application is present in the bounded snapshot. Select a native Windows x86/x64 EXE for the current Exomina workflow.');
-    return {engine:'REA',engineVersion:'6.1.0',operation:request.operation,analyzedFiles,files,failures,limitations,limits:NATIVE_LIMITS};
-  }finally{clearTimeout(timer);signal?.removeEventListener('abort',onAbort);}
+    return {engine:'REA',engineVersion:reaPackage.version,operation:request.operation,analyzedFiles,files,failures,limitations,limits:NATIVE_LIMITS};
+  }finally{clearTimeout(timer);signal?.removeEventListener('abort',onAbort);await closeProvider(provider);}
 }

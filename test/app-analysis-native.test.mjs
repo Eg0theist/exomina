@@ -16,9 +16,9 @@ async function fixture(t,bytes=inertPe()){
   return {root,request:{snapshot:root,operation:'native',files:[{path:'example.exe',bytes:bytes.length,sha256:sha(bytes)}]}};
 }
 function fakeProvider({values={},execute,close}={}){
-  const calls=[],targets=[],events=[],provider=new GhidraProvider({},{});let closes=0;
+  const calls=[],targets=[],events=[],provider=new GhidraProvider({},{},{});let closes=0;
   return {calls,targets,events,get closes(){return closes;},factory:()=>({
-    inspectAvailability:()=>({status:'available'}),inspectTargetSupport:target=>provider.inspectTargetSupport(target),
+    inspectAvailability:async()=>({status:'available'}),inspectTargetSupport:target=>provider.inspectTargetSupport(target),
     resolveAnalysisProfile:async()=>({ok:true,value:{profile:{digest:'a'.repeat(64)}}}),
     createClient:target=>{targets.push(target);return {execute:async(operation,args,options)=>{
       calls.push({operation,args,signal:options.signal});if(execute)return execute(operation,args,options);
@@ -30,9 +30,22 @@ test('the shared native contract exposes all 25 supported read-only queries',()=
   assert.equal(NATIVE_QUERIES.length,25);assert.equal(new Set(NATIVE_QUERIES).size,25);assert.ok(!NATIVE_QUERIES.includes('annotate_native_function'));
   for(const operation of ['analyze_function','procedure_references','inspect_native_load_image','resolve_native_call_targets'])assert.ok(NATIVE_QUERIES.includes(operation));
 });
-test('dependency diagnostics explain actual prerequisites without native target execution',()=>{
-  const result=inspectNativeDependencies();assert.equal(result.status,'unavailable');assert.equal(result.code,'not_configured');assert.equal(result.requirements.ghidraVersion,'12.1.4');assert.equal(result.requirements.targetExecution,false);assert.match(result.requirements.java,/full JDK/);assert.match(result.requirements.targets,/native Windows x86\/x64 EXE/);assert.match(result.requirements.targets,/not yet integrated and verified in Exomina/);assert.match(result.requirements.targets,/Ghidra itself supports a wider range/);
-  for(const config of [{ghidraInstallDir:'relative'}, {ghidraJavaHome:'C:\\fixture & whoami'}, {ghidraInstallDir:'C:\\fixture\nunsafe'}])assert.throws(()=>inspectNativeDependencies(config),/absolute directories/);
+test('dependency diagnostics explain actual prerequisites without native target execution',async()=>{
+  const result=await inspectNativeDependencies();assert.equal(result.status,'unavailable');assert.equal(result.code,'not_configured');assert.equal(result.requirements.ghidraVersion,'12.1.4');assert.equal(result.requirements.ghidraReleaseLine,'12.1.x');assert.equal(result.requirements.targetExecution,false);assert.match(result.requirements.java,/full JDK/);assert.match(result.requirements.targets,/native Windows x86\/x64 EXE/);assert.match(result.requirements.targets,/not yet integrated and verified in Exomina/);assert.match(result.requirements.targets,/Ghidra itself supports a wider range/);
+  for(const config of [{ghidraInstallDir:'relative'}, {ghidraJavaHome:'C:\\fixture & whoami'}, {ghidraInstallDir:'C:\\fixture\nunsafe'}])await assert.rejects(inspectNativeDependencies(config),/absolute directories/);
+});
+
+test('asynchronous dependency refusal closes owned resources before any target reaches Ghidra',async t=>{
+  const {request}=await fixture(t);let inspected=false,closed=false;
+  const provider={inspectAvailability:async()=>{await new Promise(resolve=>setImmediate(resolve));inspected=true;return {status:'unavailable',reason:'Synthetic unavailable installation'};},inspectTargetSupport:()=>assert.fail('Unavailable provider must not inspect a target'),closeOwnedResources:async()=>{closed=true;return {ok:true};}};
+  await assert.rejects(runNativeAnalysis(request,{providerFactory:()=>provider}),/Synthetic unavailable installation/);
+  assert.equal(inspected,true);assert.equal(closed,true);
+});
+
+test('provider cleanup failures cannot be reported as successful native analysis',async t=>{
+  const {request}=await fixture(t),fake=fakeProvider();
+  await assert.rejects(runNativeAnalysis(request,{providerFactory:()=>({...fake.factory(),closeOwnedResources:async()=>({ok:false,error:Error('Provider cleanup incomplete')})})}),/Provider cleanup incomplete/);
+  assert.equal(fake.closes,1);
 });
 test('query validation refuses mutation, unknown arguments and oversized reads before provider creation',async t=>{
   const {request}=await fixture(t);let created=0;
