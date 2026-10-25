@@ -141,6 +141,35 @@ jobs:
           $remoteHead = git ls-remote origin refs/heads/security/maintenance
           if ($LASTEXITCODE) { throw 'Could not inspect the previous maintenance branch.' }
           $expectedHead = if ($remoteHead) { ($remoteHead -split '\s+')[0] } else { '' }
+          # Force-pushing an identical candidate would discard the open pull
+          # request's checks and approvals. Skip it when the previous candidate
+          # has the same base and files, and its report differs only in time.
+          if ($expectedHead) {
+            git fetch --no-tags origin $expectedHead
+            if ($LASTEXITCODE) { throw 'Could not fetch the previous maintenance candidate.' }
+            $sameBase = (git rev-parse "$expectedHead^") -eq (git rev-parse "origin/$env:DEFAULT_BRANCH")
+            git diff --quiet $expectedHead HEAD -- . ':(exclude)build/security-maintenance-report.json'
+            $sameFiles = $LASTEXITCODE -eq 0
+            if ($LASTEXITCODE -gt 1) { throw 'Previous candidate diff could not be inspected.' }
+            $sameReport = $false
+            if ($sameBase -and $sameFiles) {
+              $previousReport = Join-Path $env:RUNNER_TEMP 'previous-security-maintenance-report.json'
+              git show "${expectedHead}:build/security-maintenance-report.json" > $previousReport
+              if ($LASTEXITCODE -eq 0) {
+                node scripts/security-maintenance.mjs --same-report $previousReport build/security-maintenance-report.json
+                if ($LASTEXITCODE -gt 1) { throw 'Maintenance reports could not be compared.' }
+                $sameReport = $LASTEXITCODE -eq 0
+              }
+            }
+            if ($sameReport) {
+              $open = gh pr list --head security/maintenance --base $env:DEFAULT_BRANCH --state open --json number | ConvertFrom-Json
+              if ($LASTEXITCODE) { throw 'Could not inspect the open maintenance pull request.' }
+              if ($open.Count -gt 0) {
+                'The open maintenance pull request already has this exact candidate. It was left unchanged so its checks and approvals stay valid.' >> $env:GITHUB_STEP_SUMMARY
+                exit 0
+              }
+            }
+          }
           git push "--force-with-lease=refs/heads/security/maintenance:$expectedHead" origin HEAD:refs/heads/security/maintenance
           if ($LASTEXITCODE) { throw 'Candidate push failed.' }
           $body = Join-Path $env:RUNNER_TEMP 'security-maintenance-body.md'
