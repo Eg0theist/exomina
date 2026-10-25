@@ -104,6 +104,8 @@ protection and the required `validate` check. Optional
 `EXOMINA_SECURITY_AUTO_CANDIDATE=true` builds candidates for qualified maintenance
 merges. Publishing still requires exact-candidate qualification. Otherwise
 preparation remains automatic while merge and candidate creation await review.
+When a later run finds the same candidate, the open maintenance pull request
+is left unchanged, so its checks and approvals stay valid.
 Hosted services are patched by their operators.
 
 Node candidates require official archive/executable checksums, valid

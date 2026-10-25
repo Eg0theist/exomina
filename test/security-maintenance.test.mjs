@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
-import {chooseCompatibleVersion,dependencyPlan,officialNodeBytes,verifyNodeCandidate,stageNodeCandidate,promoteNodeCandidate,runtimeAdvisoryBlockers,NODE_MAINTENANCE_POLICY,maintenanceNpm} from '../scripts/security-maintenance.mjs';
+import {chooseCompatibleVersion,dependencyPlan,officialNodeBytes,verifyNodeCandidate,stageNodeCandidate,promoteNodeCandidate,runtimeAdvisoryBlockers,NODE_MAINTENANCE_POLICY,maintenanceNpm,sameMaintenanceReport} from '../scripts/security-maintenance.mjs';
 import {ANALYSIS_NODE_RUNTIME} from '../scripts/prepare-analysis-node.mjs';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
@@ -27,6 +27,19 @@ test('both maintenance jobs and the public workflow template use runner temporar
   assert.match(job,/\[Environment\]::SetEnvironmentVariable\(\$name, \$env:RUNNER_TEMP\)/);
   assert.match(job,/"\$name=\$env:RUNNER_TEMP" >> \$env:GITHUB_ENV/);
  }
+});
+test('an unchanged maintenance candidate is not force-pushed over its open pull request',async()=>{
+ const report={format:1,checkedAt:'2026-10-24T18:08:35.769Z',npm:{vulnerabilities:{total:0},plan:{updates:[{name:'@muse-code/sdk',current:'1.4.12',version:'1.4.13'}]}},releaseVersion:'0.6.1'};
+ assert.equal(sameMaintenanceReport(JSON.stringify(report),'\uFEFF'+JSON.stringify({...report,checkedAt:'2026-10-24T21:00:49.776Z'},null,2)),true);
+ assert.equal(sameMaintenanceReport(JSON.stringify(report),JSON.stringify({...report,npm:{...report.npm,vulnerabilities:{total:1}}})),false);
+ assert.equal(sameMaintenanceReport(JSON.stringify(report),JSON.stringify({...report,releaseVersion:'0.6.2'})),false);
+ assert.equal(sameMaintenanceReport('not json',JSON.stringify(report)),false);
+ const workflow=(await readFile(new URL('../.github/workflows/security-maintenance.yml',import.meta.url),'utf8')).replaceAll('\r\n','\n');
+ const refresh=workflow.split('- name: Open or refresh maintenance pull request')[1];
+ const skip=refresh.indexOf('--same-report'),push=refresh.indexOf('git push');assert.ok(skip>0&&skip<push,'comparison runs before the push');
+ assert.match(refresh,/git diff --quiet \$expectedHead HEAD -- \. ':\(exclude\)build\/security-maintenance-report\.json'/);
+ assert.match(refresh,/\(git rev-parse "\$expectedHead\^"\) -eq \(git rev-parse "origin\/\$env:DEFAULT_BRANCH"\)/);
+ assert.match(refresh,/--state open/);
 });
 test('Windows maintenance launches npm flags without adding literal quotes',{skip:process.platform!=='win32'},async()=>{
  const result=await maintenanceNpm(['--version']);assert.equal(result.code,0,result.stdout+result.stderr);assert.match(result.stdout.trim(),/^\d+\.\d+\.\d+$/);
