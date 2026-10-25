@@ -1,0 +1,46 @@
+{
+  "format": 1,
+  "checkedAt": "2026-10-24T21:00:49.776Z",
+  "npm": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "blockers": [],
+    "plan": {
+      "updates": [
+        {
+          "section": "dependencies",
+          "name": "@muse-code/sdk",
+          "current": "1.4.12",
+          "version": "1.4.13"
+        }
+      ],
+      "manual": []
+    },
+    "remaining": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    }
+  },
+  "node": {
+    "installed": "24.22.1",
+    "available": null,
+    "securityUpdateAvailable": false,
+    "signaturePins": [
+      "6018A47185244F3B175DAFC18D0D8EB47E3F84CF"
+    ]
+  },
+  "hostedProviders": "Provider-hosted services are patched by their operators; no local version change can establish their security.",
+  "prepared": true,
+  "releaseVersion": "0.6.1",
+  "sourcePolicy": "compatible-security-maintenance"
+}
