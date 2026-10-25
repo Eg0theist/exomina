@@ -1,6 +1,6 @@
 {
   "name": "exomina",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "Exomina desktop workspace",
   "author": "Exomina",
@@ -29,7 +29,7 @@
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",
     "@lydell/node-pty": "1.1.0",
-    "@muse-code/sdk": "1.4.12",
+    "@muse-code/sdk": "1.4.13",
     "@openai/codex": "0.160.1",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
