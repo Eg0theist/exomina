@@ -30,10 +30,10 @@
     "@huggingface/tokenizers": "0.2.0",
     "@lydell/node-pty": "1.1.0",
     "@muse-code/sdk": "1.4.13",
-    "@openai/codex": "0.160.1",
+    "@openai/codex": "0.164.0",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
-    "lucide-react": "^0.468.0",
+    "lucide-react": "^0.577.0",
     "onnxruntime-node": "1.30.0",
     "playwright": "1.64.1",
     "qrcode": "1.5.4",
@@ -97,11 +97,11 @@
   },
   "homepage": "https://github.com/Eg0theist/exomina",
   "optionalDependencies": {
-    "@xai-official/grok-darwin-arm64": "1.0.46",
-    "@xai-official/grok-darwin-x64": "1.0.46",
-    "@xai-official/grok-linux-arm64": "1.0.46",
-    "@xai-official/grok-linux-x64": "1.0.46",
-    "@xai-official/grok-win32-arm64": "1.0.46",
+    "@xai-official/grok-darwin-arm64": "1.0.70",
+    "@xai-official/grok-darwin-x64": "1.0.70",
+    "@xai-official/grok-linux-arm64": "1.0.70",
+    "@xai-official/grok-linux-x64": "1.0.70",
+    "@xai-official/grok-win32-arm64": "1.0.70",
     "@xai-official/grok-win32-x64": "1.0.46"
   }
 }
