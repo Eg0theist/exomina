@@ -1,6 +1,6 @@
 {
   "name": "exomina",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "description": "Exomina desktop workspace",
   "author": "Exomina",
@@ -29,22 +29,22 @@
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",
     "@lydell/node-pty": "1.1.0",
-    "@muse-code/sdk": "1.4.13",
+    "@muse-code/sdk": "1.4.14",
     "@openai/codex": "0.160.1",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "lucide-react": "^0.468.0",
-    "onnxruntime-node": "1.30.0",
+    "onnxruntime-node": "1.31.1",
     "playwright": "1.64.1",
     "qrcode": "1.5.4",
-    "rea-agents": "6.7.0",
+    "rea-agents": "6.8.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "smol-toml": "1.9.1"
   },
   "devDependencies": {
-    "electron": "44.9.3",
-    "electron-builder": "26.18.0",
+    "electron": "44.10.0",
+    "electron-builder": "26.18.1",
     "vite": "8.3.5"
   },
   "overrides": {

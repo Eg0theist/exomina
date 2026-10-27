@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "checkedAt": "2026-10-24T21:00:49.776Z",
+  "checkedAt": "2026-10-27T22:27:34.492Z",
   "npm": {
     "vulnerabilities": {
       "info": 0,
@@ -16,8 +16,32 @@
         {
           "section": "dependencies",
           "name": "@muse-code/sdk",
-          "current": "1.4.12",
-          "version": "1.4.13"
+          "current": "1.4.13",
+          "version": "1.4.14"
+        },
+        {
+          "section": "dependencies",
+          "name": "onnxruntime-node",
+          "current": "1.30.0",
+          "version": "1.31.1"
+        },
+        {
+          "section": "dependencies",
+          "name": "rea-agents",
+          "current": "6.7.0",
+          "version": "6.8.0"
+        },
+        {
+          "section": "devDependencies",
+          "name": "electron",
+          "current": "44.9.3",
+          "version": "44.10.0"
+        },
+        {
+          "section": "devDependencies",
+          "name": "electron-builder",
+          "current": "26.18.0",
+          "version": "26.18.1"
         }
       ],
       "manual": []
@@ -41,6 +65,6 @@
   },
   "hostedProviders": "Provider-hosted services are patched by their operators; no local version change can establish their security.",
   "prepared": true,
-  "releaseVersion": "0.6.1",
+  "releaseVersion": "0.6.2",
   "sourcePolicy": "compatible-security-maintenance"
 }
