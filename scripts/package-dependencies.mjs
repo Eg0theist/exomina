@@ -113,6 +113,9 @@ export async function verifyPackageDependencies(root,archive,options={}){
    for(const file of await readdir(directory,{withFileTypes:true})){
     if(file.name==='node_modules')continue;
     const name=path.posix.join(relative,file.name);
+    // The root manifest is verified above by package identity. Builder rewrites
+    // its development fields even when an upstream tarball marks it executable.
+    if(name==='package.json')continue;
     // ONNX ships separate binaries for several OSes in one npm package.
     // Builder removes foreign platform binaries from a native package.
     if(entry.metadata.name==='onnxruntime-node'){
