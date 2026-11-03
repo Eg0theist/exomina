@@ -55,6 +55,7 @@ export async function runtimeDependencies(root,{exclude=[],platform=process.plat
 
 export async function verifyPackageDependencies(root,archive,options={}){
  const packages=await runtimeDependencies(root,options);
+ const target={platform:options.platform||process.platform,arch:options.arch||process.arch};
  uncache(archive);
  const entries=new Set(listPackage(archive).map(name=>name.replaceAll('\\','/').replace(/^\//,'')));
  const locations=new Map([[await realpath(root),'']]);
@@ -112,6 +113,12 @@ export async function verifyPackageDependencies(root,archive,options={}){
    for(const file of await readdir(directory,{withFileTypes:true})){
     if(file.name==='node_modules')continue;
     const name=path.posix.join(relative,file.name);
+    // ONNX ships separate binaries for several OSes in one npm package.
+    // Builder removes foreign platform binaries from a native package.
+    if(entry.metadata.name==='onnxruntime-node'){
+     const native=/^bin\/napi-v\d+\/(win32|darwin|linux)\/(ia32|x64|arm64)(?:\/|$)/.exec(name);
+     if(native&&(native[1]!==target.platform||native[2]!==target.arch))continue;
+    }
     if(file.isSymbolicLink())continue;
     if(file.isDirectory())await binaries(path.join(directory,file.name),name);
     else if(/\.(?:exe|dll|node|pyd|wasm|dylib|so(?:\.\d+)*)$/i.test(file.name)||(process.platform!=='win32'&&((await lstat(path.join(directory,file.name))).mode&0o111))){await checkFile(entry,name,location);nativeFiles++;}
