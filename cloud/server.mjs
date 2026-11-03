@@ -1,6 +1,6 @@
 import http from 'node:http';
 import path from 'node:path';
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { readFile, readdir, realpath, stat } from 'node:fs/promises';
 
 const fail = (status, message) => Object.assign(new Error(message), { status, statusCode: status });
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
@@ -48,6 +48,23 @@ function body(req, maximum = 2 * 1024 * 1024) {
 /** Call listen(port, '127.0.0.1') behind an HTTPS reverse proxy. Dependencies are initialized by the caller. */
 export function createCloudServer({ service, auth, devices, distDir }) {
   const streams = new Set(), rates = new Map();
+  let publicInventory;
+  function publicFiles(){
+    return publicInventory ||= (async()=>{
+      const root=await realpath(distDir),files=new Map();
+      for(const name of ['index.html','manifest.webmanifest','shell-assets.json','sw.js','icon.png','icon.svg','favicon.ico','icons/icon.png','icons/icon.svg'])files.set(name,path.join(root,name));
+      async function assets(directory,prefix,depth=0){
+        if(depth>10||files.size>10000)throw fail(404,'Static output exceeds its limits.');
+        let entries;try{entries=await readdir(directory,{withFileTypes:true});}catch(error){if(error.code==='ENOENT')return;throw error;}
+        for(const entry of entries){
+          if(entry.isSymbolicLink())continue;
+          const file=path.join(directory,entry.name),name=prefix+'/'+entry.name;
+          if(entry.isDirectory())await assets(file,name,depth+1);else if(entry.isFile()&&MIME[path.extname(name)])files.set(name,file);
+        }
+      }
+      await assets(path.join(root,'assets'),'assets');return {root,files};
+    })();
+  }
   function rate(req, bucket, maximum, windowMs) {
     const now = Date.now(), key = `${bucket}:${req.socket.remoteAddress || 'unknown'}`;
     let entry = rates.get(key);
@@ -79,8 +96,9 @@ export function createCloudServer({ service, auth, devices, distDir }) {
     const relative = pathname === '/' ? 'index.html' : pathname.slice(1);
     if (!(relative === 'index.html' || ['manifest.webmanifest', 'shell-assets.json', 'sw.js', 'icon.png', 'icon.svg', 'favicon.ico', 'icons/icon.png', 'icons/icon.svg'].includes(relative) || /^assets\/[A-Za-z0-9_./-]+$/.test(relative))) throw fail(404, 'Not found.');
     if (!MIME[path.extname(relative)]) throw fail(404, 'Not found.');
-    const root = await realpath(distDir), requested = path.resolve(root, relative);
-    if (!within(root, requested)) throw fail(404, 'Not found.');
+    // Request text can select an inventoried public file, never construct a path.
+    const {root,files}=await publicFiles(),requested=files.get(relative);
+    if (!requested) throw fail(404, 'Not found.');
     let file;
     try { file = await realpath(requested); } catch { throw fail(404, 'Not found.'); }
     if (!within(root, file)) throw fail(404, 'Not found.');

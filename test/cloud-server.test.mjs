@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import path from 'node:path';
 import os from 'node:os';
-import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rename, rm } from 'node:fs/promises';
 import { randomBytes, createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { CloudAuth } from '../cloud/auth.mjs';
@@ -114,8 +114,10 @@ test('logout aliases invalidate the owner session and reject cross-origin logout
 }));
 
 test('public files have a restrictive policy and traversal, symlinks, and unexpected hosts fail closed', async () => fixture(async ({ request, port, distDir, privateDir }) => {
+  const nested=path.join(distDir,'assets','nested');await mkdir(nested);await writeFile(path.join(nested,'theme.css'),'/* public nested asset */');
   const page = await request('/'); assert.equal(page.status, 200); assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'none'/); assert.equal(page.headers.get('cache-control'), 'no-store');
   assert.equal((await request('/assets/app.js')).status, 200);
+  assert.equal((await request('/assets/nested/theme.css')).status,200);
   assert.equal((await request('/private/private.js')).status, 404);
   assert.equal((await request('/assets/app.js.map')).status, 404);
   assert.equal((await request('/', { headers: { host: 'attacker.test' } })).status, 403);
@@ -123,6 +125,9 @@ test('public files have a restrictive policy and traversal, symlinks, and unexpe
   for (const target of ['/assets/../private/private.js', '/assets/%2e%2e/private/private.js', '/assets/%2F..%2Fprivate/private.js', '/assets/%5c..%5cprivate.js', '//attacker.test/a']) assert.equal(await raw(target), 400, target);
   await symlink(privateDir, path.join(distDir, 'assets', 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
   assert.equal((await request('/assets/escape/private.js')).status, 404);
+  await writeFile(path.join(privateDir,'theme.css'),'PRIVATE_SYNTHETIC_STYLESHEET');
+  await rename(nested,nested+'-original');await symlink(privateDir,nested,process.platform==='win32'?'junction':'dir');
+  assert.equal((await request('/assets/nested/theme.css')).status,404,'An inventoried path cannot later redirect outside the public tree.');
 }));
 
 test('request bodies, numeric pagination and pairing attempts are bounded', async () => fixture(async ({ request, post, owner }) => {
