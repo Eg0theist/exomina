@@ -52,6 +52,11 @@ test('encrypted roots without recovery and broken existing recovery metadata rem
   await assert.rejects(readFile(broken.profile.policyFile),{code:'ENOENT'});
 });
 
+test('an EFS chat library can open while an unprotected project still fails its access check',async t=>{
+ const f=await fixture(t,{encrypted:true,efsAvailable:true});await f.recovery();await mkdir(f.options.workspace);const verify=f.options.vault.verifyStartup;f.options.vault.verifyStartup=async(directory,input)=>{if(directory===f.options.workspace)throw Error('Synthetic project is not encrypted.');return verify(directory,input);};
+ assert.equal((await f.profile.initialize()).ready,true);assert.equal(f.profile.status.mode,'efs');await assert.rejects(f.profile.verifyWorkspace(),/project is not encrypted/);assert.equal(await readFile(f.state,'utf8'),f.stateBytes);
+});
+
 test('an unavailable old EFS key fails closed without replacing the profile',async t=>{
   const f=await fixture(t,{encrypted:true,vaultFailure:true}),record=await f.recovery();
   assert.equal((await f.profile.initialize()).ready,false);assert.match(f.profile.status.message,/key unavailable/);
