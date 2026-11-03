@@ -8,7 +8,7 @@ import './updates.css';
 const when=value=>{const date=new Date(value);return Number.isNaN(date.getTime())?null:date.toLocaleString();};
 const buildLabel=build=>build?`${buildIdentity(build)} · ${when(build.builtAt)||'build date unavailable'}`:'Build information unavailable';
 const bytes=value=>value>=1024**3?`${(value/1024**3).toFixed(1)} GB`:`${(value/1024**2).toFixed(1)} MB`;
-const OUTCOME={installed:'Installed',declined:'Administrator approval was declined',failed:'Failed'};
+const OUTCOME={installed:'Installed',declined:'Administrator approval was declined',failed:'Failed','verifying-startup':'Checking that Exomina opens','rolled-back':'Previous version restored','recovery-opened':'Previous version reopened'};
 const failureText=failure=>(failure.message||String(failure)).replace(/^Error invoking remote method '[^']+': Error: /,'');
 
 export default function UpdateSettings({Toggle,active=false,onAutoUpdate,onReleaseSource,onReview}){

@@ -1,4 +1,4 @@
-# Exomina 0.6
+# Exomina 0.7
 
 **The age of personal software is here. Make the software you wish existed.**
 
@@ -13,15 +13,17 @@ Exomina brings ChatGPT, Claude, Antigravity, Grok, Muse and local models into on
 
 Your chat library stays on your computer; content sent to a cloud provider is processed by that provider.
 
-**[Website](https://eg0theist.github.io/exomina/)** · **[Download the current beta](https://github.com/Eg0theist/exomina/releases/tag/v0.6.0)** · [Quick start](START-HERE.txt) · [Installation](BETA.md) · [Platform support](SUPPORT.md)
+**[Website](https://eg0theist.github.io/exomina/)** · **[Download the current beta](https://github.com/Eg0theist/exomina/releases/tag/v0.7.0)** · [Quick start](START-HERE.txt) · [Installation](BETA.md) · [Platform support](SUPPORT.md)
 
 Open source under [Apache-2.0](LICENSE). Forks, modifications and your own versions are welcome.
 
-## New in 0.6
+## New in 0.7
 
-Versioned shared skills turn useful workflows into reusable instructions with source references and revision history. Read pipelines can filter several tool results while retaining each source's access controls. Optional Docker and SSH workers let supported jobs run on a configured worker, and context metrics make model input and cache use easier to inspect.
+Navigation, settings and first-run guidance have been redesigned around everyday use. Tools and connected extensions can be disabled or removed without restarting, and supported ChatGPT, Claude and computer-driver updates can be installed independently with verification and rollback.
 
-The update client now verifies publisher-signed metadata and package inventories, and customized installations can prepare a reviewed merge. GitHub workflows prepare dependency and security updates and build signed Windows candidates. Automatic public delivery requires configured publisher keys, signing and qualification of the exact candidate; the source release does not enable that channel. Existing beta downloads and native packages retain their documented manual update process. See [publishing updates](PUBLIC-UPDATES.md).
+Voice sharing asks for consent before sending microphone audio or conversation context. New controls support reviewed app changes, connected MCP services and local WAV inspection. Search, notebook cleanup and continuing conversation memory are more precise.
+
+This release updates dependencies, binds tool credentials to the originating conversation and run, preserves existing encrypted profiles, and checks that the workspace responds before confirming an in-app Windows update. Public beta installers retain manual updates; authenticated automatic delivery requires separate publisher setup. See [publishing updates](PUBLIC-UPDATES.md).
 
 ## What could you make?
 

@@ -1,7 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {openExominaLocation} from '../desktop/window-startup.mjs';
+import {openExominaLocation,responsiveWorkspace} from '../desktop/window-startup.mjs';
+
+test('update readiness requires a responsive rendered workspace, not just a live process',async()=>{
+  const contents={isDestroyed:()=>false,isCrashed:()=>false,executeJavaScript:async()=>true};
+  assert.equal(await responsiveWorkspace(contents),true);
+  for(const reply of [false,null,'true'])assert.equal(await responsiveWorkspace({...contents,executeJavaScript:async()=>reply}),false);
+  assert.equal(await responsiveWorkspace({...contents,isCrashed:()=>true}),false);
+  assert.equal(await responsiveWorkspace({...contents,executeJavaScript:()=>Promise.reject(Error('renderer gone'))}),false);
+  assert.equal(await responsiveWorkspace({...contents,executeJavaScript:()=>new Promise(()=>{})},{timeoutMs:20}),false);
+});
 
 const url='file:///synthetic/dist/index.html';
 const abort=()=>Object.assign(Error("ERR_ABORTED (-3) loading '"+url+"'"),{code:'ERR_ABORTED'});

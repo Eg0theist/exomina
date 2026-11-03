@@ -122,7 +122,7 @@ import {approveTerminalCommand,approveTerminalSession,interactiveTerminalRestric
 import {questionAnswerDisplayMessages} from './question-answer-display.mjs';
 import {windowChromeOptions,windowChromeState,applyWindowChromeTheme,windowChromeCommand,windowHudMode} from './window-chrome.mjs';
 import {installUiZoom} from './ui-zoom.mjs';
-import {openExominaLocation} from './window-startup.mjs';
+import {openExominaLocation,responsiveWorkspace} from './window-startup.mjs';
 import {WorkspaceWindows} from './workspace-windows.mjs';
 import {ensureWindowsAppIndependence} from './app-lifetime.mjs';
 import {createAppLifetimeJournal} from './app-lifetime-journal.mjs';
@@ -1745,7 +1745,9 @@ try{
   // Public updates download automatically; applying any update is a user action.
   await updater.init({feedUrl:store.state.settings.updateFeedUrl,automatic:store.state.settings.autoUpdate!==false});
   startupStage='updates';updateNotice=await updater.takeResult().catch(()=>null);
-  try{const promoted=await updater.merge.commitInstalled((await updater.status()).installed);if(promoted?.error)updateNotice={status:'failed',message:promoted.error};}catch(error){updateNotice={status:'failed',message:'The updated app opened, but source promotion needs review: '+error.message};}
+  // A provisional first launch must not replace customized Source before the
+  // independent startup gate passes. A subsequent confirmed launch commits it.
+  try{const update=await updater.status();if(update.lastResult?.status!=='verifying-startup'){const promoted=await updater.merge.commitInstalled(update.installed);if(promoted?.error)updateNotice={status:'failed',message:promoted.error};}}catch(error){updateNotice={status:'failed',message:'The updated app opened, but source promotion needs review: '+error.message};}
   {const update=await updater.status().catch(()=>null);
     // Another launch already handed over to the runner, which reopens Exomina when done.
     if(update?.inProgress){quitting=true;app.quit();return;}
@@ -1999,10 +2001,14 @@ try{
   // Installer cleanup waits until storage/services and the main page initialize,
   // then requires this process and its renderer to remain healthy for 15 seconds.
   const cleanupHealthTimer=setTimeout(()=>{
-    let pulseTimer;
+    let pulseTimer,pulsing=false;
     const pulse=async()=>{
       if(quitting||!window||window.isDestroyed()||window.webContents.isDestroyed()||window.webContents.isCrashed()){clearInterval(pulseTimer);return;}
-      if(!await updater.confirmStartup({rendererPid:window.webContents.getOSProcessId()}).catch(()=>false))clearInterval(pulseTimer);
+      if(pulsing)return;pulsing=true;
+      try{
+        if(!await responsiveWorkspace(window.webContents))return;
+        if(!await updater.confirmStartup({rendererPid:window.webContents.getOSProcessId()}).catch(()=>false))clearInterval(pulseTimer);
+      }finally{pulsing=false;}
     };
     pulseTimer=setInterval(pulse,1000);pulseTimer.unref?.();pulse();
   },15000);cleanupHealthTimer.unref?.();

@@ -42,7 +42,12 @@ export class ProfileStorage {
       if(recovery&&!/^[A-Fa-f0-9]{40}$/.test(recovery.thumbprint||''))throw blocked('The saved EFS recovery record is invalid. Preserve it and verify your existing recovery backup.');
       this.recoveryRecord=recovery;
       const roots=[...new Set([this.dataDir,this.accountsDir])];
-      for(const root of roots){if(!await this.exists(root))continue;const check=await this.access.inspect(root);this.anyEncrypted||=check.anyEncrypted===true;this.status.encryptionAvailable||=check.efsAvailable===true;}
+      // A verified recovery record selects the existing EFS contract below.
+      // The standard-profile walker rejects legacy runtime cache ownership and
+      // links that are unrelated to the established root-only EFS startup gate.
+      // Unknown/standard profiles still receive the complete inspection before
+      // any permission preparation or storage-mode decision.
+      if(!this.recoveryRecord)for(const root of roots){if(!await this.exists(root))continue;const check=await this.access.inspect(root);this.anyEncrypted||=check.anyEncrypted===true;this.status.encryptionAvailable||=check.efsAvailable===true;}
       if(this.anyEncrypted)this.status.mode='efs';
       if(this.status.mode==='efs'){
         this.status.needsRecovery=!this.recoveryRecord;this.status.pendingEncryption=this.policy?.mode==='efs'&&this.policy.pending===true;
@@ -57,7 +62,7 @@ export class ProfileStorage {
         }
         const check={encrypted:checks.every(value=>value.encrypted===true),restrictedAccess:checks.every(value=>value.restrictedAccess===true)};
         const ready=check.encrypted===true&&check.restrictedAccess===true&&!!this.recoveryRecord;
-        this.status={...this.status,ready,folderEncrypted:ready,protected:ready,restrictedAccess:check.restrictedAccess===true,supported:true,pendingEncryption:this.status.pendingEncryption&&!ready,message:ready?'App folders use Windows EFS encryption.':'Save or verify your EFS recovery key, then enable full-folder encryption.'};
+        this.status={...this.status,ready,folderEncrypted:ready,protected:ready,restrictedAccess:check.restrictedAccess===true,supported:true,encryptionAvailable:ready||this.status.encryptionAvailable,pendingEncryption:this.status.pendingEncryption&&!ready,message:ready?'App folders use Windows EFS encryption.':'Save or verify your EFS recovery key, then enable full-folder encryption.'};
         if(ready)this.privateChecks.set(this.dataDir,{ready:true,mode:'efs',encrypted:true,folderEncrypted:true,restrictedAccess:true});
       }else{
         for(const root of roots){await this.fs.mkdir(root,{recursive:true,mode:0o700});const check=await this.access.prepare(root);if(check.restrictedAccess!==true||check.anyEncrypted===true)throw blocked('Private app access permissions could not be confirmed. Existing data was preserved.');this.status.encryptionAvailable||=check.efsAvailable===true;this.privateChecks.set(root,{ready:true,mode:'standard',folderEncrypted:false,restrictedAccess:true});}

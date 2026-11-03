@@ -116,6 +116,15 @@ test('package orchestration uses the fixed candidate and leaves current stage on
   await assert.rejects(packageLocal({root:f.root,prepare:async()=> '0.5.0-beta.3',run:async(root,args)=>{if(args[0].includes('electron-builder')){await f.make(f.p.candidate,3);throw Error('synthetic build failure');}}}),/synthetic build failure/);
   assert.equal((await inspectPackage(f.p.stage)).build.id,'synthetic-build-2');await assert.rejects(packageLocal({root:f.root,prepare:async()=>assert.fail('version must not advance')}),/previous build transaction/);await f.protectedUnchanged();
 });
+
+test('a failed retained-profile check withholds the candidate and preserves the last good update',async t=>{
+  const f=await fixture(t);await f.make(f.p.stage,1);const calls=[];
+  await assert.rejects(packageLocal({root:f.root,prepare:async()=> '0.5.0-beta.2',record:async()=>assert.fail('failed candidate must not be recorded'),
+    run:async(root,args)=>{calls.push(args[0]);if(args[0].includes('electron-builder'))await f.make(f.p.candidate,2);if(args[0]==='scripts/qa-update-candidate.mjs')throw Error('Synthetic legacy profile refused');},
+    stage:()=>assert.fail('failed candidate must not be promoted')}),/legacy profile refused/);
+  assert.ok(calls.indexOf('scripts/qa-update-candidate.mjs')>calls.indexOf('scripts/stamp-build.mjs'));
+  assert.equal((await inspectPackage(f.p.stage)).build.id,'synthetic-build-1');assert.equal((await inspectPackage(f.p.candidate)).build.id,'synthetic-build-2');await f.protectedUnchanged();
+});
 test('Windows process check detects a package script in use',{skip:process.platform!=='win32'},async t=>{
   const f=await fixture(t);await f.make(f.p.candidate,1);const script=path.join(f.p.candidate,'resources','hold.mjs');await writeFile(script,"console.log('ready');setInterval(()=>{},1000);");
   const child=spawn(process.execPath,[script],{windowsHide:true,stdio:['ignore','pipe','ignore']});t.after(()=>child.kill());await new Promise((resolve,reject)=>{child.once('error',reject);child.stdout.once('data',resolve);});

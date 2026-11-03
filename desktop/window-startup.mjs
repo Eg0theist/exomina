@@ -1,5 +1,15 @@
 const CANCELLED=Symbol('window startup cancelled');
 
+// Process liveness alone cannot detect a hung or blank workspace renderer.
+export async function responsiveWorkspace(contents,{timeoutMs=2000}={}){
+  if(contents.isDestroyed()||contents.isCrashed())return false;
+  let timer;
+  try{return await Promise.race([
+    contents.executeJavaScript("document.readyState === 'complete' && !!document.querySelector('#root .app-shell')").then(value=>value===true,()=>false),
+    new Promise(resolve=>{timer=setTimeout(()=>resolve(false),timeoutMs);}),
+  ]);}catch{return false;}finally{clearTimeout(timer);}
+}
+
 function aborted(error){return error?.code==='ERR_ABORTED'||error?.errno===-3||/\bERR_ABORTED\b/.test(error?.message||'');}
 
 /** A same-page reload can cancel loadURL even while its replacement succeeds. */

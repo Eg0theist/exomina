@@ -35,6 +35,7 @@ scripts.push('qa-profile-owner.mjs');
 scripts.push('package-dependencies.mjs','package-dependencies-before.mjs','package-dependencies-after.mjs');
 scripts.push('package-version.mjs','qa-tool-update-archive.ps1','qa-installer-locks.ps1');
 scripts.push('prepare-dependency-compat.mjs');
+scripts.push('qa-update-candidate.mjs','qa-update-recovery.ps1','qa-efs-upgrade-compat.mjs');
 for(const file of scripts){try{await copy('scripts/'+file);}catch(e){if(e.code!=='ENOENT')throw e;}}
 for(const relative of ['index.html','remote.html','vite.config.mjs','build/icon.ico','build/icon.png'])await copy(relative);
 if(!publicContents)for(const file of ['README.md','PRIVATE-BETA.md','FEEDBACK.md','LICENSE','THIRD-PARTY-NOTICES.txt','SECURITY-AUDIT.txt','VALIDATION.txt'])await cp(path.join(root,'scripts/beta-docs',file),path.join(output,file));

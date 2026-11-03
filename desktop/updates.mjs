@@ -98,7 +98,7 @@ export class Updater {
     if(pending&&!inProgress){
       // A runner can finish its result before removing pending state. Preserve
       // that concrete outcome instead of replacing it with a generic crash.
-      const sameAttempt=lastResult?.attemptId&&lastResult.attemptId===pending.attemptId&&lastResult.buildId===pending.buildId;
+      const sameAttempt=lastResult?.attemptId&&lastResult.attemptId===pending.attemptId&&lastResult.buildId===pending.buildId&&lastResult.status!=='verifying-startup';
       if(!sameAttempt){
         lastResult={buildId:pending.buildId,attemptId:pending.attemptId,status:'failed',message:'The previous updater stopped before it finished. Exomina has reopened; you can retry the update.',finishedAt:new Date().toISOString()};
         await writeFile(path.join(this.stateDir,RESULT),JSON.stringify(lastResult),{mode:0o600});
@@ -116,7 +116,7 @@ export class Updater {
   async takeResult(){
     if(!this.stateDir)return null;
     const file=path.join(this.stateDir,RESULT),value=await readJson(file);
-    if(!value||value.seen)return null;
+    if(!value||value.seen||value.status==='verifying-startup')return null;
     await writeFile(file,JSON.stringify({...value,seen:true}),{mode:0o600}).catch(()=>{});
     return value;
   }

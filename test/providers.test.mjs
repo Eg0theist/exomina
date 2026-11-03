@@ -698,6 +698,12 @@ test('unknown first status never asserts sign-out, and overlapping checks coales
  assert.equal(checks,1);assert.deepEqual(a,b);assert.ok(a.every(row=>!row.connected&&row.statusUnknown));assert.equal(f.manager.loginProcesses.size,0);assert.equal(f.calls.length,0);
 });
 
+test('overlapping status callers also share slow metadata preparation',async t=>{
+ const f=await fixture(t);let preparations=0,release;const gate=new Promise(resolve=>release=resolve);
+ f.manager.prepare=async()=>{preparations++;await gate;};f.manager.getCodex=async()=>({request:async()=>{throw Error('Synthetic timeout');}});f.manager.claudeStatus=async()=>{throw Error('Synthetic timeout');};
+ const first=f.manager.status(),second=f.manager.status();assert.equal(preparations,1);release();await Promise.all([first,second]);assert.equal(f.calls.length,0);assert.equal(f.manager.statusPreparation,null);
+});
+
 test('a status request begun before explicit logout cannot restore a stale connected result',async t=>{
  const f=await fixture(t);let release;const gate=new Promise(resolve=>release=resolve);f.manager.codexUsage=async()=>({});f.manager.codexImageCapabilities=async()=>({});
  f.manager.claudeStatus=async()=>({installed:true,connected:false});f.manager.getCodex=async()=>({request:async method=>{if(method==='account/read'){await gate;return {account:{type:'chatgpt'}};}return {};}});
