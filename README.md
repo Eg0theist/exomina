@@ -128,5 +128,3 @@ Exomina owes a particular debt to [Victor Taelin](https://github.com/VictorTaeli
 The central ideas are compact hierarchical summaries, a bounded view of a much larger history, and the ability to open the original source when details matter. OptMem also provides a model for short durable notes, an append-only source log and summaries that can be rebuilt without discarding those originals.
 
 Exomina builds on these ideas in a local-first desktop application: separate memory trees for conversations, continuity across AI providers, shared saved notes, known message dates and correction links, and configurable sharing and tool permissions. It combines that memory with a visible browser, files, work plans and other integrated workflows. See [Whole-chat memory](CHAT-MEMORY.md) for the implementation and its limits.
-
-**[Support Exomina's development via PayPal: @egotheist](https://www.paypal.com/paypalme/egotheist).** Contributions help fund continued development and testing.
