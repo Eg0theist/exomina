@@ -113,9 +113,10 @@ test('trusted key and pointer callbacks reject ownership lost during an awaited 
   for (const route of ['key', 'pointer']) {
     const wc = fixture();
     let release, dispatched = 0;
-    wc.debugger.sendCommand = async method => {
+    wc.debugger.sendCommand = async (method, params) => {
       if (route === 'key' && method === 'Emulation.setFocusEmulationEnabled') return new Promise(resolve => { release = resolve; });
       if (method === 'Runtime.evaluate') return {result: {objectId: 'fixture-target'}};
+      if (method === 'Runtime.callFunctionOn' && params.returnByValue===false) return {result:{objectId:'fixture-element'}};
       if (method === 'Runtime.callFunctionOn') return new Promise(resolve => { release = () => resolve({result: {value: {x: 10, y: 20}}}); });
       return {};
     };
@@ -137,4 +138,14 @@ test('trusted key and pointer callbacks reject ownership lost during an awaited 
     assert.equal(wc.debugger.isAttached(), true, route + ' must preserve the replacement debugger');
     assert.equal(wc.debugger.detaches, 1);
   }
+});
+
+test('trusted browser selectors travel only as CDP argument data',async()=>{
+  const selector='#field\");globalThis.untrustedCode=true;//',calls=[];
+  const send=async(method,params)=>{calls.push({method,params});if(method==='Runtime.evaluate')return {result:{objectId:'document'}};if(method==='Runtime.callFunctionOn')return params.returnByValue===false?{result:{objectId:'element'}}:{result:{value:{x:10,y:20}}};return {};};
+  await trustedInput(send,{action:'click',input:{selector},expiresAt:Date.now()+5000},undefined,async()=>{});
+  assert.equal(calls.find(c=>c.method==='Runtime.evaluate').params.expression,'document');
+  const lookup=calls.find(c=>c.method==='Runtime.callFunctionOn'&&c.params.returnByValue===false);
+  assert.equal(lookup.params.arguments[0].value,selector);assert.equal(lookup.params.functionDeclaration.includes(selector),false);
+  assert.deepEqual(calls.filter(c=>c.method==='Runtime.releaseObject').map(c=>c.params.objectId).sort(),['document','element']);
 });

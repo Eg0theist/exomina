@@ -29,7 +29,7 @@ export class RemoteMcpAuthStore{
  async remove(url){if(this.unavailableError)throw Error(this.unavailableError);await this.update(url,undefined);}
  async update(url,value){const job=this.queue.catch(()=>{}).then(async()=>{const next={...this.records};if(value===undefined)delete next[key(url)];else next[key(url)]=value;const temp=this.file+'.'+randomUUID()+'.tmp';try{await writeFile(temp,JSON.stringify({version:1,records:next}),{encoding:'utf8',mode:0o600});await rename(temp,this.file);this.records=next;}finally{await unlink(temp).catch(()=>{});}});this.queue=job;return job;}
 }
-export async function oauthLoopback({previous,state,timeoutMs=600000,deferTimeout=false}={}){
+export async function oauthLoopback({previous,state,timeoutMs=600000,deferTimeout=false,setTimer=setTimeout,clearTimer=clearTimeout}={}){
  let resolve,reject,settled=false,cancelled=false,timedOut=false,started=!deferTimeout,timer;const result=new Promise((yes,no)=>{resolve=yes;reject=no;});result.catch(()=>{});
  const route=previous?new URL(previous).pathname:'/callback/'+randomUUID();
  const server=createServer((request,response)=>{
@@ -37,11 +37,11 @@ export async function oauthLoopback({previous,state,timeoutMs=600000,deferTimeou
    let url;try{url=new URL(request.url,'http://'+request.headers.host);}catch{return deny();}
    if(settled||!started||request.method!=='GET'||request.headers.host!==`127.0.0.1:${server.address().port}`||url.pathname!==route||url.searchParams.getAll('state').length!==1||!sameSecret(url.searchParams.get('state'),state)||url.searchParams.getAll('code').length>1||url.searchParams.getAll('iss').length>1)return deny();
    if(!url.searchParams.get('code')&&!url.searchParams.get('error')||url.searchParams.get('code')&&url.searchParams.get('error')||(url.searchParams.get('code')||'').length>4096)return deny();
-   settled=true;clearTimeout(timer);response.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'"});response.end('<!doctype html><title>Exomina sign-in</title><p>Return to Exomina to check the connection.</p>');server.close();resolve(url.searchParams);
+   settled=true;clearTimer(timer);response.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'"});response.end('<!doctype html><title>Exomina sign-in</title><p>Return to Exomina to check the connection.</p>');server.close();resolve(url.searchParams);
  });
  await new Promise((yes,no)=>{server.once('error',no);server.listen(previous?Number(new URL(previous).port):0,'127.0.0.1',yes);});
- const close=()=>{clearTimeout(timer);if(!settled){settled=true;cancelled=true;reject(timedOut?new RemoteMcpAuthTimeoutError(signInExpired):Error('Remote sign-in was cancelled.'));}server.close();server.closeAllConnections?.();};
- const startTimeout=()=>{if(settled||timer)return;started=true;timer=setTimeout(()=>{timedOut=true;close();},timeoutMs);};if(!deferTimeout)startTimeout();
+ const close=()=>{clearTimer(timer);if(!settled){settled=true;cancelled=true;reject(timedOut?new RemoteMcpAuthTimeoutError(signInExpired):Error('Remote sign-in was cancelled.'));}server.close();server.closeAllConnections?.();};
+ const startTimeout=()=>{if(settled||timer)return;started=true;timer=setTimer(()=>{timedOut=true;close();},timeoutMs);};if(!deferTimeout)startTimeout();
  return {redirectUrl:`http://127.0.0.1:${server.address().port}${route}`,result,close,startTimeout,get cancelled(){return cancelled;},get timedOut(){return timedOut;}};
 }
 export class RemoteMcpClient{

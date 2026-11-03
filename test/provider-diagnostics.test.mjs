@@ -158,10 +158,11 @@ test('native Claude suppresses only its optional MachineGuid detector and keeps 
     const setup = environment(name, baseline), requestId = `synthetic-${name}`;
     if (selfTest) {
       setup.env.EXOMINA_DIAGNOSTIC_FORWARDING_FILE = path.join(setup.data, 'forwarding.json');
+      setup.env.EXOMINA_QA_REGISTRY_COMMAND=registryCommand;
       const fixture = path.join(setup.data, 'forwarding.cjs');
       // Each synthetic process writes the same bounded log. Keep these checks
       // sequential; log contention is unrelated to child-process API behavior.
-      fs.writeFileSync(fixture, `const cp=require('node:child_process');const {promisify}=require('node:util');const fs=require('node:fs');const run=promisify(cp.exec);(async()=>{const sentinel=await run('exomina-diagnostic-sentinel');const direct=await new Promise((resolve,reject)=>cp.exec(${JSON.stringify(registryCommand)},(e,stdout)=>e?reject(e):resolve({stdout})));const promised=await run(${JSON.stringify(registryCommand)});fs.writeFileSync(process.env.EXOMINA_DIAGNOSTIC_FORWARDING_FILE,JSON.stringify({sentinel:sentinel.stdout.trim(),direct:direct.stdout.includes('synthetic-machine-id'),promised:promised.stdout.includes('synthetic-machine-id')}));})();`);
+      fs.writeFileSync(fixture, `const cp=require('node:child_process');const {promisify}=require('node:util');const fs=require('node:fs');const run=promisify(cp.exec);(async()=>{const sentinel=await run('exomina-diagnostic-sentinel');const direct=await new Promise((resolve,reject)=>cp.exec(process.env.EXOMINA_QA_REGISTRY_COMMAND,(e,stdout)=>e?reject(e):resolve({stdout})));const promised=await run(process.env.EXOMINA_QA_REGISTRY_COMMAND);fs.writeFileSync(process.env.EXOMINA_DIAGNOSTIC_FORWARDING_FILE,JSON.stringify({sentinel:sentinel.stdout.trim(),direct:direct.stdout.includes('synthetic-machine-id'),promised:promised.stdout.includes('synthetic-machine-id')}));})();`);
       setup.env.BUN_OPTIONS += ` --preload ${bunPath(fixture)}`;
     }
     return await new Promise((resolve, reject) => {

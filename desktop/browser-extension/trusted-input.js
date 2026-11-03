@@ -29,11 +29,13 @@ export async function trustedInput(send,{action,input,expiresAt},signal,pointer)
  if(action==='type'&&(typeof input.text!=='string'||input.text.length>16000))throw Error('Text is too long.');
  check(expiresAt,signal);
  return withInputFocus(send,async()=>{
- let objectId;
+ let objectId,documentId;
  const command=async(method,args)=>{check(expiresAt,signal);return send(method,args);};
  const call=async(fn,args=[])=>value(await command('Runtime.callFunctionOn',{objectId,functionDeclaration:fn.toString(),arguments:args.map(value=>({value})),returnByValue:true,awaitPromise:true})).value;
  try{
-  const target=value(await command('Runtime.evaluate',{expression:`(()=>{if(Date.now()>${expiresAt})throw Error('This browser action expired.');const found=document.querySelectorAll(${JSON.stringify(input.selector)});if(found.length!==1)throw Error('The target is missing or ambiguous. Read a fresh browser snapshot.');return found[0]})()`,returnByValue:false}));
+  documentId=value(await command('Runtime.evaluate',{expression:'document',returnByValue:false})).objectId;
+  if(!documentId)throw Error('The browser document is unavailable.');
+  const target=value(await command('Runtime.callFunctionOn',{objectId:documentId,functionDeclaration:function(selector,deadline){if(Date.now()>deadline)throw Error('This browser action expired.');const found=this.querySelectorAll(selector);if(found.length!==1)throw Error('The target is missing or ambiguous. Read a fresh browser snapshot.');return found[0];}.toString(),arguments:[{value:input.selector},{value:expiresAt}],returnByValue:false}));
   objectId=target.objectId;if(!objectId)throw Error('The browser target is unavailable.');
   const point=await call(function(action){
    if(!this.isConnected)throw Error('The target was replaced. Read a fresh snapshot.');
@@ -86,6 +88,6 @@ export async function trustedInput(send,{action,input,expiresAt},signal,pointer)
   },[input.text]);
   check(expiresAt,signal);if(!verified)throw Error('The page did not retain the requested text. The input was not verified; read a fresh snapshot before retrying.');
   return {route:'trusted',dispatched:true,valueVerified:true};
- }finally{if(objectId)await send('Runtime.releaseObject',{objectId}).catch(()=>{});}
+ }finally{for(const id of new Set([objectId,documentId].filter(Boolean)))await send('Runtime.releaseObject',{objectId:id}).catch(()=>{});}
  });
 }

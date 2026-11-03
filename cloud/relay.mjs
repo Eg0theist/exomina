@@ -35,11 +35,11 @@ export class RelayService{
   // One poll per device; a newer poll ends the older one empty.
   async inbox(auth,{waitMs=0,signal}={}){
     const now=this.list(auth.deviceId);if(now.length||!waitMs)return {messages:now};
-    this.waiters.get(auth.deviceId)?.();
+    this.waiters.get(auth.deviceId)?.finish();
     await new Promise((resolve)=>{
-      const done=()=>{clearTimeout(timer);signal?.removeEventListener?.('abort',done);if(this.waiters.get(auth.deviceId)===done)this.waiters.delete(auth.deviceId);resolve();};
+      const done=()=>{clearTimeout(timer);signal?.removeEventListener?.('abort',done);if(this.waiters.get(auth.deviceId)?.finish===done)this.waiters.delete(auth.deviceId);resolve();};
       const timer=setTimeout(done,Math.min(waitMs,this.limits.maxWaitMs));
-      signal?.addEventListener?.('abort',done);this.waiters.set(auth.deviceId,done);
+      signal?.addEventListener?.('abort',done);this.waiters.set(auth.deviceId,{finish:done});
     });
     return {messages:this.list(auth.deviceId)};
   }
@@ -50,8 +50,8 @@ export class RelayService{
     return {removed};
   }
   reset(auth){const removed=this.db.prepare('DELETE FROM mailbox WHERE to_device=?').run(auth.deviceId).changes;this.wake(auth.deviceId);return {removed};}
-  wake(deviceId){this.waiters.get(deviceId)?.();}
+  wake(deviceId){this.waiters.get(deviceId)?.finish();}
   purgeDevice(deviceId){this.db.prepare('DELETE FROM mailbox WHERE to_device=? OR from_device=?').run(deviceId,deviceId);this.wake(deviceId);}
   purgeExpired(){this.db.prepare('DELETE FROM mailbox WHERE created<?').run(this.now()-this.limits.ttlMs);}
-  close(){for(const done of [...this.waiters.values()])done();}
+  close(){for(const waiter of [...this.waiters.values()])waiter.finish();}
 }

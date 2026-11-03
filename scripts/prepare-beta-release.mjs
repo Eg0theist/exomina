@@ -52,8 +52,6 @@ await writeFile(path.join(output,'build/update-channel.json'),publicRelease?awai
 await writeFile(path.join(output,'desktop/theme-catalog.mjs'),"export {THEMES,THEME_PROFILE} from './theme-catalog-standard.mjs';\n");
 await writeFile(path.join(output,'desktop/distribution.mjs'),`export const DISTRIBUTION_PROFILE=${JSON.stringify(publicRelease?'public':'beta')};\nexport const DISTRIBUTION_REPOSITORY=${JSON.stringify(repository)};\n`);
 await writeFile(path.join(output,'src/voice-preview-clips.js'),"export {VOICE_PREVIEW_CLIPS,VOICE_CLEAR_PREVIEW_CLIPS} from './voice-preview-clips-beta.js';\n");
-// Generic synthetic fixture text, not anyone's profile or writing samples.
-for(const file of [...(await readdir(path.join(output,'test'))).filter(file=>file.endsWith('.mjs')).map(file=>'test/'+file),'scripts/prepare-beta-release.mjs','src/theme-materials.css']){const target=path.join(output,file),text=await readFile(target,'utf8');await writeFile(target,text.replaceAll('Alex Example','Alex Example').replaceAll('Alex','Alex').replaceAll('alex','alex').replaceAll('Example City','Example City').replaceAll('Fantasy','Fantasy').replaceAll('fantasy','fantasy').replaceAll('Fantasy City','Fantasy City').replaceAll('fantasy-city','fantasy-city'));}
 const pkg=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
 pkg.description=publicRelease?'Exomina desktop workspace for AI, memory and tools':publicSource?'Exomina cross-platform beta':'Exomina private Windows beta';pkg.author='Exomina';pkg.homepage=repository;
 delete pkg.dependencies['@anthropic-ai/claude-code-win32-x64'];

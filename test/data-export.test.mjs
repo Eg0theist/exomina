@@ -65,7 +65,7 @@ test('Markdown retains verbatim Unicode, line breaks, code fences, source URLs, 
   const data = fixture(); const result = await createDataExport(data, { scope: 'all', format: 'markdown' });
   assert.equal(result.mimeType, 'text/markdown'); assert.match(result.filename, /\.md$/);
   assert.ok(result.content.includes(data.chats[0].messages[0].content)); assert.ok(result.content.includes(data.chats[0].messages[1].content));
-  assert.ok(result.content.includes('Préférence 中文 🌙')); assert.ok(result.content.includes('https://example.com/source'));
+  assert.ok(result.content.includes('Préférence 中文 🌙')); assert.match(result.content,/https:\/\/example\.com\/source(?:\s|$)/);
   assert.ok(result.content.includes('Run status: Synthetic stopped run')); assert.ok(result.content.endsWith('\n'));
 });
 
