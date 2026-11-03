@@ -34,6 +34,9 @@
 .standard-home{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:0 24px 26px;width:100%;max-width:760px;margin:0 auto}
 .standard-home h1{font-size:36px;font-weight:620;letter-spacing:-.9px;line-height:1.15;color:var(--text);margin-top:4px}
 .standard-home>p{font-size:16px;color:var(--text-3)}
+.standard-review-hint{font-size:12px;line-height:1.5;color:var(--text-2);margin:2px 0 8px}
+.standard-explore{width:100%;text-align:left;border:1px solid var(--line);border-radius:12px;padding:0 14px}.standard-explore>summary{cursor:pointer;font-size:13px;color:var(--text-2);padding:13px 0}.standard-explore[open]{padding-bottom:14px}.standard-explore .ambition-ideas{margin-top:0}.standard-explore .ambition-ideas-head{margin-top:5px}
+.standard-home-help{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 22px;margin-top:6px}.standard-home-help .text-button{font-size:12px;min-height:32px}
 .standard-tiers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:10px 12px 2px}
 .standard-model-select{display:flex;flex-direction:column;gap:5px;padding:8px 12px 0;font-size:12px;color:var(--text-2)}
 .standard-model-select select{padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px}

@@ -2,6 +2,8 @@ import {mkdir, lstat, chmod} from 'node:fs/promises';
 import path from 'node:path';
 import {createHash, randomUUID} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
+import {Worker} from 'node:worker_threads';
+import {fileURLToPath} from 'node:url';
 import { SEARCH_ONLY_CHARS, searchOnlyNote, searchOnlyRangeNote, isMachineKind, machineExcerpt, machineRangeNote, toolName, characters } from './chat-memory-classification.mjs';
 
 const bytes=value=>Buffer.byteLength(value,'utf8');
@@ -22,6 +24,7 @@ export class ChatMemoryTree {
   #db=null;
   #initializing=null;
   #statements=new Map();
+  #repairQueue=Promise.resolve();
   constructor(dataDir,options={}){
     this.dir=path.join(path.resolve(dataDir),'chat-memory');
     this.options={turnHigh:128000,turnLow:64000,compactionHigh:32000,compactionLow:16000,maxSummaryBytes:512,...options};
@@ -41,6 +44,7 @@ export class ChatMemoryTree {
         db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON; PRAGMA busy_timeout=5000; PRAGMA temp_store=MEMORY; PRAGMA foreign_keys=ON;
           CREATE TABLE IF NOT EXISTS tree_chats(chat_id TEXT PRIMARY KEY,next_id INTEGER NOT NULL DEFAULT 0,generation INTEGER NOT NULL DEFAULT 0,revision INTEGER NOT NULL DEFAULT 0,original_bytes INTEGER NOT NULL DEFAULT 0,node_count INTEGER NOT NULL DEFAULT 0,built_count INTEGER NOT NULL DEFAULT 0,ready_count INTEGER NOT NULL DEFAULT 0,running_count INTEGER NOT NULL DEFAULT 0,failed_count INTEGER NOT NULL DEFAULT 0);
           CREATE TABLE IF NOT EXISTS tree_originals(chat_id TEXT NOT NULL REFERENCES tree_chats(chat_id) ON DELETE CASCADE,id INTEGER NOT NULL,event_key TEXT NOT NULL,role TEXT NOT NULL,kind TEXT NOT NULL,created_at TEXT NOT NULL,text TEXT NOT NULL,metadata TEXT NOT NULL,source_hash TEXT NOT NULL,PRIMARY KEY(chat_id,id),UNIQUE(chat_id,event_key));
+          CREATE TABLE IF NOT EXISTS tree_event_aliases(chat_id TEXT NOT NULL,event_key TEXT NOT NULL,id INTEGER NOT NULL,source_hash TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(chat_id,event_key),FOREIGN KEY(chat_id,id) REFERENCES tree_originals(chat_id,id) ON DELETE CASCADE);
           CREATE TRIGGER IF NOT EXISTS tree_original_immutable BEFORE UPDATE ON tree_originals BEGIN SELECT RAISE(ABORT,'Chat originals are immutable.'); END;
           CREATE TABLE IF NOT EXISTS tree_nodes(chat_id TEXT NOT NULL REFERENCES tree_chats(chat_id) ON DELETE CASCADE,id INTEGER NOT NULL,count INTEGER NOT NULL,text TEXT,source_hash TEXT NOT NULL,content_hash TEXT,built_as TEXT,PRIMARY KEY(chat_id,id,count));
           CREATE INDEX IF NOT EXISTS tree_saved_model ON tree_nodes(chat_id,id,count) WHERE built_as='summary';
@@ -53,9 +57,11 @@ export class ChatMemoryTree {
           CREATE TABLE IF NOT EXISTS tree_views(chat_id TEXT NOT NULL REFERENCES tree_chats(chat_id) ON DELETE CASCADE,mode TEXT NOT NULL,bytes INTEGER NOT NULL DEFAULT 0,compacting INTEGER NOT NULL DEFAULT 0,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(chat_id,mode));
           CREATE TABLE IF NOT EXISTS tree_view_entries(chat_id TEXT NOT NULL,mode TEXT NOT NULL,id INTEGER NOT NULL,count INTEGER NOT NULL,bytes INTEGER NOT NULL,PRIMARY KEY(chat_id,mode,id),FOREIGN KEY(chat_id,mode) REFERENCES tree_views(chat_id,mode) ON DELETE CASCADE);
           CREATE TABLE IF NOT EXISTS tree_view_candidates(chat_id TEXT NOT NULL,mode TEXT NOT NULL,id INTEGER NOT NULL,count INTEGER NOT NULL,last_id INTEGER NOT NULL,saved_bytes INTEGER NOT NULL,PRIMARY KEY(chat_id,mode,id,count),FOREIGN KEY(chat_id,mode) REFERENCES tree_views(chat_id,mode) ON DELETE CASCADE);
-          CREATE INDEX IF NOT EXISTS tree_candidate_view ON tree_view_candidates(chat_id,mode,id,count);
-          UPDATE tree_jobs SET state='ready',token=NULL WHERE state='running';`);
+          CREATE INDEX IF NOT EXISTS tree_candidate_view ON tree_view_candidates(chat_id,mode,id,count);`);
+        if(this.options.recoverRunningJobs!==false)db.exec("UPDATE tree_jobs SET state='ready',token=NULL WHERE state='running'");
         const columns=new Set(db.prepare('PRAGMA table_info(tree_chats)').all().map(column=>column.name));let addedJobCounts=false;
+        if(!columns.has('retired_count'))db.exec('ALTER TABLE tree_chats ADD COLUMN retired_count INTEGER NOT NULL DEFAULT 0');
+        if(!columns.has('repair_revision'))db.exec('ALTER TABLE tree_chats ADD COLUMN repair_revision INTEGER NOT NULL DEFAULT 0');
         for(const column of ['ready_count','running_count','failed_count'])if(!columns.has(column)){db.exec(`ALTER TABLE tree_chats ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);addedJobCounts=true;}
         db.exec(`CREATE TABLE IF NOT EXISTS tree_migrations(name TEXT PRIMARY KEY);
           CREATE TRIGGER IF NOT EXISTS tree_job_count_insert AFTER INSERT ON tree_jobs BEGIN UPDATE tree_chats SET ready_count=ready_count+(NEW.state='ready'),running_count=running_count+(NEW.state='running'),failed_count=failed_count+(NEW.state='failed') WHERE chat_id=NEW.chat_id; END;
@@ -85,6 +91,24 @@ export class ChatMemoryTree {
   }
   #sql(sql){let statement=this.#statements.get(sql);if(!statement){statement=this.#db.prepare(sql);this.#statements.set(sql,statement);}return statement;}
   #transaction(run){this.#db.exec('BEGIN IMMEDIATE');try{const result=run();this.#db.exec('COMMIT');return result;}catch(error){this.#db.exec('ROLLBACK');throw error;}}
+  async #writable(){
+    await this.init();
+    for(;;){const pending=this.#repairQueue;await pending;if(pending===this.#repairQueue)return;}
+  }
+  #repairInWorker(request){
+    const run=()=>new Promise((resolve,reject)=>{
+      const file=fileURLToPath(new URL('./chat-memory-repair-worker.mjs',import.meta.url)).replace(/app\.asar(?=[\\/])/u,'app.asar.unpacked');
+      const worker=new Worker(file,{workerData:{dataDir:path.dirname(this.dir),options:{...this.options,repairInWorker:false,recoverRunningJobs:false},request}});
+      let done=false;
+      const finish=(callback,value)=>{if(done)return;done=true;worker.removeAllListeners();worker.terminate().catch(()=>{});callback(value);};
+      worker.once('message',message=>message.error?finish(reject,Error(message.error)):finish(resolve,message.result));
+      worker.once('error',error=>finish(reject,error));
+      worker.once('exit',code=>finish(reject,Error('Follow-up cleanup worker stopped ('+code+').')));
+    });
+    const next=this.#repairQueue.then(run);
+    this.#repairQueue=next.catch(()=>{});
+    return next;
+  }
   #chat(chatId){return this.#sql('SELECT * FROM tree_chats WHERE chat_id=?').get(chatId);}
   #normalize(event){
     if(!plain(event))throw Error('A chat event is required.');
@@ -147,8 +171,11 @@ export class ChatMemoryTree {
     const sourceHash=hash(canonical(children.map(child=>({id:child.id,count,hash:child.content_hash}))));
     this.#ensureNode(chatId,left,width,sourceHash);
     if(this.#sql('SELECT text FROM tree_nodes WHERE chat_id=? AND id=? AND count=?').get(chatId,left,width).text!==null)return;
-    const joined=children.map(child=>child.text).join('\n');
-    if(children.every(child=>child.built_as==='search-only') && bytes(searchOnlyRangeNote)<=this.options.maxSummaryBytes)this.#buildNode(chatId,left,width,searchOnlyRangeNote,sourceHash,'search-only');
+    // Retired stream fragments are pointers, not material for model summaries.
+    const retained=children.filter(child=>child.built_as!=='duplicate');
+    const joined=retained.map(child=>child.text).join('\n');
+    if(!retained.length)this.#buildNode(chatId,left,width,'[Duplicate streamed fragments removed; old source links resolve to the retained answer.]',sourceHash,'duplicate');
+    else if(children.every(child=>child.built_as==='search-only') && bytes(searchOnlyRangeNote)<=this.options.maxSummaryBytes)this.#buildNode(chatId,left,width,searchOnlyRangeNote,sourceHash,'search-only');
     else if(bytes(joined)<=this.options.maxSummaryBytes)this.#buildNode(chatId,left,width,joined,sourceHash,'joined');
     else{const note=this.#machineRangeNote(chatId,left,width);if(note)this.#buildNode(chatId,left,width,note,sourceHash,'machine');else this.#sql('INSERT OR IGNORE INTO tree_jobs(chat_id,id,count,source_hash) VALUES(?,?,?,?)').run(chatId,left,width,sourceHash);}
   }
@@ -192,8 +219,17 @@ export class ChatMemoryTree {
   }
   #settle(chatId){for(const mode of ['turn','compaction'])this.#settleView(chatId,mode);}
   #append(chatId,event){
-    const existing=this.#sql('SELECT id,source_hash FROM tree_originals WHERE chat_id=? AND event_key=?').get(chatId,event.key);
+    const existing=this.#sql('SELECT id,source_hash FROM tree_originals WHERE chat_id=? AND event_key=?').get(chatId,event.key)||this.#sql('SELECT id,source_hash FROM tree_event_aliases WHERE chat_id=? AND event_key=?').get(chatId,event.key);
     if(existing){if(existing.source_hash!==event.sourceHash)throw Object.assign(Error('An event key already exists with different immutable content.'),{code:'CHAT_MEMORY_EVENT_CONFLICT'});return {chatId,id:existing.id,appended:false};}
+    // A legacy complete answer already has its chronological position. Give the
+    // stable recorder an alias to that row rather than copying it to the tail.
+    const followup=/^followup:(.+):answer:part:(\d+)$/.exec(event.key);
+    if(followup&&event.kind==='assistant'&&JSON.parse(event.metadata).followupId===followup[1]){
+      const prefix=`followup:${followup[1]}:answer:`;
+      const candidates=this.#sql("SELECT id,event_key,created_at,metadata FROM tree_originals WHERE chat_id=? AND event_key>=? AND event_key<? AND kind='assistant' AND text=? AND created_at IN ('',?) ORDER BY (created_at=?) DESC,id").all(chatId,prefix,prefix+'\uffff',event.text,event.createdAt,event.createdAt);
+      const target=candidates.find(row=>new RegExp('^[0-9a-f]{64}:part:'+followup[2]+'(?::revision:[0-9a-f]{64})?$').test(row.event_key.slice(prefix.length))&&JSON.parse(row.metadata).followupId===followup[1]);
+      if(target){this.#sql('INSERT INTO tree_event_aliases(chat_id,event_key,id,source_hash,created_at) VALUES(?,?,?,?,?)').run(chatId,event.key,target.id,event.sourceHash,event.createdAt);return {chatId,id:target.id,appended:false};}
+    }
     this.#ensureChat(chatId);
     const id=this.#chat(chatId).next_id;
     integer(id+1,'next node id');
@@ -214,14 +250,107 @@ export class ChatMemoryTree {
     else this.#sql('INSERT INTO tree_jobs(chat_id,id,count,source_hash) VALUES(?,?,1,?)').run(chatId,id,event.sourceHash);
     return {chatId,id,appended:true};
   }
-  async append(chatId,event){identifier(chatId,'chat id');const normalized=this.#normalize(event);await this.init();return this.#transaction(()=>{const result=this.#append(chatId,normalized);this.#settle(chatId);return result;});}
+  async append(chatId,event){identifier(chatId,'chat id');const normalized=this.#normalize(event);await this.#writable();return this.#transaction(()=>{const result=this.#append(chatId,normalized);this.#settle(chatId);return result;});}
+  /**
+   * Replace proven prefixes from the old answer:<text hash> recorder with small
+   * redirects. Permanent numeric IDs and dates stay valid. Distinct completed
+   * revisions, divergent text, user messages and tool evidence are untouched.
+   * The entire card repair and cache invalidation commit together.
+   */
+  async repairFollowupDuplicates(chatId,followupId,parts,createdAt=null){
+    return this.repairFollowupBatch(chatId,[{followupId,parts,createdAt}]);
+  }
+  async repairFollowupBatch(chatId,cards){
+    identifier(chatId,'chat id');
+    if(!Array.isArray(cards)||cards.length>10000)throw Error('Invalid follow-up repair batch.');
+    await this.#writable();
+    const markers=[],planned=new Map();
+    for(const {followupId,parts,createdAt=null} of cards){
+      identifier(followupId,'follow-up id');
+      if(!Array.isArray(parts)||!parts.length||parts.some(text=>typeof text!=='string'))throw Error('Completed answer parts are required.');
+      const date=createdAt?new Date(createdAt).toISOString():'';
+      const marker='followup-streams-v1:'+hash(chatId)+':'+hash(canonical([followupId,parts,date]));
+      if(this.#sql('SELECT 1 FROM tree_migrations WHERE name=?').get(marker))continue;
+      const targets=[];
+      for(let index=0;index<parts.length;index++){
+        const key=`followup:${followupId}:answer:part:${index}`,revision=key+':revision:';
+        const target=this.#sql("SELECT id FROM tree_originals WHERE chat_id=? AND event_key>=? AND event_key<? AND (event_key=? OR substr(event_key,1,?)=?) AND text=? AND created_at=? AND kind='assistant' ORDER BY id DESC LIMIT 1").get(chatId,key,key+'\uffff',key,revision.length,revision,parts[index],date)||this.#sql("SELECT o.id FROM tree_event_aliases a JOIN tree_originals o USING(chat_id,id) WHERE a.chat_id=? AND a.event_key=? AND a.created_at=? AND o.text=? AND o.kind='assistant'").get(chatId,key,date,parts[index]);
+        if(!target)return {removed:0,incomplete:true};
+        targets.push(target.id);
+      }
+      markers.push(marker);
+      const prefix=`followup:${followupId}:answer:`;
+      if(this.options.repairInWorker!==false){
+        const legacy=this.#sql("SELECT 1 FROM tree_originals WHERE chat_id=? AND event_key>=? AND event_key<? AND event_key GLOB ? AND kind='assistant' LIMIT 1").get(chatId,prefix,prefix+'\uffff',prefix+'[0-9a-f]*:part:*');
+        if(legacy)return this.#repairInWorker({chatId,cards});
+        continue;
+      }
+      for(const row of this.#sql("SELECT id,event_key,text,created_at,metadata,source_hash FROM tree_originals WHERE chat_id=? AND event_key>=? AND event_key<? AND kind='assistant' ORDER BY id").iterate(chatId,prefix,prefix+'\uffff')){
+        const suffix=row.event_key.slice(prefix.length),match=/^[0-9a-f]{64}:part:(\d+)(?::revision:[0-9a-f]{64})?$/.exec(suffix);
+        if(!match)continue;
+        const part=Number(match[1]),metadata=JSON.parse(row.metadata);
+        if(metadata.followupId!==followupId||targets[part]===undefined||targets.includes(row.id)||!parts[part].startsWith(row.text))continue;
+        if(row.created_at&&(row.created_at!==date||row.text!==parts[part]))continue;
+        planned.set(row.id,{id:row.id,key:row.event_key,date:row.created_at,sourceHash:row.source_hash,bytes:bytes(row.text),target:targets[part],followupId});
+      }
+    }
+    if(!markers.length)return {removed:0,alreadyRepaired:true};
+    const plan=[...planned.values()];
+    return this.#transaction(()=>{
+      const mark=()=>{for(const marker of markers)this.#sql('INSERT OR IGNORE INTO tree_migrations(name) VALUES(?)').run(marker);};
+      if(!plan.length){mark();return {removed:0};}
+      const chat=this.#chat(chatId),affected=new Map();
+      for(const row of plan)for(let count=1;count<=chat.next_id;count*=2){
+        const id=Math.floor(row.id/count)*count;if(id+count>chat.next_id)break;
+        if(!affected.has(count))affected.set(count,new Set());affected.get(count).add(id);
+      }
+      // Views are rebuilt after invalidating every dependent summary. Unaffected
+      // summaries are reusable; running jobs on changed sources become stale.
+      this.#sql('DELETE FROM tree_view_entries WHERE chat_id=?').run(chatId);
+      this.#sql('DELETE FROM tree_view_candidates WHERE chat_id=?').run(chatId);
+      this.#sql('UPDATE tree_views SET bytes=0,compacting=0,revision=revision+1 WHERE chat_id=?').run(chatId);
+      let removedNodes=0,removedBuilt=0;
+      for(const [count,ids] of affected)for(const id of ids){
+        this.#sql('DELETE FROM tree_jobs WHERE chat_id=? AND id=? AND count=?').run(chatId,id,count);
+        const prior=this.#sql('DELETE FROM tree_nodes WHERE chat_id=? AND id=? AND count=? RETURNING text').get(chatId,id,count);
+        if(prior){removedNodes++;if(prior.text!==null)removedBuilt++;}
+      }
+      this.#sql('UPDATE tree_chats SET node_count=node_count-?,built_count=built_count-? WHERE chat_id=?').run(removedNodes,removedBuilt,chatId);
+      let removedBytes=0;
+      for(const row of plan){
+        const replacement=this.#normalize({key:row.key,text:'',role:'assistant',kind:'duplicate',createdAt:row.date||null,metadata:{followupId:row.followupId,duplicateOf:row.target,supersededSourceHash:row.sourceHash}});
+        this.#sql('DELETE FROM tree_originals WHERE chat_id=? AND id=?').run(chatId,row.id);
+        this.#sql('INSERT INTO tree_originals(chat_id,id,event_key,role,kind,created_at,text,metadata,source_hash) VALUES(?,?,?,?,?,?,?,?,?)').run(chatId,row.id,replacement.key,replacement.role,replacement.kind,replacement.createdAt,replacement.text,replacement.metadata,replacement.sourceHash);
+        removedBytes+=row.bytes;
+        this.#buildNode(chatId,row.id,1,`[Duplicate streamed fragment removed; retained answer at ${row.target}+1.]`,replacement.sourceHash,'duplicate');
+      }
+      this.#sql('UPDATE tree_chats SET original_bytes=original_bytes-?,retired_count=retired_count+?,repair_revision=repair_revision+1,generation=generation+1,revision=revision+1 WHERE chat_id=?').run(removedBytes,plan.length,chatId);
+      // Start with the largest available disjoint ranges and keep a recent tail.
+      // This avoids inserting/sorting hundreds of thousands of leaf candidates.
+      const entries=[],recent=Math.max(0,chat.next_id-16);
+      for(let id=0;id<chat.next_id;){
+        const max=id<recent?recent-id:1;
+        const node=this.#sql('SELECT count,text FROM tree_nodes WHERE chat_id=? AND id=? AND count<=? AND text IS NOT NULL ORDER BY count DESC LIMIT 1').get(chatId,id,max);
+        const count=node?.count||1,text=node?.text??pendingText;
+        entries.push({id,count,bytes:entryBytes(id,count,text)});id+=count;
+      }
+      for(const mode of ['turn','compaction']){
+        for(const entry of entries)this.#sql('INSERT INTO tree_view_entries(chat_id,mode,id,count,bytes) VALUES(?,?,?,?,?)').run(chatId,mode,entry.id,entry.count,entry.bytes);
+        this.#sql('UPDATE tree_views SET bytes=? WHERE chat_id=? AND mode=?').run(entries.reduce((sum,entry)=>sum+entry.bytes,0),chatId,mode);
+        for(const entry of entries)this.#candidate(chatId,mode,entry.id,entry.count);
+      }
+      this.#settle(chatId);
+      mark();
+      return {removed:plan.length,removedBytes,cards:markers.length};
+    });
+  }
   /**
    * Catch up queued tool-only entries in small transactions while this chat is used.
    * Jobs are visited once in (count,id) order; parents completed meanwhile join later pages.
    * Pass the returned cursor back to continue. Originals are never edited.
    */
   async classifyDeterministic(chatId,{limit=64,cursor=null}={}){
-    identifier(chatId,'chat id');integer(limit,'classification batch',1,1024);await this.init();
+    identifier(chatId,'chat id');integer(limit,'classification batch',1,1024);await this.#writable();
     const [afterCount,afterId]=cursor??[0,-1];integer(afterCount,'cursor count');integer(afterId+1,'cursor id');
     return this.#transaction(()=>{
       const jobs=this.#sql("SELECT id,count,source_hash FROM tree_jobs WHERE chat_id=? AND state IN ('ready','failed') AND (count>? OR count=? AND id>?) ORDER BY count,id LIMIT ?").all(chatId,afterCount,afterCount,afterId,limit);
@@ -244,16 +373,16 @@ export class ChatMemoryTree {
   /** One page from the start; kept for callers of the earlier search-only catch-up. */
   async classifySearchOnly(chatId,{limit=64}={}){return this.classifyDeterministic(chatId,{limit});}
   async sync(chatId,events){
-    identifier(chatId,'chat id');if(!Array.isArray(events))throw Error('Chat events must be an array.');const normalized=events.map(event=>this.#normalize(event));await this.init();
+    identifier(chatId,'chat id');if(!Array.isArray(events))throw Error('Chat events must be an array.');const normalized=events.map(event=>this.#normalize(event));await this.#writable();
     return this.#transaction(()=>{const results=normalized.map(event=>this.#append(chatId,event));if(this.#chat(chatId))this.#settle(chatId);return {chatId,appended:results.filter(result=>result.appended).length,total:this.#chat(chatId)?.next_id??0,results};});
   }
-  async resume(chatId){identifier(chatId,'chat id');await this.init();return this.#transaction(()=>{const changed=this.#sql('UPDATE tree_chats SET generation=generation+1 WHERE chat_id=?').run(chatId).changes;const generation=this.#chat(chatId)?.generation??0;this.#sql("UPDATE tree_jobs SET state='ready',retry_after=0 WHERE chat_id=? AND state='failed' AND blocked_generation<?").run(chatId,generation);return {chatId,resumed:!!changed,generation};});}
+  async resume(chatId){identifier(chatId,'chat id');await this.#writable();return this.#transaction(()=>{const changed=this.#sql('UPDATE tree_chats SET generation=generation+1 WHERE chat_id=?').run(chatId).changes;const generation=this.#chat(chatId)?.generation??0;this.#sql("UPDATE tree_jobs SET state='ready',retry_after=0 WHERE chat_id=? AND state='failed' AND blocked_generation<?").run(chatId,generation);return {chatId,resumed:!!changed,generation};});}
   async nextRetry({chatId}={}){
     if(chatId!==undefined)identifier(chatId,'chat id');await this.init();
     return this.#sql(`SELECT MIN(retry_after) AS at FROM tree_jobs WHERE retry_after>0 AND state IN ('ready','failed')${chatId===undefined?'':' AND chat_id=?'}`).get(...(chatId===undefined?[]:[chatId])).at||0;
   }
   async readyJobs(limit=8,{chatId,now=Date.now()}={}){
-    integer(limit,'job limit',1,1024);integer(now,'retry time');if(chatId!==undefined)identifier(chatId,'chat id');await this.init();
+    integer(limit,'job limit',1,1024);integer(now,'retry time');if(chatId!==undefined)identifier(chatId,'chat id');await this.#writable();
     return this.#transaction(()=>{
       this.#sql(`UPDATE tree_jobs SET state='ready' WHERE state='failed' AND retry_after>0 AND retry_after<=?${chatId===undefined?'':' AND chat_id=?'}`).run(now,...(chatId===undefined?[]:[chatId]));
       // Keep the normal eight-leaf window, but failed/cooling sources cannot
@@ -301,7 +430,7 @@ export class ChatMemoryTree {
     return {job:{...job},source,context,contextBytes,contextEnd,contextPending:!!hole,contextTruncated,prefix:job.count===1?source[0].prefix:'',maxBytes:this.options.maxSummaryBytes,bodyMaxBytes};
   }
   async commitSummary(job,text,details={}){
-    validText(text);text=text.trim();if(!text)throw Error('A chat summary cannot be empty.');await this.init();
+    validText(text);text=text.trim();if(!text)throw Error('A chat summary cannot be empty.');await this.#writable();
     return this.#transaction(()=>{
       if(!this.#currentJob(job))return {committed:false,stale:true};
       if(job.count===1){const original=this.#sql('SELECT role,kind FROM tree_originals WHERE chat_id=? AND id=?').get(job.chatId,job.id);const label=prefix(original);if(!text.startsWith(`${label} `)&&text!==label)text=`${label} ${text}`;}
@@ -314,7 +443,7 @@ export class ChatMemoryTree {
     });
   }
   async deferJob(job){
-    await this.init();return this.#transaction(()=>{if(!this.#currentJob(job))return {deferred:false,stale:true};this.#sql("UPDATE tree_jobs SET state='ready',token=NULL,last_error=NULL WHERE chat_id=? AND id=? AND count=?").run(job.chatId,job.id,job.count);return {deferred:true};});
+    await this.#writable();return this.#transaction(()=>{if(!this.#currentJob(job))return {deferred:false,stale:true};this.#sql("UPDATE tree_jobs SET state='ready',token=NULL,last_error=NULL WHERE chat_id=? AND id=? AND count=?").run(job.chatId,job.id,job.count);return {deferred:true};});
   }
   /** Read committed summaries and outstanding jobs only from explicitly allowed chats. */
   async progress(chatIds,{chatId=null,state='saved',offset=0,limit=20}={}){
@@ -340,13 +469,15 @@ export class ChatMemoryTree {
     return {capturedAt:new Date().toISOString(),totals,chats,entries,state,chatId,offset,total,nextOffset:offset+entries.length<total?offset+entries.length:null};
   }
   async failJob(job,error='Summary unavailable.',{retryAt=0}={}){
-    integer(retryAt,'retry deadline');await this.init();return this.#transaction(()=>{if(!this.#currentJob(job))return {failed:false,stale:true};const generation=this.#chat(job.chatId).generation;const message=String(error?.message??error).slice(0,400);this.#sql("UPDATE tree_jobs SET state='failed',token=NULL,blocked_generation=?,last_error=?,retry_after=? WHERE chat_id=? AND id=? AND count=?").run(generation,message,retryAt,job.chatId,job.id,job.count);return {failed:true,retryAfterEventGeneration:generation,retryAt};});
+    integer(retryAt,'retry deadline');await this.#writable();return this.#transaction(()=>{if(!this.#currentJob(job))return {failed:false,stale:true};const generation=this.#chat(job.chatId).generation;const message=String(error?.message??error).slice(0,400);this.#sql("UPDATE tree_jobs SET state='failed',token=NULL,blocked_generation=?,last_error=?,retry_after=? WHERE chat_id=? AND id=? AND count=?").run(generation,message,retryAt,job.chatId,job.id,job.count);return {failed:true,retryAfterEventGeneration:generation,retryAt};});
   }
   async view(chatId,{kind='turn'}={}){
     identifier(chatId,'chat id');if(!['turn','compaction'].includes(kind))throw Error('Invalid chat memory view.');await this.init();
     const chat=this.#chat(chatId),state=this.#sql('SELECT * FROM tree_views WHERE chat_id=? AND mode=?').get(chatId,kind);
     if(!chat)return {chatId,kind,entries:[],text:'',bytes:0,revision:0,total:0,compacting:false};
-    const entries=this.#sql('SELECT id,count FROM tree_view_entries WHERE chat_id=? AND mode=? ORDER BY id').all(chatId,kind).map(row=>this.#entry(chatId,row.id,row.count));
+    // First known time in each range; undated legacy sources are skipped.
+    const dated=this.#sql("SELECT created_at FROM tree_originals WHERE chat_id=? AND id>=? AND id<? AND created_at<>'' ORDER BY id LIMIT 1");
+    const entries=this.#sql('SELECT id,count FROM tree_view_entries WHERE chat_id=? AND mode=? ORDER BY id').all(chatId,kind).map(row=>({...this.#entry(chatId,row.id,row.count),date:dated.get(chatId,row.id,row.id+row.count)?.created_at||null}));
     const text=entries.map(entry=>`${entry.id}+${entry.count} ${entry.text}\n`).join('');
     return {chatId,kind,entries,text,bytes:state.bytes,revision:state.revision,total:chat.next_id,compacting:!!state.compacting,eventGeneration:chat.generation};
   }
@@ -354,11 +485,18 @@ export class ChatMemoryTree {
     identifier(chatId,'chat id');validRange(id,count);integer(offset,'source offset');integer(limit,'source limit',1,32000);await this.init();
     if(!this.#chat(chatId)||id+count>this.#chat(chatId).next_id)throw Error('Chat memory range does not exist.');
     if(count>1){const half=count/2;return {chatId,id,count,children:[this.#entry(chatId,id,half),this.#entry(chatId,id+half,half)]};}
-    const row=this.#sql('SELECT * FROM tree_originals WHERE chat_id=? AND id=?').get(chatId,id);
+    let row=this.#sql('SELECT * FROM tree_originals WHERE chat_id=? AND id=?').get(chatId,id);
+    let redirectedFrom;
+    if(row.kind==='duplicate'){
+      const target=JSON.parse(row.metadata).duplicateOf;
+      const retained=this.#sql('SELECT * FROM tree_originals WHERE chat_id=? AND id=?').get(chatId,target);
+      if(!retained||retained.kind==='duplicate')throw Error('The retained follow-up answer is unavailable.');
+      redirectedFrom=id;row=retained;
+    }
     if(offset>row.text.length||offset>0&&/[\uD800-\uDBFF]/.test(row.text[offset-1])&&/[\uDC00-\uDFFF]/.test(row.text[offset]))throw Error('Source offset exceeds the original or splits a Unicode character.');
     let end=Math.min(row.text.length,offset+limit);if(end<row.text.length&&/[\uD800-\uDBFF]/.test(row.text[end-1])&&/[\uDC00-\uDFFF]/.test(row.text[end]))end--;
     if(end===offset&&offset<row.text.length)end=Math.min(row.text.length,offset+2);
-    return {chatId,id,count,eventKey:row.event_key,role:row.role,kind:row.kind,date:row.created_at||null,metadata:JSON.parse(row.metadata),sourceHash:row.source_hash,text:row.text.slice(offset,end),offset,nextOffset:end<row.text.length?end:null,totalCharacters:row.text.length,totalBytes:bytes(row.text)};
+    return {chatId,id,count,...(redirectedFrom===undefined?{}:{redirectedFrom,retainedId:row.id}),eventKey:row.event_key,role:row.role,kind:row.kind,date:row.created_at||null,metadata:JSON.parse(row.metadata),sourceHash:row.source_hash,text:row.text.slice(offset,end),offset,nextOffset:end<row.text.length?end:null,totalCharacters:row.text.length,totalBytes:bytes(row.text)};
   }
   async originals(chatId,{offset=0,limit=128,through}={}){
     identifier(chatId,'chat id');integer(offset,'original cursor');integer(limit,'original page size',1,128);await this.init();
@@ -375,7 +513,7 @@ export class ChatMemoryTree {
     const jobs={ready:chat.ready_count,running:chat.running_count,failed:chat.failed_count};
     const views=this.#sql('SELECT mode AS kind,bytes,compacting,revision FROM tree_views WHERE chat_id=? ORDER BY mode').all(chatId).map(row=>({...row,compacting:!!row.compacting}));
     const viewBytes=views.find(view=>view.kind==='turn').bytes,compactionBytes=views.find(view=>view.kind==='compaction').bytes;
-    return {chatId,total:chat.next_id,totalMessages:chat.next_id,pendingJobs:jobs.ready+jobs.running+jobs.failed,viewBytes,compactionBytes,overBudget:viewBytes>this.options.turnHigh||compactionBytes>this.options.compactionHigh,eventGeneration:chat.generation,revision:chat.revision,originalBytes:chat.original_bytes,nodes:chat.node_count,builtNodes:chat.built_count,jobs,views};
+    return {chatId,total:chat.next_id,totalMessages:chat.next_id-chat.retired_count,retiredDuplicates:chat.retired_count,pendingJobs:jobs.ready+jobs.running+jobs.failed,viewBytes,compactionBytes,overBudget:viewBytes>this.options.turnHigh||compactionBytes>this.options.compactionHigh,eventGeneration:chat.generation,revision:chat.revision,originalBytes:chat.original_bytes,nodes:chat.node_count,builtNodes:chat.built_count,jobs,views};
   }
   async audit(chatId){
     await this.init();const chat=this.#chat(chatId);if(!chat)return {chatId,valid:true,originals:0,coverage:[]};
@@ -385,7 +523,7 @@ export class ChatMemoryTree {
     const oversized=this.#sql('SELECT COUNT(*) AS n FROM tree_nodes WHERE chat_id=? AND text IS NOT NULL AND length(CAST(text AS BLOB))>?').get(chatId,this.options.maxSummaryBytes).n;
     return {chatId,valid:valid&&!oversized,originals:originals.length,oversizedNodes:oversized,coverage};
   }
-  async removeChat(chatId){identifier(chatId,'chat id');await this.init();return this.#transaction(()=>{this.#sql('DELETE FROM tree_migrations WHERE name=?').run(DETERMINISTIC+chatId);return {chatId,removed:!!this.#sql('DELETE FROM tree_chats WHERE chat_id=?').run(chatId).changes};});}
-  async clear(){await this.init();return this.#transaction(()=>({removedChats:this.#sql('DELETE FROM tree_chats').run().changes}));}
-  async close(){if(this.#initializing)await this.#initializing;if(this.#db){this.#db.close();this.#db=null;this.#statements.clear();}}
+  async removeChat(chatId){identifier(chatId,'chat id');await this.#writable();return this.#transaction(()=>{this.#sql('DELETE FROM tree_migrations WHERE name=?').run(DETERMINISTIC+chatId);const prefix='followup-streams-v1:'+hash(chatId)+':';this.#sql('DELETE FROM tree_migrations WHERE name>=? AND name<?').run(prefix,prefix+'\uffff');return {chatId,removed:!!this.#sql('DELETE FROM tree_chats WHERE chat_id=?').run(chatId).changes};});}
+  async clear(){await this.#writable();return this.#transaction(()=>{this.#sql("DELETE FROM tree_migrations WHERE name LIKE 'followup-streams-v1:%'").run();return {removedChats:this.#sql('DELETE FROM tree_chats').run().changes};});}
+  async close(){await this.#repairQueue;if(this.#initializing)await this.#initializing;if(this.#db){this.#db.close();this.#db=null;this.#statements.clear();}}
 }

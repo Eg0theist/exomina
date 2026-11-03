@@ -36,8 +36,8 @@ test('apply is revision checked; grouping persists and undo restores previous ov
  await f.pad.organizer.apply({id:view.proposal.id});assert.ok(f.pad.view().organization.applied);assert.equal(f.pad.view().organization.proposal,null);
  const first=structuredClone(f.pad.view().organization.applied);view=await organize(f);await f.pad.organizer.apply({id:view.proposal.id});
  await f.pad.update({...f.pad.view().notes.find(item=>item.id===note.id),text:note.text+'\nNew scribble'});
- await f.pad.organizer.undo();assert.deepEqual(f.pad.view().organization.applied,first);assert.equal(f.pad.view().organization.appliedStale,true);assert.equal(f.pad.view().notes[0].text,note.text+'\nNew scribble');
- const reopened=new Scratchpad({store:{state:structuredClone(f.store.state),save:async()=>{}}});assert.deepEqual(reopened.view().organization.applied,first);assert.equal(reopened.view().organization.canUndo,false);
+ await f.pad.organizer.undo();assert.deepEqual(f.pad.data().organization.applied,first);assert.equal(f.pad.view().organization.applied.projected,true);assert.equal(f.pad.view().organization.appliedStale,true);assert.equal(f.pad.view().notes[0].text,note.text+'\nNew scribble');
+ const reopened=new Scratchpad({store:{state:structuredClone(f.store.state),save:async()=>{}}});assert.deepEqual(reopened.data().organization.applied,first);assert.equal(reopened.view().organization.applied.projected,true);assert.equal(reopened.view().organization.canUndo,false);
 });
 
 test('long notebook reads every packet then groups every extracted item once',async()=>{

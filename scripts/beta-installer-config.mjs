@@ -12,6 +12,7 @@ import {readFile} from 'node:fs/promises';
 import {verifyVendorBinaries} from './verify-vendor-binaries.mjs';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import {beforePack as checkDependencyInputs,afterPack as checkPackagedDependencies} from './package-dependencies.mjs';
 
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const metadata=JSON.parse(readFileSync(path.join(project,'package.json'),'utf8'));
@@ -20,8 +21,7 @@ export const BETA_APP_ID='local.exomina.beta.desktop';
 export const BETA_INSTALLER_GUID='d17f0bea-3625-4b86-a9c6-8b9d8a7c99ea';
 
 export function configureBetaArchiveCompression(){
-  // 7-Zip's automatic ARM64 filter is newer than NSIS's bundled decoder.
-  // BCJ is supported by both and restores every input byte unchanged.
+  // Keep archives compatible with NSIS's bundled extraction decoder.
   const filter=process.env.ELECTRON_BUILDER_7Z_FILTER;
   if(filter&&filter.toUpperCase()!=='BCJ')throw Error('Windows NSIS installers require the pinned BCJ compression filter.');
   process.env.ELECTRON_BUILDER_7Z_FILTER='BCJ';
@@ -78,6 +78,7 @@ export default {
   },
   npmRebuild:false,
   async beforePack(context){
+    await checkDependencyInputs(context,{exclude:['@xai-official/*','@anthropic-ai/claude-code-win32-x64']});
     configureBetaArchiveCompression();
     // Verify the exact temporary uninstaller before NSIS embeds and removes it.
     if(!context.packager.exominaSignerVerified){
@@ -102,6 +103,7 @@ export default {
     await writeFile(path.join(project,'desktop','windows-interop','manifest.json'),JSON.stringify(manifest,null,2)+'\n');
   },
   async afterPack(context){
+    await checkPackagedDependencies(context,{exclude:['@xai-official/*','@anthropic-ai/claude-code-win32-x64']});
     await writeBetaInstallerPathLimits(context.appOutDir,path.join(project,'scripts','beta-installer-path-limits.nsh'));
     const marker={profile:'beta',manualUpdates:true};
     if(typeof metadata.homepage==='string'&&/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/.test(metadata.homepage))marker.repositoryUrl=metadata.homepage.replace(/\/$/,'');

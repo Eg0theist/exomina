@@ -4,11 +4,11 @@ import {VoicePreviewSession} from '../src/voice-preview-session.js';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
-function fixture({play=[],clearClips={},load=null,settings={}}={}){
+function fixture({play=[],clearClips={}}={}){
   const events=[],audios=[],timers=[],remoteCalls=[];
-  const config={conversationId:'chat',page:'chat',settings};
+  const config={conversationId:'chat',page:'chat'};
   const session=new VoicePreviewSession({
-    current:()=>config,update:event=>events.push(event),clips:{cove:'local-cove.wav',maple:'local-maple.wav'},clearClips,load,
+    current:()=>config,update:event=>events.push(event),clips:{cove:'local-cove.wav',maple:'local-maple.wav'},clearClips,
     // A preview must not touch the live subscription or microphone APIs.
     invoke:(...args)=>{remoteCalls.push(args);throw Error('No preview RPC is permitted.');},
     getMedia:()=>{throw Error('No preview microphone is permitted.');},
@@ -114,39 +114,4 @@ test('navigation and global voice reset stop local previews while unrelated even
     f.session.scopeChanged('chat','chat');f.session.receive({type:'voice.realtime.event',sessionId:'unrelated'});assert.equal(f.session.mode,'preview');
     await action(f.session);assert.equal(f.session.mode,'');assert.equal(f.session.audio,null);assert.equal(f.audios[0].paused,true);assert.ok(f.timers.every(timer=>timer.cancelled));
   }
-});
-
-test('a recording the user copied from their own app is fetched on demand and played',async()=>{
-  const asked=[];
-  const f=fixture({load:async(voice,tone)=>{asked.push([voice,tone]);return 'blob:imported-'+voice+'-'+tone;}});
-  await f.session.start({previewVoice:'sol'});
-  assert.deepEqual(asked,[['sol','clear']]);assert.equal(f.audios[0].src,'blob:imported-sol-clear');assert.equal(f.session.phase,'playing');
-  await f.session.stop();
-  f.config.settings={previewTone:'original'};await f.session.start({previewVoice:'claude:airy'});
-  assert.deepEqual(asked.at(-1),['claude:airy','original']);assert.equal(f.audios[1].src,'blob:imported-claude:airy-original');
-  await f.session.stop();
-});
-
-test('built-in recordings never trigger a lookup',async()=>{
-  let calls=0;const f=fixture({load:async()=>{calls++;return 'blob:other';}});
-  await f.session.start({previewVoice:'maple'});assert.equal(calls,0);assert.equal(f.audios[0].src,'local-maple.wav');await f.session.stop();
-});
-
-test('a voice with no copied recording reports that cleanly and creates no player',async()=>{
-  const f=fixture({load:async()=>''});
-  await f.session.start({previewVoice:'ember'});
-  assert.equal(f.audios.length,0);assert.equal(f.session.mode,'');assert.equal(f.events.at(-1).phase,'error');assert.match(f.events.at(-1).error,/No preview recording/);
-});
-
-test('a failed lookup points the user back to Settings instead of claiming playback was blocked',async()=>{
-  const f=fixture({load:async()=>{throw Error('The saved voice sample was changed.');}});
-  await f.session.start({previewVoice:'ember'});
-  assert.equal(f.audios.length,0);assert.equal(f.session.mode,'');assert.match(f.events.at(-1).error,/Add the voice previews again in Settings/);
-});
-
-test('stopping while a recording is still loading never starts it',async()=>{
-  let release;const f=fixture({load:()=>new Promise(resolve=>{release=resolve;})});
-  const starting=f.session.start({previewVoice:'ember'});await tick();
-  await f.session.stop();release('blob:late');await starting;
-  assert.equal(f.audios.length,0);assert.equal(f.session.mode,'');assert.equal(f.events.at(-1).phase,'idle');
 });

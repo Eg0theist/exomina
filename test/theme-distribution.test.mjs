@@ -17,7 +17,7 @@ async function stagedBeta(t) {
   });
   const desktop = path.join(fixture, 'desktop');
   await mkdir(desktop);
-  for (const name of ['themes.mjs', 'theme-catalog-standard.mjs', 'companion-design.mjs', 'ui-zoom.mjs']) await copyFile(new URL('../desktop/' + name, import.meta.url), path.join(desktop, name));
+  for (const name of ['themes.mjs', 'palette-contrast.mjs', 'theme-catalog-standard.mjs', 'companion-design.mjs', 'ui-zoom.mjs']) await copyFile(new URL('../desktop/' + name, import.meta.url), path.join(desktop, name));
   await writeFile(path.join(desktop, 'theme-catalog.mjs'), "export { THEMES, THEME_PROFILE } from './theme-catalog-standard.mjs';\n");
   // No full catalog or artwork exists in this fixture. Both host and renderer
   // import the same staged module, so a broken staging selector fails here.
@@ -31,7 +31,7 @@ test('compact staging works without personal catalogs and sanitizes imported app
   assert.ok(beta.THEMES.some(theme => theme.scheme === 'light'));
   assert.ok(beta.THEMES.some(theme => theme.scheme === 'dark'));
   assert.ok(beta.THEMES.every(theme => !theme.artwork && !theme.effect));
-  const imported = beta.normalizeAppearance({ theme: 'cyberpunk-judy', darkTheme: 'erebus-flame', lightTheme: 'sakura', hiddenThemes: ['cyberpunk-johnny', 'graphite'], readingFont: 'serif', textSize: 'large', borderless: false });
+  const imported = beta.normalizeAppearance({ theme: 'cyberpunk-judy', darkTheme: 'fantasy-flame', lightTheme: 'sakura', hiddenThemes: ['cyberpunk-johnny', 'graphite'], readingFont: 'serif', textSize: 'large', borderless: false });
   assert.equal(imported.theme, 'verdigris');
   assert.equal(imported.darkTheme, 'verdigris');
   assert.equal(imported.lightTheme, 'paper');
@@ -57,7 +57,7 @@ test('compact appearance persists across store restart and personal palettes kee
   assert.deepEqual(beta.normalizeAppearance(restarted.state.settings.appearance), appearance);
   for (const standard of STANDARD_THEMES) assert.equal(THEMES.find(theme => theme.id === standard.id), standard, standard.id);
   if (THEME_PROFILE === 'personal') {
-    assert.ok(THEMES.some(theme => theme.id === 'erebus-flame' && theme.artwork));
+    assert.ok(THEMES.some(theme => theme.id === 'fantasy-flame' && theme.artwork));
     assert.ok(THEMES.some(theme => theme.id === 'cyberpunk-judy' && theme.artwork));
   }
 });

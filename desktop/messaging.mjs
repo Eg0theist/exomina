@@ -2,7 +2,6 @@ import {readFile,writeFile,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomInt} from 'node:crypto';
 import {DISCORD_CONTROLS,DISCORD_TASK_HELP} from './discord-tasks.mjs';
-import {encryptProtectedSecret,decryptProtectedSecret} from './secret-storage.mjs';
 
 /** Exomina in Telegram and Discord: private bots that only answer accounts the
  * user paired with a one-time code. Each conversation there is a normal Exomina
@@ -69,6 +68,26 @@ export class TelegramBridge{
   typing(chatKey){return this.call('sendChatAction',{chat_id:chatKey,action:'typing'}).catch(()=>{});}
 }
 
+// Download only Discord-hosted user uploads, after pairing has been checked.
+// Never forward the bot Authorization header to the attachment CDN.
+export async function discordAttachments(items,{fetchImpl=fetch,signal}={}){
+  const limit=20*1024*1024;
+  if(!Array.isArray(items)||items.length>10)throw Error('Attach at most 10 files.');
+  let total=0;const files=[];
+  for(const item of items){
+    const url=new URL(item.url);
+    if(url.protocol!=='https:'||!['cdn.discordapp.com','media.discordapp.net'].includes(url.hostname)||url.port||url.username||url.password||!url.pathname.startsWith('/attachments/'))throw Error('Unsupported Discord attachment address.');
+    if(!Number.isSafeInteger(item.size)||item.size<1||total+item.size>limit)throw Error('Attachments must total at most 20 MiB.');
+    const response=await fetchImpl(url.href,{redirect:'error',signal:AbortSignal.any([...(signal?[signal]:[]),AbortSignal.timeout(30000)])});
+    if(!response.ok||!response.body)throw Error('Discord attachment download failed. Please attach it again.');
+    const chunks=[];let bytes=0;
+    for await(const chunk of response.body){bytes+=chunk.length;if(total+bytes>limit||bytes>item.size)throw Error('Discord attachment exceeds its declared size.');chunks.push(Buffer.from(chunk));}
+    if(bytes!==item.size)throw Error('Discord attachment download was incomplete.');
+    total+=bytes;files.push({name:item.filename||'attachment',mimeType:item.content_type||'application/octet-stream',dataBase64:Buffer.concat(chunks).toString('base64')});
+  }
+  return files;
+}
+
 export class DiscordBridge{
   constructor({token,onMessage,onStatus,fetchImpl=fetch,WebSocketImpl=globalThis.WebSocket,delayImpl=wait,reconnectDelay=5000,gatewayTimeout=15000}){Object.assign(this,{token,onMessage,onStatus,fetch:fetchImpl,WebSocket:WebSocketImpl,pause:delayImpl,reconnectDelay,gatewayTimeout});this.running=false;this.seq=null;this.controller=new AbortController();this.seenMessages=new Set();}
   async rest(route,body,method=body?'POST':'GET',signal){
@@ -110,9 +129,9 @@ export class DiscordBridge{
         if(packet.t==='READY'){this.sessionId=packet.d?.session_id||null;try{const url=new URL(packet.d?.resume_gateway_url);this.resumeUrl=url.protocol==='wss:'&&(url.hostname==='gateway.discord.gg'||url.hostname.endsWith('.discord.gg'))&&!url.username&&!url.password?url.href:null;}catch{this.resumeUrl=null;}}
         clearTimeout(this.gatewayTimer);this.reconnectAttempt=0;this.onStatus?.({state:'connected',name:this.me.username,inviteUrl:this.inviteUrl});
       }
-      else if(packet.op===0&&packet.t==='MESSAGE_CREATE'){const message=packet.d;if(!message?.author?.id||message.guild_id||message.author.bot||!message.content)return;
+      else if(packet.op===0&&packet.t==='MESSAGE_CREATE'){const message=packet.d;if(!message?.author?.id||message.guild_id||message.author.bot||(!message.content&&!message.attachments?.length))return;
         if(message.id){if(this.seenMessages.has(message.id))return;this.seenMessages.add(message.id);if(this.seenMessages.size>1000)this.seenMessages.delete(this.seenMessages.values().next().value);}
-        this.onMessage({channel:'discord',chatKey:message.channel_id,userId:message.author.id,name:message.author.global_name||message.author.username||'Discord user',text:message.content});}
+        this.onMessage({channel:'discord',chatKey:message.channel_id,userId:message.author.id,name:message.author.global_name||message.author.username||'Discord user',text:message.content||'',...(message.attachments?.length?{attachments:message.attachments}:{})});}
       else if(packet.op===7||packet.op===9){if(packet.op===9&&!packet.d){this.sessionId=null;this.resumeUrl=null;this.seq=null;}reconnect();}
     };
     socket.onclose=event=>{
@@ -137,7 +156,7 @@ export class MessagingHub{
     this.bridges=new Map();this.status={};this.codes=new Map();this.codeTimers=new Map();this.chains=new Map();this.warned=new Set();this.generations=new Map();this.userVersions=new Map();this.revoking=new Set();this.turns=new Map();this.queueVersions=new Map();this.queueCounts=new Map();this.controlChains=new Map();this.sendChains=new Map();this.tasksDisabled=false;this.configWrites=Promise.resolve();this.tokenWrites=Promise.resolve();
   }
   assertChannel(channel){if(!CHANNELS.includes(channel))throw new Error('Unknown messaging channel.');}
-  config(channel){const value=this.getSettings().messaging?.[channel]||{};return {enabled:value.enabled===true,taskExecution:channel==='discord'&&value.taskExecution!==false,paired:Array.isArray(value.paired)?value.paired:[],provider:value.provider||'',links:value.links&&typeof value.links==='object'?value.links:{}};}
+  config(channel){const value=this.getSettings().messaging?.[channel]||{};return {enabled:value.enabled===true,taskExecution:channel==='discord'&&value.taskExecution!==false,desktopInboxUserId:channel==='discord'&&typeof value.desktopInboxUserId==='string'?value.desktopInboxUserId:'',paired:Array.isArray(value.paired)?value.paired:[],provider:value.provider||'',links:value.links&&typeof value.links==='object'?value.links:{}};}
   taskIdentity(origin){
     if(origin?.type!=='discord'||!this.tasks||this.tasksDisabled||!this.config('discord').taskExecution||!this.config('discord').enabled||!this.bridges.has('discord'))return null;
     const user=this.config('discord').paired.find(p=>p.id===origin.userId&&p.chatKey===origin.chatKey);if(!user||this.revoking.has('discord:'+user.id))return null;
@@ -145,7 +164,21 @@ export class MessagingHub{
   }
   currentIdentity(identity){const live=this.taskIdentity({type:'discord',...identity});return !!live&&live.generation===identity.generation&&live.userVersion===identity.userVersion;}
   canExecute(origin){return !!this.taskIdentity(origin);}
-  sendTask(identity,text){const key=identity.chatKey,next=(this.sendChains.get(key)||Promise.resolve()).catch(()=>{}).then(async()=>{if(!this.currentIdentity(identity))throw Error('Discord access was revoked.');const bridge=this.bridges.get('discord');for(const part of (Array.isArray(text)?text:chunk(text,LIMIT.discord))){if(!this.currentIdentity(identity))throw Error('Discord access was revoked.');await bridge.send(identity.chatKey,part);}});this.sendChains.set(key,next);next.finally(()=>{if(this.sendChains.get(key)===next)this.sendChains.delete(key);}).catch(()=>{});return next;}
+  sendTask(identity,text,{validate=()=>true}={}){const key=identity.chatKey,next=(this.sendChains.get(key)||Promise.resolve()).catch(()=>{}).then(async()=>{if(!this.currentIdentity(identity)||!validate())throw Error('Discord access or request was revoked.');const bridge=this.bridges.get('discord');for(const part of (Array.isArray(text)?text:chunk(text,LIMIT.discord))){if(!this.currentIdentity(identity)||!validate())throw Error('Discord access or request was revoked.');await bridge.send(identity.chatKey,part);}});this.sendChains.set(key,next);next.finally(()=>{if(this.sendChains.get(key)===next)this.sendChains.delete(key);}).catch(()=>{});return next;}
+  desktopIdentity(){
+    if(this.desktopInboxChanging)return null;
+    const config=this.config('discord'),user=config.paired.find(p=>p.id===config.desktopInboxUserId);
+    return user?this.taskIdentity({type:'discord',userId:user.id,chatKey:user.chatKey}):null;
+  }
+  async setDesktopInbox(userId){
+    if(typeof userId!=='string')throw Error('Choose a paired Discord account or turn desktop requests off.');
+    this.desktopInboxChanging=(this.desktopInboxChanging||0)+1;this.tasks?.desktopInbox?.close();
+    try{await this.setConfig('discord',config=>{
+      if(userId&&(!config.enabled||!config.taskExecution||!config.paired.some(p=>p.id===userId&&p.chatKey)))throw Error('Enable Discord tasks and choose a paired account first.');
+      return {desktopInboxUserId:userId};
+    });}finally{this.desktopInboxChanging--;}
+    this.tasks?.desktopInbox?.rescan();this.emit({type:'messaging.status',status:this.view()});return this.view();
+  }
   taskMode(identity){return this.config('discord').paired.find(p=>p.id===identity.userId)?.taskMode||'ask';}
   taskProject(identity){return this.config('discord').paired.find(p=>p.id===identity.userId)?.projectId||'';}
   async setPairedTaskMode(userId,mode){
@@ -162,11 +195,11 @@ export class MessagingHub{
   async clearTaskChat(identity){await this.setConfig('discord',config=>{if(!this.currentIdentity(identity))throw Error('Discord access was revoked.');const links={...config.links};delete links[identity.chatKey];return {links};});}
   stopUser(identity){const key=identity.channel+':'+identity.userId;this.queueVersions.set(key,(this.queueVersions.get(key)||0)+1);for(const controller of this.turns.get(key)||[])controller.abort();const user=this.config(identity.channel).paired.find(p=>p.id===identity.userId),id=user&&this.config(identity.channel).links[user.chatKey];if(id)this.tasks?.stop(id);}
   queued(identity){return Math.max(0,(this.queueCounts.get(identity.channel+':'+identity.chatKey)||0)-1);}
-  async setTaskExecution(enabled){if(typeof enabled!=='boolean')throw Error('Choose whether Discord can run tasks.');const previous=this.tasksDisabled;this.tasksDisabled=!enabled;if(!enabled)for(const p of this.config('discord').paired)this.stopUser({channel:'discord',userId:p.id});try{await this.setConfig('discord',{taskExecution:enabled});}catch(error){this.tasksDisabled=previous;throw error;}this.emit({type:'messaging.status',status:this.view()});return this.view();}
+  async setTaskExecution(enabled){if(typeof enabled!=='boolean')throw Error('Choose whether Discord can run tasks.');const previous=this.tasksDisabled;this.tasksDisabled=!enabled;if(!enabled){this.tasks?.desktopInbox?.close();for(const p of this.config('discord').paired)this.stopUser({channel:'discord',userId:p.id});}try{await this.setConfig('discord',config=>({taskExecution:enabled,desktopInboxUserId:enabled?config.desktopInboxUserId:''}));}catch(error){this.tasksDisabled=previous;throw error;}this.emit({type:'messaging.status',status:this.view()});return this.view();}
   async setConfig(channel,patch){this.assertChannel(channel);const write=this.configWrites.catch(()=>{}).then(async()=>{const all=this.getSettings().messaging||{},config=this.config(channel),next=typeof patch==='function'?patch(config):patch;if(!next)return;await this.saveSettings({messaging:{...all,[channel]:{...config,...next}}});});this.configWrites=write;return write;}
   async tokens(){try{return JSON.parse(await readFile(this.file,'utf8'));}catch{return {};}}
-  async token(channel){const saved=(await this.tokens())[channel];return saved?decryptProtectedSecret(this.encryption,Buffer.from(saved,'base64')):null;}
-  async saveToken(channel,token){this.assertChannel(channel);const write=this.tokenWrites.catch(()=>{}).then(async()=>{const all=await this.tokens();if(token)all[channel]=encryptProtectedSecret(this.encryption,token).toString('base64');else delete all[channel];await writeFile(this.file+'.tmp',JSON.stringify(all),{mode:0o600});await rename(this.file+'.tmp',this.file);});this.tokenWrites=write;return write;}
+  async token(channel){const saved=(await this.tokens())[channel];if(!saved)return null;try{return this.encryption.decryptString(Buffer.from(saved,'base64'));}catch{throw new Error('Windows could not unlock the saved bot token. Enter it again.');}}
+  async saveToken(channel,token){this.assertChannel(channel);const write=this.tokenWrites.catch(()=>{}).then(async()=>{const all=await this.tokens();if(token)all[channel]=this.encryption.encryptString(token).toString('base64');else delete all[channel];await writeFile(this.file+'.tmp',JSON.stringify(all),{mode:0o600});await rename(this.file+'.tmp',this.file);});this.tokenWrites=write;return write;}
   setStatus(channel,value){this.status[channel]={...value,at:new Date().toISOString()};this.emit({type:'messaging.status',status:this.view()});}
   view(){return Object.fromEntries(CHANNELS.map(channel=>{const config=this.config(channel);const code=this.codes.get(channel);return [channel,{...config,recipients:this.recipients(channel),links:undefined,chats:Object.keys(config.links).length,...(this.status[channel]||{state:config.enabled?'stopped':'off'}),code:code&&code.expires>Date.now()?code.value:null}];}));}
   async startAll(){for(const channel of CHANNELS)if(this.config(channel).enabled)await this.start(channel).catch(error=>this.setStatus(channel,{state:'error',error:error.message}));}
@@ -184,10 +217,10 @@ export class MessagingHub{
       if(!current())throw new Error('Connection stopped.');
       const latest=this.status[channel];this.setStatus(channel,{...info,...latest,state:latest?.state==='connecting'?info.state||'connected':latest?.state||info.state||'connected'});
       if(persist)this.newCode(channel);return info;
-    }catch(error){bridge.stop();if(current()){this.bridges.delete(channel);this.setStatus(channel,{state:'error',error:error.status===401?'The bot token was rejected.':safeError(error,token)});}throw Object.assign(new Error(error.status===401?'The bot token was rejected.':safeError(error,token)),/^SECRET_STORAGE_[A-Z_]+$/.test(error.code||'')?{code:error.code}:{});}
+    }catch(error){bridge.stop();if(current()){this.bridges.delete(channel);this.setStatus(channel,{state:'error',error:error.status===401?'The bot token was rejected.':safeError(error,token)});}throw new Error(error.status===401?'The bot token was rejected.':safeError(error,token));}
   }
   clearCode(channel){this.codes.delete(channel);clearTimeout(this.codeTimers.get(channel));this.codeTimers.delete(channel);}
-  stop(channel){this.generations.set(channel,(this.generations.get(channel)||0)+1);this.clearCode(channel);for(const [key,turns] of this.turns)if(key.startsWith(channel+':'))for(const controller of turns)controller.abort();this.bridges.get(channel)?.stop();this.bridges.delete(channel);}
+  stop(channel){if(channel==='discord')this.tasks?.desktopInbox?.close();this.generations.set(channel,(this.generations.get(channel)||0)+1);this.clearCode(channel);for(const [key,turns] of this.turns)if(key.startsWith(channel+':'))for(const controller of turns)controller.abort();this.bridges.get(channel)?.stop();this.bridges.delete(channel);}
   stopAll(){for(const channel of [...this.bridges.keys()])this.stop(channel);}
   async connect(channel,token){
     this.assertChannel(channel);
@@ -198,9 +231,9 @@ export class MessagingHub{
       throw error;
     }
   }
-  async disconnect(channel){this.assertChannel(channel);this.stop(channel);await this.saveToken(channel,null);await this.setConfig(channel,{enabled:false,paired:[],links:{}});this.setStatus(channel,{state:'off'});}
+  async disconnect(channel){this.assertChannel(channel);this.stop(channel);await this.saveToken(channel,null);await this.setConfig(channel,{enabled:false,paired:[],links:{},desktopInboxUserId:''});this.setStatus(channel,{state:'off'});}
   newCode(channel){this.assertChannel(channel);if(!this.config(channel).enabled||!this.bridges.has(channel))throw new Error('Connect the bot before pairing an account.');this.clearCode(channel);const value=String(randomInt(100000,1000000)),record={value,expires:Date.now()+this.pairingTtl,misses:0};this.codes.set(channel,record);const timer=setTimeout(()=>{if(this.codes.get(channel)===record){this.clearCode(channel);this.emit({type:'messaging.status',status:this.view()});}},this.pairingTtl);timer.unref?.();this.codeTimers.set(channel,timer);this.emit({type:'messaging.status',status:this.view()});return value;}
-  async unpair(channel,userId){this.assertChannel(channel);const key=channel+':'+userId;this.userVersions.set(key,(this.userVersions.get(key)||0)+1);this.revoking.add(key);this.stopUser({channel,userId});try{await this.setConfig(channel,config=>{const removed=config.paired.find(item=>item.id===userId),links={...config.links};if(removed?.chatKey)delete links[removed.chatKey];return{paired:config.paired.filter(item=>item.id!==userId),links};});this.emit({type:'messaging.status',status:this.view()});}finally{this.revoking.delete(key);}}
+  async unpair(channel,userId){this.assertChannel(channel);const key=channel+':'+userId;this.userVersions.set(key,(this.userVersions.get(key)||0)+1);this.revoking.add(key);this.stopUser({channel,userId});try{await this.setConfig(channel,config=>{const removed=config.paired.find(item=>item.id===userId),links={...config.links};if(removed?.chatKey)delete links[removed.chatKey];return{paired:config.paired.filter(item=>item.id!==userId),links,desktopInboxUserId:config.desktopInboxUserId===userId?'':config.desktopInboxUserId};});this.emit({type:'messaging.status',status:this.view()});}finally{this.revoking.delete(key);}}
   recipients(channel){const config=this.config(channel);return config.paired.map(p=>({chatKey:p.chatKey||(channel==='telegram'&&config.links[p.id]?p.id:''),name:p.name||p.id})).filter(p=>p.chatKey);}
   async sendScheduled(channel,chatKey,text){const bridge=this.bridges.get(channel);if(!bridge||!this.recipients(channel).some(r=>r.chatKey===chatKey))throw Error('This messaging recipient is no longer paired or the bot is disconnected.');await bridge.send(chatKey,text);}
   /** Messages from one chat are answered in order. */
@@ -215,7 +248,7 @@ export class MessagingHub{
     const next=(this.chains.get(key)||Promise.resolve()).then(async()=>{const acceptedVersion=controls?await controls:queueVersion;if((this.queueVersions.get(userKey)||0)===acceptedVersion)await this.handle(input);}).catch(()=>{});
     this.chains.set(key,next);next.then(()=>{this.queueCounts.set(key,Math.max(0,(this.queueCounts.get(key)||1)-1));if(this.chains.get(key)===next)this.chains.delete(key);});return next;
   }
-  async handle({channel,chatKey,userId,name,text,generation,userVersion}){
+  async handle({channel,chatKey,userId,name,text,attachments,generation,userVersion}){
     const bridge=this.bridges.get(channel),userKey=channel+':'+userId,current=()=>this.bridges.get(channel)===bridge&&this.generations.get(channel)===generation&&(this.userVersions.get(userKey)||0)===userVersion&&!this.revoking.has(userKey);
     if(!bridge||!current()||typeof text!=='string')return;
     const authorized=()=>current()&&this.config(channel).paired.some(item=>item.id===userId&&item.chatKey===chatKey);
@@ -247,7 +280,9 @@ export class MessagingHub{
     const typing=setInterval(()=>{if(authorized())bridge.typing(chatKey);},channel==='discord'?8000:4500);bridge.typing(chatKey);
     try{
       const task=channel==='discord'&&this.canExecute({type:channel,chatKey,userId});
-      const result=await this.chat({channel,chatKey,name,text:body,conversationId:config.links[chatKey],provider:config.provider||undefined,signal:controller.signal,...(task?{userId,permissionMode:this.taskMode(identity),projectId:this.taskProject(identity),onStarted:async id=>{await this.setConfig(channel,live=>turnAuthorized()?{links:{...live.links,[chatKey]:id}}:null);}}:{})});
+      const files=attachments?.length?await discordAttachments(attachments,{fetchImpl:bridge.fetch,signal:controller.signal}):[];
+      if(!turnAuthorized())return;
+      const result=await this.chat({channel,chatKey,name,text:body,...(files.length?{files}:{}),conversationId:config.links[chatKey],provider:config.provider||undefined,signal:controller.signal,...(task?{userId,permissionMode:this.taskMode(identity),projectId:this.taskProject(identity),onStarted:async id=>{await this.setConfig(channel,live=>turnAuthorized()?{links:{...live.links,[chatKey]:id}}:null);}}:{})});
       if(!turnAuthorized())return;
       if(result.conversationId&&config.links[chatKey]!==result.conversationId)await this.setConfig(channel,current=>turnAuthorized()?{links:{...current.links,[chatKey]:result.conversationId}}:null);
       if(!turnAuthorized())return;

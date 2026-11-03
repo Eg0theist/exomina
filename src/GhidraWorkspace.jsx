@@ -58,7 +58,7 @@ export default function GhidraWorkspace({ conversationId }) {
   const clock = seconds => seconds >= 3600 ? Math.floor(seconds / 3600) + ' h ' + String(Math.floor(seconds % 3600 / 60)).padStart(2, '0') + ' min' : Math.floor(seconds / 60) + ' min ' + String(seconds % 60).padStart(2, '0') + ' s';
 
   const isExe = status.target?.kind === 'file' && /\.exe$/i.test(status.target.name || '');
-  const running = status.state === 'connected' || status.state === 'starting' || busy === 'start';
+  const running = status.state === 'connected' || status.state === 'starting' || jobActive || busy === 'start';
   const stateLabel = status.state === 'connected' ? 'Connected' : status.state === 'starting' || busy === 'start' ? (job?.label || 'Analyzing') + '…' : status.project ? 'Project saved' : 'Not started';
 
   return <section className="ghidra-workspace" aria-label="Ghidra project">
@@ -69,6 +69,7 @@ export default function GhidraWorkspace({ conversationId }) {
       <button type="button" className="primary-button" disabled={!!busy || !isExe || running} onClick={() => action('start', () => api.invoke('ghidra.start', { conversationId }))}>{busy === 'start' ? <LoaderCircle className="spin" size={14} /> : <Cpu size={14} />}{status.project ? 'Resume project' : 'Start project'}</button>
       {running && <button type="button" className="secondary-button" disabled={busy === 'stop'} onClick={() => action('stop', () => api.invoke('ghidra.stop', { conversationId }))}><Square size={13} />{busy === 'stop' ? 'Stopping…' : jobActive && status.state === 'starting' ? 'Cancel analysis' : 'Save & stop'}</button>}
       <button type="button" className="secondary-button" disabled={!!busy || !isExe || running} title="Reuse a project analysed outside Exomina, for example a headless Ghidra run" onClick={() => action('adopt', () => api.invoke('ghidra.adopt', { conversationId }))}><FolderOpen size={13} />Use finished project…</button>
+      <button type="button" className="text-button" disabled={!!busy || !conversationId || running} title="Delete this chat’s saved projects, copied binaries and recovery checkpoints after confirmation" onClick={() => action('delete', () => api.invoke('ghidra.deleteProjects', { conversationId }))}>{busy === 'delete' ? 'Deleting projects…' : 'Delete saved projects…'}</button>
       <button type="button" className="icon-button" aria-label="Refresh Ghidra project" disabled={!!busy} onClick={() => action('refresh', refresh)}><RefreshCw size={14} /></button>
     </div>
     {job && (jobActive || job.error) && <div className="ghidra-job" role="status" aria-live="polite">
@@ -81,6 +82,7 @@ export default function GhidraWorkspace({ conversationId }) {
     <label className="ghidra-edit-toggle"><input type="checkbox" checked={!!status.editing} disabled={!conversationId || !isExe || !!busy} onChange={event => { const enabled = event.target.checked; action('editing', () => api.invoke('ghidra.editing', { conversationId, enabled })); }} /><span>Allow project edits in this chat<small>Edits change analysis names, comments and types. Each edit asks for approval and saves a recovery checkpoint first. The original EXE stays unchanged.</small></span></label>
     {status.program && <div className="ghidra-program"><strong>{status.program.name || status.target?.name}</strong><span>{status.program.language_id || status.program.languageId || ''}</span>{status.sha256 && <code title="Selected binary SHA-256">{status.sha256}</code>}<button type="button" className="text-button" onClick={() => action('show', () => api.invoke('ghidra.showProject', { conversationId }))}><FolderOpen size={13} />Project & checkpoints</button></div>}
     {error && <p className="inline-error" role="alert">{error}</p>}
-    <p className="ghidra-note">Uses the shared selection above and native analysis setup below. Verified for Windows x86/x64 EXEs. The EXE is never run or changed.</p>
+    {status.cleanup?.paths?.length > 0 && <div role="status"><p>Detached project files still need cleanup. Use Delete saved projects again to retry.</p>{status.cleanup.paths.map(value => <code key={value}>{value}</code>)}</div>}
+    <p className="ghidra-note">Uses the shared selection above and native analysis setup below. Save and stop before deleting saved projects. Deletion includes this chat’s project edits and recovery checkpoints; the original EXE is unchanged.</p>
   </section>;
 }

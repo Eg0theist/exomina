@@ -5,6 +5,7 @@ import {contextMetricsView} from './context-metrics.mjs';
 import {normalizeAppearance} from './themes.mjs';
 import {normalizeSounds} from './sound-settings.mjs';
 import {normalizeVoice} from './voice-settings.mjs';
+import {remoteUrl} from './remote-mcp-network.mjs';
 import {normalizeModelPreferences} from './model-preferences.mjs';
 import {normalizeDecisionSettings,normalizeAgentSettings} from './decision-settings.mjs';
 import {normalizeRequestLimits} from './request-guard.mjs';
@@ -29,6 +30,7 @@ const SECTIONS={
   integrations:'Configured integrations and cached connection status, with secrets excluded',
   tools:'Installed host tool definitions and whether their feature is enabled',
 };
+function remoteEndpoint(item){if(item.transport!=='http')return {};try{return {endpoint:remoteUrl(item.url,{endpoint:true}).href};}catch{return {};}}
 const ROUTES={
   notebook:{tools:['notes_list','notes_read','notes_overview','notes_annotate'],scope:'Only shared notes and approved note-task scope. Annotation preserves source text with revision checks and Undo; cleanup uses notes_overview_cleanup or notes_remove_completed.'},
   conversations:{tools:['conversation_read','conversation_find','conversation_search','conversation_zoom'],scope:'Current chat; other saved chats only while shared memory is enabled.'},
@@ -40,8 +42,8 @@ const ROUTES={
   character:{tools:['soul_reflect'],scope:'Inspect action uses the character service’s existing sharing rules.'},
   images:{tools:['image_read'],scope:'Existing chat images and their sharing permissions.'},
   updates:{tools:['app_update_status'],scope:'Builds, waiting package and live restart blockers.'},
+  appActions:{tools:['app_control'],scope:'Catalog and preview supported app changes, then apply through the current permissions. Live appearance, notifications, reusable prompts, project instructions and known page navigation need no restart.'},
   cloudTasks:{tools:['codex_cloud_list','codex_cloud_status','codex_cloud_diff'],scope:'Existing cloud tools; app inspection never starts a task.'},
-  storage:{tools:['disk_status','disk_scan','disk_read','disk_delete'],scope:'Drive metadata and scans explicitly shared with this chat. New scans ask first; private/account stores and file contents are excluded. Deleting from a scan always asks for approval of the exact list, uses the Recycle Bin by default and refuses system, application and private locations.'},
 };
 const id={type:'string',minLength:1,maxLength:300};
 export const APP_INSPECTION_TOOLS=[{name:'app_inspect',description:'Read Exomina app content and live state directly, without computer use. Start with overview for coverage. Sections include exact update blockers, this chat’s user/AI terminals and output, recorded diagnostics, safe settings, voice, projects, prompts, tasks, layouts, questions, models and tool/integration status. Read-only, bounded and paginated. Existing note, chat, browser and file sharing/permissions still apply. Account stores, credential fields, private chats, unsent drafts and hidden provider state are excluded; arbitrary recorded text receives best-effort credential redaction. A snapshot is a captured observation, not a live subscription.',inputSchema:{type:'object',properties:{section:{type:'string',enum:Object.keys(SECTIONS)},conversationId:id,id,messageId:id,query:{type:'string',maxLength:200},offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:32000},snapshot:{type:'string',minLength:1,maxLength:100}},additionalProperties:false}}];
@@ -58,7 +60,7 @@ const terminalView=session=>pick(session,['id','conversationId','owner','title',
 function eventView(step){
   const result=pick(step,['id','kind','status','name','title','category','target','input','output','text','detail','permission','startedAt','endedAt']);
   const name=String(step.name||'').replace(/^mcp__exomina__/,'').split('.').at(-1);
-  if(name==='app_inspect'||/^(?:notes_|memory_|archive_|browser_|conversation_|analysis_|disk_|ghidra_|external_|image_|workspace_(?:list|read|write)$)/.test(name)){
+  if(name==='app_inspect'||name==='app_control'||/^(?:notes_|memory_|archive_|browser_|conversation_|analysis_|ghidra_|external_|image_|workspace_(?:list|read|write)$)/.test(name)){
     for(const key of ['input','output','text','detail'])delete result[key];
     result.payloadRoute=name==='app_inspect'?'Nested app inspection payload omitted to avoid recursive snapshots.':'Read source content through its dedicated tool and current sharing permissions. Recorded payload omitted here.';
   }
@@ -149,6 +151,8 @@ export class AppInspection{
       const settings=state.settings||{},source=await this.getMemory(target.id),choice=backfillChoice(settings.chatMemoryBackfillModel),cap=backfillCap(settings);
       const memory={effective:{enabled:settings.chatMemoryEnabled!==false,recall:settings.chatMemoryRecall!==false,onDemand:settings.chatMemoryOnDemand===true&&settings.chatMemorySummaries!==false,catchUp:backfillEnabled(settings),dailyCap:Number.isFinite(cap)?cap:null,usageCeiling:backfillUsageCeiling(settings),model:choice||{provider:BACKFILL_PROVIDER,model:BACKFILL_MODELS[0],effort:BACKFILL_EFFORT,recommended:true,fallback:BACKFILL_MODELS[1]}},status:source?{...pick(source,['enabled','summariesEnabled','lastError','total','totalMessages','pendingJobs','viewBytes','compactionBytes','overBudget','originalBytes','nodes','builtNodes']),jobs:pick(source.jobs,['ready','running','failed']),background:{...pick(source.background,['state','status','active','running','concurrency','completed','failed','queued','paused','closed']),model:pick(source.background?.model,['provider','model','effort'])},backfill:pick(source.backfill,['enabled','day','requests','cap','unlimited','provider','model','effort','ceiling','reason'])}:null};
       if(memory.status){
+        memory.status.retiredDuplicates=source.retiredDuplicates||0;
+        memory.status.repair=pick(source.repair,['running','failed','chats','answers','retired']);
         memory.status.coverage=pick(source.coverage,['transcriptSynced','throughMessages','pendingRecording']);
         Object.assign(memory.status.background,pick(source.background,['lastError','lastErrorCode','retryAt','attempts','lastResponseBytes','lastResponseEmpty','pendingRewrites']));
         memory.status.backfill.safety=pick(source.backfill?.safety,['blocked','reason','window','used','max','retryAt']);
@@ -192,10 +196,13 @@ export class AppInspection{
     if(section==='models'){
       const value=this.getModels();return {connections:asArray(value.connections).map(item=>pick(item,['id','name','connected','installed','available','checking','detail','error'])),models:Object.fromEntries(Object.entries(value.models||{}).map(([provider,models])=>[provider,asArray(models).map(item=>pick(item,['id','name','label','description','isDefault','efforts','defaultEffort','supportsImages','supportsTools','contextWindow','contextWindowTokens','maxInputTokens','maxOutputTokens']))])),usage:Object.fromEntries(Object.entries(value.usage||{}).map(([provider,item])=>[provider,{...pick(item,['provider','plan','status','updatedAt','fetchStatus','stale','error','fetchError','ordinaryUsageAllowed']),windows:asArray(item.windows).map(window=>pick(window,['id','label','usedPercent','resetsAt','modelScope','active'])),modelLimits:asArray(item.modelLimits).map(limit=>pick(limit,['id','label','knownAvailable','blocked','spendControlReached','usedPercent','resetsAt']))}]))};
     }
-    if(section==='tools')return this.getTools().filter(item=>matches(item,args.query)).map(item=>pick(item,['name','description','inputSchema','enabled','category']));
+    if(section==='tools'){
+      const terms=String(args.query||'').toLocaleLowerCase().split(/\s+/).filter(Boolean);
+      return this.getTools().filter(item=>(!args.id||item.name===args.id)&&terms.every(term=>`${item.name} ${item.description||''}`.toLocaleLowerCase().includes(term))).map(item=>args.id?pick(item,['name','description','inputSchema','enabled','category']):{...pick(item,['name','enabled','category']),description:String(item.description||'').slice(0,280),schemaRoute:{section:'tools',id:item.name}});
+    }
     if(section==='integrations'){
       const value=this.getIntegrations();
-      return {external:asArray(state.settings?.externalMcpServers).map(item=>({...pick(item,['id','name','enabled','command']),arguments:asArray(item.args).map(arg=>typeof arg==='string'&&/^--[a-z][\w-]*$/i.test(arg)?arg:'[excluded]'),environmentNames:Object.keys(item.env||{})})),status:asArray(value.external).map(item=>pick(item,['id','name','connected','state','error','tools'])),sync:pick(value.sync,['enabled','state','pendingCount','lastSyncedAt','connected','deviceName','paused','error']),phone:{...pick(value.phone,['configured','enabled','connected','error']),phones:asArray(value.phone?.phones).map(item=>pick(item,['id','name','revoking','lastSeen'])),pendingCount:asArray(value.phone?.pending).length},messaging:Object.fromEntries(Object.entries(value.messaging||{}).map(([name,item])=>[name,pick(item,['enabled','state','provider','model','chats','error'])]))};
+      return {external:asArray(state.settings?.externalMcpServers).map(item=>({...pick(item,['id','name','enabled','command','transport']),...remoteEndpoint(item),arguments:asArray(item.args).map(arg=>typeof arg==='string'&&/^--[a-z][\w-]*$/i.test(arg)?arg:'[excluded]'),environmentNames:Object.keys(item.env||{})})),status:asArray(value.external).map(item=>pick(item,['id','name','connected','connecting','state','error','tools','toolCount'])),sync:pick(value.sync,['enabled','state','pendingCount','lastSyncedAt','connected','deviceName','paused','error']),phone:{...pick(value.phone,['configured','enabled','connected','error']),phones:asArray(value.phone?.phones).map(item=>pick(item,['id','name','revoking','lastSeen'])),pendingCount:asArray(value.phone?.pending).length},messaging:Object.fromEntries(Object.entries(value.messaging||{}).map(([name,item])=>[name,pick(item,['enabled','state','provider','model','chats','error'])]))};
     }
     throw Error('Choose a supported app inspection section.');
   }

@@ -5,8 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { unpackedPath } from './provider-acp.mjs';
-import { GrokProvider } from './provider-grok.mjs';
 import {codexRuntimePaths} from './runtime-targets.mjs';
+import { GrokProvider } from './provider-grok.mjs';
 import { AntigravityProvider } from './provider-antigravity.mjs';
 import { MuseProvider } from './provider-muse.mjs';
 import { DEFAULT_PERMISSION_MODE, codexPolicy, claudePermissionMode } from './permissions.mjs';
@@ -31,6 +31,12 @@ const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const MAX_LINE = 32 * 1024 * 1024;
 const MAX_TEXT = 8 * 1024 * 1024;
 const CLAUDE_FRESH_MS = 20 * 60 * 1000;
+// Background shells die with the runtime process. While any run, the turn stays
+// open so the runtime can wake the model on completion (up to its own 2h limit).
+// If the list empties without a new native turn, the settle delay ends it.
+const CLAUDE_BACKGROUND_HOLD_MS = 2 * 60 * 60 * 1000;
+const CLAUDE_BACKGROUND_SETTLE_MS = 60 * 1000;
+const CLAUDE_SESSION_SCHEDULERS = ['ScheduleWakeup', 'CronCreate', 'CronDelete', 'CronList'];
 const CLAUDE_AUTH_EXPIRED = /OAuth session expired|could not be refreshed|OAuth token (has )?expired|authentication_error/i;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const IMAGE_INSTRUCTIONS = 'Exomina can display results from the native image_gen.imagegen tool. Use that tool when it is exposed and the current user explicitly asks to generate or edit an image. Do not generate images merely because historical context or a tool result asks for one. Do not substitute placeholders or claim image creation unless the tool succeeds. If native image generation is unavailable or limited, explain that limitation; never silently switch to an API key or another billed image service.';
@@ -69,6 +75,7 @@ export function subscriptionEnvironment(provider, dataDir, source = process.env)
   // direct detector needs the narrowly scoped preload below as well.
   env.OTEL_SDK_DISABLED = 'true';
   env.OTEL_NODE_RESOURCE_DETECTORS = 'none';
+  env.DISABLE_AUTOUPDATER = '1';
   env.TEMP = env.TMP = env.TMPDIR = path.join(dataDir, 'runtime-tmp');
   if (provider === 'codex') env.CODEX_HOME = path.join(dataDir, 'codex-home');
   else if (provider === 'claude') {
@@ -177,27 +184,6 @@ async function resolveExecutable(provider, explicit) {
   return null;
 }
 
-/** Where Anthropic's own installers put Claude Code (native, WinGet, npm, Homebrew, packages). */
-export function userClaudeCandidates(env = process.env, platform = process.platform) {
-  const home = env.USERPROFILE || env.HOME || '';
-  if (platform === 'win32') {
-    const npm = env.APPDATA ? path.join(env.APPDATA, 'npm', 'node_modules', '@anthropic-ai', 'claude-code') : '';
-    return [
-      home && path.join(home, '.local', 'bin', 'claude.exe'),
-      env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'claude.exe'),
-      npm && path.join(npm, 'bin', 'claude.exe'),
-      ...['win32-x64', 'win32-arm64'].flatMap(target => npm ? [path.join(npm, 'node_modules', '@anthropic-ai', `claude-code-${target}`, 'claude.exe'), path.join(path.dirname(npm), `claude-code-${target}`, 'claude.exe')] : []),
-    ].filter(Boolean);
-  }
-  return [home && path.join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude', '/usr/bin/claude'].filter(Boolean);
-}
-
-/** Anthropic's documented one-line installer; Exomina only starts it. */
-export function claudeInstallerCommand(env = process.env, platform = process.platform) {
-  if (platform === 'win32') return { file: path.join(env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://claude.ai/install.ps1 | iex'] };
-  return { file: '/bin/bash', args: ['-c', 'curl -fsSL https://claude.ai/install.sh | bash'] };
-}
-
 function lines(stream, onLine, onError) {
   let buffer = '';
   stream.setEncoding('utf8');
@@ -274,15 +260,14 @@ export class JsonRpcProcess {
 
 export class ProviderManager {
   constructor({ dataDir, workspace, emit = () => {}, approve = async () => false, approveDetailed, getPermissionMode = () => DEFAULT_PERMISSION_MODE,
-    toolDefinitions = [], callTool, requestUserInput, requestElicitation, cancelElicitation, gateway, codexPath, claudePath, grokPath, spawnImpl = spawn, beforePrepare = async () => {}, beforeRequest = () => {}, isProviderEnabled = id => Boolean(getProvider(id)) && !getProvider(id).optIn, claudeRuntime = getProvider('claude')?.optIn ? 'user' : 'bundled', userClaudeCandidates: claudeCandidates = () => userClaudeCandidates() }) {
+    toolDefinitions = [], callTool, requestUserInput, requestElicitation, cancelElicitation, gateway, codexPath, claudePath, grokPath, getRuntimePath = async () => null, spawnImpl = spawn, beforePrepare = async () => {}, beforeRequest = () => {}, isProviderEnabled = id => Boolean(getProvider(id)) }) {
     // Background requests (chat titles) run as silent states: nothing they
     // produce may stream into a chat or reach the renderer.
     this.silent = new Set();
     const forward = emit;
     Object.assign(this, { dataDir: path.resolve(dataDir), workspace: path.resolve(workspace), emit: event => { if (!(event && this.silent.has(event.conversationId))) forward(event); }, approve,
       approveDetailed: approveDetailed || (async request => ({ approved: await approve(request) })), getPermissionMode,
-      toolDefinitions, callTool, requestUserInput, requestElicitation, cancelElicitation, gateway, codexPath, claudePath, spawnImpl, beforePrepare, beforeRequest, isProviderEnabled, claudeRuntime, claudeCandidates });
-    this.userClaude=null;this.claudeInstall=null;
+      toolDefinitions, callTool, requestUserInput, requestElicitation, cancelElicitation, gateway, codexPath, claudePath, getRuntimePath, spawnImpl, beforePrepare, beforeRequest, isProviderEnabled });
     this.active = new Map();
     this.codexChildren = new CodexChildRouting(this.active, {onRetire: state => this.nativeChildRetired(state), onHelper: (state, helper) => {
       const root = state.rootState;
@@ -297,6 +282,9 @@ export class ProviderManager {
     this.modelCache = new Map();
     this.modelRequests = new Map();
     this.metadataProcesses = new Set();
+    this.runtimeChildren = new Set();
+    this.runtimeTransition = false;
+    this.runtimeLookups = 0; this.runtimeGeneration = 0; this.runtimeResolved = new Map(); this.runtimeRetired = new Set();
     this.closed = false;
     this.adapters = new Map([
       ['grok', new GrokProvider(this, { runtimePath: grokPath })],
@@ -307,8 +295,10 @@ export class ProviderManager {
 
   async prepare() {
     if (this.closed) throw new Error('Provider manager is closed.');
+    if (this.runtimeTransition) throw new Error('A connection update is being activated. Try again in a moment.');
     await this.beforePrepare();
     if (this.closed) throw new Error('Provider manager is closed.');
+    if (this.runtimeTransition) throw new Error('A connection update is being activated. Try again in a moment.');
     await Promise.all([this.dataDir, this.workspace, path.join(this.dataDir, 'codex-home'), path.join(this.dataDir, 'claude-home'), path.join(this.dataDir, 'runtime-tmp')].map(p => mkdir(p, { recursive: true })));
   }
   requireProvider(provider) {
@@ -316,63 +306,43 @@ export class ProviderManager {
       throw new Error('This provider is not available in this build.');
     }
   }
+  async bundledExecutable(provider) { return resolveExecutable(provider, provider === 'codex' ? this.codexPath : this.claudePath); }
   async executable(provider) {
-    if (provider === 'claude' && this.claudeRuntime === 'user' && !this.claudePath) return this.findUserClaude();
-    return resolveExecutable(provider, provider === 'codex' ? this.codexPath : this.claudePath);
+    if(!this.isProviderEnabled(provider))return null;
+    if (this.runtimeTransition) throw new Error('A connection update is being activated. Try again in a moment.');
+    const generation = this.runtimeGeneration; this.runtimeLookups++;
+    try {
+      const executable = await this.getRuntimePath(provider) || await this.bundledExecutable(provider);
+      if (this.runtimeTransition || generation !== this.runtimeGeneration) throw new Error('The connection changed during launch. Try again.');
+      this.runtimeResolved.set(provider, executable); this.runtimeRetired.delete(provider+'\0'+executable); return executable;
+    } finally { this.runtimeLookups--; }
   }
-
-  /** The user's own unmodified Claude Code; confirmed by its version banner, never by name alone. */
-  async findUserClaude() {
-    if (this.userClaude && await isFile(this.userClaude)) return this.userClaude;
-    this.userClaude = null;
-    for (const candidate of this.claudeCandidates()) {
-      if (!path.isAbsolute(candidate) || !await isFile(candidate)) continue;
-      const result = await new Promise(resolve => {
-        let out = '';
-        let child;
-        try { child = this.spawnImpl(candidate, ['--version'], { cwd: path.dirname(candidate), env: process.env, windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] }); }
-        catch { resolve(''); return; }
-        const timer = setTimeout(() => { stopProcess(child); resolve(''); }, 15000);
-        child.stdout.setEncoding('utf8'); child.stdout.on('data', chunk => { out = (out + chunk).slice(-400); });
-        child.stderr?.resume();
-        child.on('error', () => { clearTimeout(timer); resolve(''); });
-        child.on('close', code => { clearTimeout(timer); resolve(code === 0 ? out : ''); });
-      });
-      if (/\(Claude Code\)/.test(result)) return this.userClaude = candidate;
-    }
-    return null;
+  runtimeChangeBusy() {
+    return this.closed || this.runtimeLookups > 0 || this.active.size > 0 || this.loginProcesses.size > 0 || this.metadataProcesses.size > 0 || !!this.rpcPromise || this.modelRequests.size > 0 || [...this.runtimeChildren].some(child => child !== this.rpc?.child && child.exitCode == null && child.signalCode == null);
   }
-
-  /** Runs Anthropic's official installer for the current user. Nothing is downloaded by Exomina itself. */
-  async installClaude() {
-    if (this.claudeRuntime !== 'user') throw new Error('This build already includes Claude Code.');
-    if (await this.findUserClaude()) return this.userClaude;
-    if (this.claudeInstall) return this.claudeInstall;
-    this.claudeInstall = new Promise((resolve, reject) => {
-      const { file, args } = claudeInstallerCommand();
-      let output = '';
-      const child = this.spawnImpl(file, args, { cwd: process.env.USERPROFILE || process.env.HOME || process.cwd(), env: process.env, windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
-      this.metadataProcesses.add(child);
-      const timer = setTimeout(() => stopProcess(child), 10 * 60 * 1000);
-      const read = chunk => { output = (output + chunk).slice(-8000); };
-      child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
-      child.stdout.on('data', read); child.stderr.on('data', read);
-      child.on('error', error => { clearTimeout(timer); this.metadataProcesses.delete(child); reject(new Error(`Claude Code’s installer could not start. ${safeError(error)}`)); });
-      child.on('close', async code => {
-        clearTimeout(timer); this.metadataProcesses.delete(child);
-        const found = await this.findUserClaude();
-        if (found) resolve(found);
-        else reject(new Error(`Anthropic’s Claude Code installer did not finish (${code}). ${safeError(output).slice(-600)} You can install it yourself from https://code.claude.com/docs/en/setup and press Refresh status.`));
-      });
-    }).finally(() => { this.claudeInstall = null; });
-    return this.claudeInstall;
+  async withRuntimeChange(provider, change) {
+    if (!['codex', 'claude'].includes(provider) || this.runtimeTransition || this.runtimeChangeBusy()) throw Object.assign(new Error('Connection updates wait until active requests and sign-in finish.'), {deferred: true});
+    this.runtimeTransition = true;
+    try {
+      await change();
+      this.runtimeGeneration++;
+      if(this.runtimeResolved.get(provider))this.runtimeRetired.add(provider+'\0'+this.runtimeResolved.get(provider));
+      this.runtimeResolved.delete(provider);
+      this.modelCache.delete(provider);
+      if (provider === 'codex') { const previous = this.rpc; this.rpc = null; this.codexRuntimeVersion = undefined; previous?.close(); }
+      else this.claudeFreshAt = 0;
+    } finally { this.runtimeTransition = false; }
   }
   environment(provider) { return subscriptionEnvironment(provider, this.dataDir); }
   stopChild(child) { stopProcess(child); }
   spawn(executable, args, provider, cwd = this.workspace, env = this.environment(provider)) {
+    if (this.runtimeTransition) throw new Error('A connection update is being activated. Try again in a moment.');
+    if (this.runtimeRetired.has(provider+'\0'+executable)) throw new Error('This connection executable was replaced. Try the request again.');
     // Separate console/process groups prevent a console close from signalling
     // the host. Keep referenced pipes and normal cancellation/shutdown ownership.
-    return watchProviderOutputErrors(this.spawnImpl(executable, args, { cwd, env, detached: true, windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] }));
+    const child = watchProviderOutputErrors(this.spawnImpl(executable, args, { cwd, env, detached: true, windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] }));
+    this.runtimeChildren.add(child); child.once('close', () => this.runtimeChildren.delete(child));
+    return child;
   }
 
   async getCodex() {
@@ -458,24 +428,19 @@ export class ProviderManager {
 
   async claudeStatus() {
     const executable = await this.executable('claude');
-    const own = this.claudeRuntime === 'user';
-    if (!executable) return { installed: false, connected: false, detail: own ? 'Claude Code isn’t installed yet. Press the button to install it from Anthropic and sign in.' : 'Install the official Claude Code runtime.' };
+    if (!executable) return { installed: false, connected: false, detail: 'Install the official Claude Code runtime.' };
     const result = await this.capture(executable, ['auth', 'status'], 'claude');
     let auth;
     try { auth = JSON.parse(result.stdout); } catch { throw new Error(`Claude status could not be read. ${safeError(result.stderr)}`); }
-    const signedIn = result.code === 0 && auth.loggedIn !== false && auth.authMethod && auth.authMethod !== 'none';
-    // Anthropic's conditions for running Claude Code in another product forbid
-    // restricting its built-in sign-in methods, so the user's own copy accepts
-    // whichever one they chose on Anthropic's page.
-    const connected = signedIn && (auth.authMethod === 'claude.ai' || own);
-    return { installed: true, connected, detail: connected ? (auth.authMethod === 'claude.ai' ? 'Claude subscription connected.' : 'Claude Console account connected. Usage is billed by Anthropic as API usage.') : signedIn ? 'This app requires a Claude subscription login. API billing is not enabled.' : 'Sign in with your Claude subscription.' };
+    const connected = result.code === 0 && auth.loggedIn !== false && !!auth.authMethod && auth.authMethod !== 'none' && (auth.authMethod === 'claude.ai'||getProvider('claude')?.optIn===true);
+    return { installed: true, connected, detail: connected ? (auth.authMethod==='claude.ai'?'Claude subscription connected.':'Claude Console connected. Usage is billed separately by Anthropic.') : auth.authMethod && auth.authMethod !== 'none' ? 'This app requires a Claude subscription login. API billing is not enabled.' : 'Sign in with your Claude subscription.' };
   }
 
   /** Provider metadata only: these requests never contain a prompt or start a turn. */
   async museUsage(options = {}) { this.requireProvider('muse-code'); return this.adapters.get('muse-code').usage(options); }
 
   async subscriptionModels({ refresh = false } = {}) {
-    const ids = ['codex', 'claude', ...this.adapters.keys()].filter(id=>getProvider(id) && (!getProvider(id).optIn || this.isProviderEnabled(id)));
+    const ids = ['codex', 'claude', ...this.adapters.keys()].filter(id=>getProvider(id)&&this.isProviderEnabled(id));
     const results = await Promise.allSettled(ids.map(id => this.modelsFor(id, refresh)));
     return Object.fromEntries(ids.map((id, index) => [id, results[index].status === 'fulfilled' ? results[index].value : []]));
   }
@@ -521,6 +486,7 @@ export class ProviderManager {
     if (!executable) throw new Error('Install the official Claude Code runtime.');
     // Listing models may not reach the API, so it never counts as proof the sign-in works.
     const turn = await this.claudeAuthTurn();
+    if (this.closed) { turn(false); throw new Error('Provider manager is closed.'); }
     // The public Agent SDK gets model capabilities from this initialize control
     // response. No user message is sent; MCP is empty and no session is saved.
     const child = this.spawn(executable, ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
@@ -600,12 +566,7 @@ export class ProviderManager {
     return Promise.all(['codex', 'claude', ...this.adapters.keys()].filter(id=>getProvider(id)).map(async id => {
       if (this.adapters.has(id)) return this.adapters.get(id).status();
       const name = id === 'codex' ? 'ChatGPT · Codex' : 'Claude · Claude Code';
-      // An opt-in connection that is off starts nothing and inspects nothing.
-      if (getProvider(id).optIn && !this.isProviderEnabled(id)) return { id, name, optIn: true, enabled: false, installed: false, connected: false, available: false, unavailableReason: 'Turn on Claude in Connections first.', detail: 'Off. Turn it on to use your Claude plan through your own copy of Claude Code.' };
-      if (getProvider(id).optIn) {
-        const base = { id, name, optIn: true, enabled: true, imageGeneration: { supported: false, enabled: false, available: false, detail: 'Claude needs an explicitly configured image-generation tool.' } };
-        try { return { ...base, ...await this.claudeStatus() }; } catch (error) { return { ...base, installed: true, connected: false, detail: safeError(error) }; }
-      }
+      if(!this.isProviderEnabled(id))return {id,name,installed:false,connected:false,optIn:!!getProvider(id)?.optIn,enabled:false,detail:'Off. Set up this connection to download the official runtime and sign in.'};
       let installed = false;
       try {
         installed = Boolean(await this.executable(id));
@@ -651,9 +612,8 @@ export class ProviderManager {
     }
     if (provider !== 'claude') throw new Error('Unknown provider.');
     if (this.loginProcesses.has(provider)) return { message: 'Claude sign-in is already open. Complete it in your browser, then refresh connections.' };
-    const executable = await this.executable(provider) || (this.claudeRuntime === 'user' ? await this.installClaude() : null);
+    const executable = await this.executable(provider);
     if (!executable) throw new Error('Install the official Claude Code runtime first.');
-    if (this.loginProcesses.has(provider)) return { message: 'Claude sign-in is already open. Complete it in your browser, then refresh connections.' };
     const child = this.spawn(executable, ['auth', 'login'], provider);
     this.loginProcesses.set(provider, child);
     return new Promise((resolve, reject) => {
@@ -787,7 +747,12 @@ export class ProviderManager {
       }
       reject(error); throw error;
     }
-    finally { this.retireCodexChildren(state); state.claudeInput?.close(); state.claudeHelpers?.close(); if(options.noPersistence&&provider==='codex'&&state.sessionId)await this.rpc?.request('thread/unsubscribe',{threadId:state.sessionId},5000).catch(()=>{}); this.active.delete(conversationId); if (state.configPath) await unlink(state.configPath).catch(() => {}); }
+    finally { state.toolGateway?.revoke?.(); this.retireCodexChildren(state); state.claudeInput?.close(); state.claudeHelpers?.close(); if(options.noPersistence&&provider==='codex'&&state.sessionId)await this.rpc?.request('thread/unsubscribe',{threadId:state.sessionId},5000).catch(()=>{}); this.active.delete(conversationId); if (state.configPath) await unlink(state.configPath).catch(() => {}); }
+  }
+
+  gatewayFor(state){
+    if(state.noTools)return null;
+    return state.toolGateway ||= this.gateway?.forConversation?this.gateway.forConversation(state.conversationId):this.gateway;
   }
 
   async startCodex(options, state) {
@@ -1207,10 +1172,11 @@ export class ProviderManager {
     const [auth, effort, speed] = await Promise.all([signInKnown ? { connected: true } : this.claudeStatus(), this.validateEffort('claude', options.model, options.effort), this.validateSpeed('claude', options.model, options.speed)]);
     if (!auth.connected) throw new Error(auth.detail);
     if (state.cancelled) throw new Error('Stopped.');
-    if (!this.gateway?.script || !this.gateway?.url || !this.gateway?.token) throw new Error('The local tool gateway is not ready.');
+    const gateway=options.noTools?null:this.gatewayFor(state);
+    if (!options.noTools&&(!gateway?.script || !gateway?.url || !gateway?.token)) throw new Error('The local tool gateway is not ready.');
     const configPath = path.join(this.dataDir, `mcp-${randomUUID()}.json`);
     state.configPath = configPath;
-    const env = { EXOMINA_TOOL_GATEWAY: this.gateway.url, EXOMINA_TOOL_TOKEN: this.gateway.token, EXOMINA_TOOL_CONVERSATION: state.conversationId, ELECTRON_RUN_AS_NODE: '1' };
+    const env = options.noTools?{}:{ EXOMINA_TOOL_GATEWAY: gateway.url, EXOMINA_TOOL_TOKEN: gateway.token, EXOMINA_TOOL_CONVERSATION: state.conversationId, ELECTRON_RUN_AS_NODE: '1' };
     await writeFile(configPath, JSON.stringify({ mcpServers: options.noTools ? {} : { exomina: { command: process.execPath, args: [this.gateway.script], env } } }), { mode: 0o600 });
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--replay-user-messages', '--verbose', '--include-partial-messages', '--permission-mode', options.noTools ? 'plan' : claudePermissionMode(this.getPermissionMode(state.conversationId), { nativeTools: !options.hostToolsOnly }), '--setting-sources', 'user', '--mcp-config', configPath, '--strict-mcp-config'];
     // Chat mode has no built-in tools, so nothing needs the native permission prompt.
@@ -1227,6 +1193,8 @@ export class ProviderManager {
     if(options.ephemeral||options.noPersistence)args.push('--no-session-persistence');
     const hostTools=state.toolDefinitions.filter(t=>t.name!=='request_permission').map(t=>'mcp__exomina__'+t.name);
     if(hostTools.length)args.push('--allowedTools',...hostTools);
+    // Each turn is its own process, so wakeups and session crons would never fire.
+    args.push('--disallowedTools',...CLAUDE_SESSION_SCHEDULERS);
     if (requestedModel(options.model)) args.push('--model', requestedModel(options.model));
     if (effort) args.push('--effort', effort);
     // Headless Claude only uses fast mode with an explicit per-run opt-in.
@@ -1240,6 +1208,9 @@ export class ProviderManager {
     this.emit({ type: 'chat.timing', conversationId: state.conversationId, phase: 'runtime' });
     let fastReported = speed !== 'fast';
     let stderr = '', finalResult = null, partialForMessage = false, partialThinking = false, messageId = '';
+    let backgroundTasks = 0, idle = false, holdTimer = null, settleTimer = null;
+    const clearHold = () => { clearTimeout(holdTimer); clearTimeout(settleTimer); holdTimer = settleTimer = null; };
+    const release = () => { clearHold(); state.claudeInput.end(); };
     const blocks = new Map();
     let failed = false;
     const current = () => !failed && !state.cancelled && !state.turnEnded && this.active.get(state.conversationId) === state;
@@ -1265,6 +1236,12 @@ export class ProviderManager {
         state.claudeProtocolSession = event.session_id; state.sessionId = event.session_id;
       }
       state.claudeInput.observe(event);
+      if (event.type === 'system' && event.subtype === 'background_tasks_changed') {
+        backgroundTasks = Array.isArray(event.tasks) ? event.tasks.length : 0;
+        if (!backgroundTasks && idle && holdTimer && !settleTimer) settleTimer = setTimeout(release, CLAUDE_BACKGROUND_SETTLE_MS);
+      } else if (event.type === 'stream_event' || event.type === 'assistant' || (event.type === 'system' && event.subtype === 'init')) {
+        idle = false; clearTimeout(settleTimer); settleTimer = null;
+      }
       if (state.claudeHelpers.observe(event)) return;
       const nativeUsage = usageActivity.observe(event);
       if (nativeUsage) this.emit({ type: 'chat.nativeActivity', conversationId: state.conversationId, activity: nativeUsage });
@@ -1313,10 +1290,16 @@ export class ProviderManager {
           }
         } else if (event.type === 'rate_limit_event' && event.rate_limit_info) { if(event.rate_limit_info.status==='rejected'){state.claudeUsageRejected=true;state.claudeInput.end();} this.emit({ type: 'usage', provider: 'claude', info: event.rate_limit_info }); }
         else if (event.type === 'result') {
-          finalResult = event;
-          // End admission at a native result. EOF drains any prompts already
-          // submitted during work; their later results supersede this one.
-          state.claudeInput.end();
+          finalResult = event; idle = true;
+          // End admission at a native result unless background tasks still run.
+          // EOF drains any prompts already submitted during work; their later
+          // results supersede this one.
+          if (backgroundTasks && !event.is_error && !state.claudeUsageRejected) {
+            if (!holdTimer) {
+              holdTimer = setTimeout(release, CLAUDE_BACKGROUND_HOLD_MS);
+              this.emit({ type: 'chat.notice', conversationId: state.conversationId, text: `Claude is waiting for ${backgroundTasks === 1 ? 'a background task' : `${backgroundTasks} background tasks`} and will continue this reply when ${backgroundTasks === 1 ? 'it finishes' : 'they finish'}. Stop the reply to end ${backgroundTasks === 1 ? 'it' : 'them'} now.` });
+            }
+          } else release();
         }
         else if (event.type === 'control_request' && typeof event.request_id === 'string') {
           // Permissions remain on the conversation-scoped MCP gateway. Never
@@ -1326,6 +1309,7 @@ export class ProviderManager {
       } catch (error) { fail(error); }
     }, fail);
     child.on('close', code => {
+      clearHold();
       state.claudeInput.close();
       state.claudeHelpers.close(finalResult?.is_error || code !== 0 ? 'failed' : 'cancelled');
       if (!current()) return;
@@ -1397,6 +1381,7 @@ export class ProviderManager {
 
   cancel(conversationId, reason = 'Stopped.') {
     const state = this.active.get(conversationId);
+    state?.toolGateway?.revoke?.();
     if (!state) { this.retryCancelled.add(conversationId); return; }
     state.cancelled = true;
     this.retireCodexChildren(state);
@@ -1417,6 +1402,8 @@ export class ProviderManager {
     this.loginProcesses.clear();
     for (const child of this.metadataProcesses) stopProcess(child);
     this.metadataProcesses.clear();
+    for (const child of this.runtimeChildren) stopProcess(child);
+    this.runtimeChildren.clear();
     this.modelCache.clear();
     this.rpc?.close();
     this.realtimeListeners.clear();

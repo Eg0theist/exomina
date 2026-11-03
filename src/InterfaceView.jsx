@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import { ArrowRight, Brain, Download, FileText, Folder, Globe2, KeyRound, Paperclip, PenLine, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, Download, Folder, Globe2, Paperclip, PenLine } from 'lucide-react';
 import { AmbitionIdeas } from './Ambition.jsx';
 import GettingStarted from './GettingStarted.jsx';
 import './interface-view.css';
@@ -48,17 +48,20 @@ export default function InterfaceView({ view, onChange, compact = false }) {
 
 const STARTS = [['files', Paperclip, 'A file'], ['website', Globe2, 'A website'], ['text', PenLine, 'A text'], ['folder', Folder, 'A folder']];
 
-/** Standard's home: one question, examples of asking for more, and starting points from what people already have. */
+/** Everyday work starts with the message box; optional examples never send a request. */
 export function StandardHome({ Logo, live = [], onStart, onOpen, onImport, onIdea, importing = false,connections,conversations,onConnections,onControls,onTutorials }) {
+  const returning = !!conversations?.length;
   return <div className="standard-home">
     <span className="welcome-mark"><Logo /></span>
     <h1>What do you want to get done?</h1>
-    <p>Your AI can do the work, not only explain it. Most people never ask.</p>
-    <GettingStarted connections={connections} conversations={conversations} onConnections={onConnections} onStart={()=>onStart()} onControls={onControls}/>
-    {onTutorials&&<button type="button" className="text-button" onClick={onTutorials}>New here? Learn Exomina<ArrowRight size={13}/></button>}
-    {onIdea && <AmbitionIdeas onUse={onIdea}/>}
-    <div className="standard-from" role="group" aria-label="Starting points"><span>Or start from</span>{STARTS.map(([id, Icon, title]) => <button type="button" key={id} onClick={() => onStart(id)}><Icon size={14} strokeWidth={1.8}/>{title}</button>)}</div>
-    {onImport && <button type="button" className="text-button standard-import" disabled={importing} onClick={onImport}><Download size={14}/>{importing ? 'Importing your chats…' : 'Bring your chats from ChatGPT, Claude, Gemini, Grok or any other AI'}</button>}
+    <p>{returning ? 'Bring a question, a project, or an unfinished idea.' : 'Tell Exomina what you need. Review its work as you go.'}</p>
+    <GettingStarted compact connections={connections} conversations={conversations} onConnections={onConnections} onStart={()=>onStart()} onControls={onControls}/>
+    {onTutorials&&<button type="button" className="text-button home-tutorial-entry" onClick={onTutorials}>Getting started<ArrowRight size={13}/></button>}
+    <div className="standard-from" role="group" aria-label="Starting points">{STARTS.map(([id, Icon, title]) => <button type="button" key={id} onClick={() => onStart(id)}><Icon size={19} strokeWidth={1.5}/><span>{title}</span><ArrowRight size={13}/></button>)}</div>
+    {(onIdea || onTutorials || onImport) && <details className="standard-explore"><summary>Ideas &amp; examples</summary>
+      <div className="standard-home-help">{onImport && <button type="button" className="text-button standard-import" disabled={importing} onClick={onImport}><Download size={14}/>{importing ? 'Importing…' : 'Import chats'}</button>}</div>
+      {onIdea && <AmbitionIdeas onUse={onIdea}/>}
+    </details>}
     {live.length > 0 && <button type="button" className="welcome-live" onClick={() => onOpen(live[0])}><span className="activity-pulse" />{live.length === 1 ? <>“{live[0].title}” is still working</> : <>{live.length} chats are still working</>}<ArrowRight size={13} /></button>}
   </div>;
 }

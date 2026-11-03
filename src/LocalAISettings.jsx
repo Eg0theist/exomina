@@ -11,7 +11,7 @@ const newTrigger = () => ({name:'', folder:'', taskId:'', filter:'', condition:'
 export default function LocalAISettings({settings, saveSettings, Toggle, tasks, onOpen, onTasks}) {
   const [view, setView] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), [form, setForm] = useState(null);
   const local = normalizeDecisionSettings(settings.decisionLayer), agent = normalizeAgentSettings(settings.agent);
-  const load = useCallback(() => api.invoke('decision.status').then(setView).catch(error => setError(message(error))), []);
+  const load = useCallback(() => api.invoke('decision.status').then(value => { setView(value); setError(''); }).catch(error => setError(message(error))), []);
   useEffect(() => {
     load();
     return api.onEvent(event => {

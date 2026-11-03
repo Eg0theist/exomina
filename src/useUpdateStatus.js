@@ -1,25 +1,29 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './transport.js';
+import {createUpdateStatusRefresh} from './update-status-refresh.js';
 
 export default function useUpdateStatus(){
  const [status,setStatus]=useState(null),[error,setError]=useState('');
- const load=useCallback(()=>api.invoke('update.status').then(setStatus).catch(failure=>setError(failure.message||String(failure))),[]);
+ const coordinator=useRef(null);
+ const load=useCallback(()=>coordinator.current?.request({immediate:true,reportError:true})||Promise.resolve(),[]);
  useEffect(()=>{
-  let mounted=true,activityTimer;
-  const quiet=()=>api.invoke('update.status').then(value=>{if(mounted)setStatus(value);}).catch(()=>{});
-  quiet();
+  const refresh=createUpdateStatusRefresh({read:()=>api.invoke('update.status'),apply:value=>{setStatus(value);setError('');},onError:failure=>setError(failure.message||String(failure)),visible:()=>document.visibilityState!=='hidden'});
+  coordinator.current=refresh;
+  const quiet=()=>refresh.request();
+  const immediate=()=>refresh.request({immediate:true});
+  immediate();
   // A locally packaged build emits no event, so recheck on focus and every minute (local read only).
-  const refresh=()=>{if(document.visibilityState!=='hidden')quiet();};
-  const timer=setInterval(refresh,60000);
-  window.addEventListener('focus',refresh);
+  const timer=setInterval(quiet,60000);
+  window.addEventListener('focus',immediate);
+  document.addEventListener('visibilitychange',immediate);
   const unsubscribe=api.onEvent(event=>{
    if(event.type==='update.progress'){
     setStatus(current=>current?{...current,remote:{...current.remote,progress:event.progress}}:current);
     if(['ready','available','current','cancelled','error'].includes(event.progress?.phase))load();
-   }else if(event.type==='state.changed')quiet();
-   else if(['terminal.changed','chat.done','chat.queue','voice.event','voice.realtime.event','analysis.changed'].includes(event.type)){clearTimeout(activityTimer);activityTimer=setTimeout(quiet,150);}
+   }else if(event.type==='transport.reconnected')immediate();
+   else if(['state.changed','terminal.changed','chat.done','chat.queue','voice.event','voice.realtime.event','analysis.changed'].includes(event.type))quiet();
   });
-  return()=>{mounted=false;clearInterval(timer);clearTimeout(activityTimer);window.removeEventListener('focus',refresh);unsubscribe?.();};
+  return()=>{refresh.dispose();if(coordinator.current===refresh)coordinator.current=null;clearInterval(timer);window.removeEventListener('focus',immediate);document.removeEventListener('visibilitychange',immediate);unsubscribe?.();};
  },[load]);
  return{status,setStatus,error,setError,load};
 }

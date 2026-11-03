@@ -1,9 +1,10 @@
-// Release versions are deliberate. Local packaging keeps the version and the
-// package stamp supplies a unique build identity for each attempt.
+// Asset builds synchronize metadata. Packaging selects an automatic patch in
+// package-version.mjs; deliberate minor/major milestones can still be selected.
 import {readFile,writeFile,rename,unlink,open} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
+import {prepareDependencyCompatibility} from './prepare-dependency-compat.mjs';
 
 export function nextBuildVersion(version) {
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(version || '');
@@ -33,6 +34,7 @@ async function replaceFile(target, text) {
 }
 
 export async function prepareVersion(root, {advance = false,release=null,setVersion=null} = {}) {
+  await prepareDependencyCompatibility(root);
   if([Boolean(advance),Boolean(release),Boolean(setVersion)].filter(Boolean).length>1)throw Error('Choose one version operation.');
   if(setVersion!==null)nextBuildVersion(setVersion);
   root = path.resolve(root);
@@ -68,6 +70,7 @@ export async function prepareVersion(root, {advance = false,release=null,setVers
 }
 
 if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
+  await prepareDependencyCompatibility(fileURLToPath(new URL('..',import.meta.url)));
   const args = process.argv.slice(2);
   const valid=!args.length||args.length===1&&args[0]==='--advance'||args.length===2&&['--release','--set'].includes(args[0]);
   if(!valid)throw Error('Use prepare-version.mjs [--release patch|minor|major | --set VERSION].');

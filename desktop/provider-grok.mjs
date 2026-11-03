@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { AcpProvider, AcpTransport, runtimeError, unpackedPath } from './provider-acp.mjs';
 import { officialLoginUrl } from './provider-auth.mjs';
 import {APP_VERSION} from './app-version.mjs';
+import {bundledGrokPaths} from './runtime-targets.mjs';
 import {GROK_MEDIA_TOOLS,grokMediaTool,grokOutputFiles,readProviderMedia,stageProviderImages} from './provider-media.mjs';
-import { bundledGrokPaths } from './runtime-targets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUILTINS = ['Bash', 'Read', 'Grep', 'Edit', 'WebFetch', 'WebSearch'];
@@ -41,7 +41,7 @@ export class GrokProvider extends AcpProvider {
     // Native file/shell/web tools are denied. Only the exact app MCP bridge is
     // allowed; its tools enforce the selected workspace and permission policy.
     const gateway = this.manager.gateway;
-    const bridge = gateway?.script && gateway?.url && gateway?.token ? [{ server_command: [process.execPath, gateway.script] }] : [];
+    const bridge = gateway?.script && gateway?.url && (gateway?.token||gateway?.forConversation) ? [{ server_command: [process.execPath, gateway.script] }] : [];
     const policy = [
       'allow_managed_hooks_only = true', 'allow_managed_mcp_servers_only = true',
       `allowed_mcp_servers = [${bridge.map(item => `{ server_command = ${JSON.stringify(item.server_command)} }`).join(', ')}]`,

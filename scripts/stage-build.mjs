@@ -1,6 +1,6 @@
 // Local package promotion has fixed transaction slots, never dated full backups.
 import assert from 'node:assert/strict';
-import {readFile,writeFile,readdir,lstat,mkdir,open,rename,unlink,rmdir} from 'node:fs/promises';
+import {readFile,writeFile,readdir,lstat,mkdir,open,rename,unlink,rmdir,rm} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
@@ -21,10 +21,24 @@ export function stagingPaths(root=project){
   return {root,release,work,stage:path.join(release,'win-unpacked'),candidate:path.join(work,'candidate','win-unpacked'),previous:path.join(work,'previous'),journal:path.join(work,'transaction.json'),lock:path.join(release,'.staging.lock')};
 }
 async function plainDirectory(dir){await plainPath(dir);if(!(await lstat(dir)).isDirectory())throw Error('Expected a plain directory: '+dir);}
+// Unreadable locks count as owned: only a recorded, exited PID is stale.
+export async function staleLock(file,alive=pid=>{try{process.kill(pid,0);return true;}catch(e){return e.code!=='ESRCH';}}){
+  let owner;try{owner=JSON.parse(await readFile(file,'utf8'));}catch{return false;}
+  return Number.isSafeInteger(owner?.pid)&&owner.pid>0&&owner.pid!==process.pid&&!alive(owner.pid);
+}
 export async function withStagingLock(root,action){
   const p=stagingPaths(root);await plainPath(p.release);await mkdir(p.release,{recursive:true});
   let lock;
-  try{lock=await open(p.lock,'wx');}catch(e){if(e.code==='EEXIST')throw Error('Another build/stage owns '+p.lock+'. If interrupted, confirm its recorded PID has exited before removing this lock.');throw e;}
+  try{lock=await open(p.lock,'wx');}catch(e){
+    if(e.code!=='EEXIST')throw e;
+    // A hard-killed build leaves its lock and an unpromoted candidate. Reclaim
+    // both only when the recorded owner has exited and no transaction began.
+    if(!(await staleLock(p.lock)))throw Error('Another build/stage owns '+p.lock+'. If interrupted, confirm its recorded PID has exited before removing this lock.');
+    await unlink(p.lock);
+    if(!(await exists(p.journal))&&!(await exists(p.previous)))await rm(path.dirname(p.candidate),{recursive:true,force:true});
+    console.log('Reclaimed a stale staging lock from an exited build.');
+    lock=await open(p.lock,'wx');
+  }
   try{await lock.writeFile(JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()}),'utf8');await plainPath(p.work);await mkdir(p.work,{recursive:true});return await action(p);}
   finally{await lock.close();await unlink(p.lock);}
 }

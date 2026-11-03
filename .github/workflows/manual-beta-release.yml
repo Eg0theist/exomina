@@ -16,8 +16,17 @@ on:
       - 'desktop/**'
       - 'scripts/**'
       - 'src/**'
+      - 'public/**'
+      - 'cloud/**'
+      - 'index.html'
+      - 'remote.html'
+      - 'vite.config.mjs'
       - 'package.json'
       - 'package-lock.json'
+      - '!scripts/**/*.md'
+      - '!scripts/**/*.txt'
+      - '!scripts/public-template/docs/**'
+      - '!scripts/beta-docs/**'
 permissions:
   contents: read
 concurrency:
@@ -64,6 +73,10 @@ jobs:
           New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
           npm ci --ignore-scripts
           if ($LASTEXITCODE) { throw 'Dependency preparation failed.' }
+          node scripts/prepare-dependency-compat.mjs
+          if ($LASTEXITCODE) { throw 'Dependency compatibility preparation failed.' }
+          npm audit --audit-level=low --registry=https://registry.npmjs.org
+          if ($LASTEXITCODE) { throw 'Dependency advisories block this installer.' }
           foreach ($entry in @('node_modules/electron/install.js','scripts/prepare-beta-vendor.mjs','scripts/prepare-grok-runtime.mjs','scripts/prepare-analysis-node.mjs','scripts/prepare-taskbar-icon.mjs','scripts/prepare-windows-interop.mjs')) {
             node $entry
             if ($LASTEXITCODE) { throw "Runtime preparation failed: $entry" }
@@ -120,6 +133,7 @@ jobs:
           $connector | Add-Member -NotePropertyName installerSha256 -NotePropertyValue $installReceipt.installerSha256
           $connector | Add-Member -NotePropertyName version -NotePropertyValue $installReceipt.build.version
           $connector | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $destination 'windows-connector.json') -Encoding utf8
+          if ($connectorExit) { throw 'The packaged connector UI failed qualification.' }
       - name: Collect synthetic installer diagnostics on failure
         if: failure()
         shell: pwsh

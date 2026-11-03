@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {researchSpec,researchPrompt} from './research-guide.mjs';
-export {RESEARCH_BUDGETS,researchSpec,researchPrompt} from './research-guide.mjs';
+export {RESEARCH_BUDGETS,RESEARCH_APPROACHES,researchSpec,researchPrompt} from './research-guide.mjs';
 
 /** Explicit one-run public research. Claims are persisted before inference; no scheduler. */
 export class Research {

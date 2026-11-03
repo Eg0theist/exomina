@@ -6,7 +6,7 @@ $expectedPublisher=([string]$env:EXOMINA_PUBLISHER_THUMBPRINT).Replace(' ','').T
 if($expectedPublisher -notmatch '^[A-F0-9]{40}$'){throw 'Configure EXOMINA_PUBLISHER_THUMBPRINT to the trusted release certificate thumbprint before verification.'}
 $files=if($SingleFile){@([IO.Path]::GetFullPath($SingleFile))}else{
  if(-not $releaseRoot){throw 'Choose a release root or an exact file.'}
- @('Exomina.exe','resources\app.asar.unpacked\desktop\windows-interop\Vault.dll','resources\app.asar.unpacked\desktop\windows-interop\Desktop.dll','resources\app.asar.unpacked\desktop\windows-interop\Speech.dll','resources\app.asar.unpacked\desktop\windows-interop\Busy.dll','resources\app.asar.unpacked\desktop\windows-interop\Scan.dll')
+ @('Exomina.exe','resources\app.asar.unpacked\desktop\windows-interop\Vault.dll','resources\app.asar.unpacked\desktop\windows-interop\Desktop.dll','resources\app.asar.unpacked\desktop\windows-interop\Speech.dll','resources\app.asar.unpacked\desktop\windows-interop\Busy.dll')
 }
 $results=@()
 $publisher=$null

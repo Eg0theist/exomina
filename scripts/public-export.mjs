@@ -10,19 +10,40 @@ const publicRoots=new Set(['desktop','src','test','cloud','public','scripts','bu
 const rootDocuments=new Set(['.gitignore','index.html','remote.html','vite.config.mjs','package.json','package-lock.json','LICENSE','NOTICE','README.md','BETA.md','BUILDING.md','BUILD-WINDOWS.md','CHAT-MEMORY.md','FEEDBACK.md','START-HERE.txt','SUPPORT.md','PROVIDER-TOOLS.md','PUBLIC-UPDATES.md','TERMINAL.md','THIRD-PARTY-NOTICES.txt','SECURITY-AUDIT.txt','VALIDATION.txt']);
 const generated=new Set(['desktop/distribution.mjs','desktop/theme-catalog.mjs','src/voice-preview-clips.js','scripts/prepare-beta-release.mjs','scripts/public-export.mjs']);
 
+export function privatePublicPath(relative){
+ const normalized=relative.replaceAll('\\','/'),name=path.posix.basename(normalized).toLowerCase();
+ return /(^|\/)(?:data|Private|accounts|\.git|\.verification|node_modules|dist|output|__pycache__)(\/|$)/i.test(normalized)||/(^|\/)release(?:-[^/]+)?\//i.test(normalized)||
+  /(?:^|\/)theme-art(?:\/|$)/i.test(normalized)||/^src\/assets\/(?:voice-previews|voice-previews-clear|claude-voice-previews)(?:\/|$)/i.test(normalized)||
+  /(?:theme-catalog-full\.mjs|voice-preview-clips-personal\.js)$/i.test(normalized)||/\.(?:log|sqlite(?:3)?(?:-(?:wal|shm|journal))?|db(?:-(?:wal|shm|journal))?|pfx|p12|key|pem|pyc|pyo)$/i.test(normalized)||
+  /^desktop\/windows-interop\/.*\.dll$/i.test(normalized)||
+  (/^(?:\.env(?:\..*)?|.+\.env(?:\..*)?)$/.test(name)&&!name.endsWith('.example'));
+}
+
+export async function inspectPublicTree(root){
+ let files=0;
+ async function walk(relative=''){
+  for(const entry of await readdir(path.join(root,relative),{withFileTypes:true})){
+   const name=relative?relative+'/'+entry.name:entry.name;
+   if(privatePublicPath(name)||entry.isSymbolicLink())throw Error('Private or linked file in public export: '+name);
+   if(entry.isDirectory())await walk(name);else if(entry.isFile())files++;else throw Error('Special file in public export: '+name);
+  }
+ }
+ await walk();return {files,excludedPrivatePaths:true,contentScanRequired:true};
+}
+
 export function publicPathAllowed(relative){
  const normalized=relative.replaceAll('\\','/');
  if(!normalized||normalized.startsWith('/')||normalized.split('/').some(part=>part==='..'))return false;
  if(!publicRoots.has(normalized.split('/')[0])&&!rootDocuments.has(normalized))return false;
- return !/(^|\/)(?:data|Private|accounts|\.git|\.verification|node_modules|dist|output|__pycache__)(\/|$)/i.test(normalized)&&!/(^|\/)release(?:-[^/]+)?\//i.test(normalized)&&
-  !/(?:^|\/)theme-art(?:\/|$)/.test(normalized)&&!/^src\/assets\/(?:voice-previews|voice-previews-clear|claude-voice-previews)(?:\/|$)/.test(normalized)&&
-  !/(?:theme-catalog-full\.mjs|voice-preview-clips-personal\.js)$/.test(normalized)&&! /\.(?:log|sqlite(?:3)?|db|pfx|p12|key|pem|pyc|pyo)$/i.test(normalized)&&
-  !(path.posix.basename(normalized).startsWith('.env')&&!normalized.endsWith('.example'));
+ return !privatePublicPath(normalized);
 }
 
 export async function applyPublicTemplate(sourceRoot,output){
  const template=path.join(sourceRoot,'scripts','public-template');
- await cp(template,output,{recursive:true,filter:entry=>path.basename(entry)!=='package-overlay.json'});
+ await cp(template,output,{recursive:true,filter:async entry=>{
+  if(path.basename(entry)==='package-overlay.json'||privatePublicPath(path.relative(template,entry)))return false;
+  if((await lstat(entry)).isSymbolicLink())throw Error('Public template links are not allowed.');return true;
+ }});
  const text=await readFile(path.join(template,'package-overlay.json'),'utf8');
  return JSON.parse(text.replace(/^\uFEFF/,''));
 }

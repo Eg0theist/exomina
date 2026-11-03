@@ -44,7 +44,7 @@ function WelcomeTip({ onShow }) {
 /** Above the message box: greeting, and a way back to chats that are still replying. */
 export function WelcomeHero({ onTutorials, onTip, Logo, conversations, runningIds = [], onOpen, onTask,connections,onConnections,onControls }) {
   const live = conversations.filter(chat => runningIds.includes(chat.id));
-  return <div className="welcome home"><div className="welcome-hero"><span className="welcome-mark"><Logo /></span><h1>{greeting()}.</h1><p>What are we working on today?</p>{onTask && <button type="button" className="primary-button welcome-task-button" onClick={onTask}>Bring your own task<ArrowRight size={15}/></button>}{onTutorials&&<button className="text-button" onClick={onTutorials}>New here? Learn Exomina<ArrowRight size={13}/></button>}</div>
+  return <div className="welcome home"><div className="welcome-hero"><span className="welcome-mark"><Logo /></span><h1>{greeting()}.</h1><p>What are we working on today?</p>{onTask && <button type="button" className="primary-button welcome-task-button" onClick={onTask}>Bring your own task<ArrowRight size={15}/></button>}{onTutorials&&<button className="text-button" onClick={onTutorials}>Getting started<ArrowRight size={13}/></button>}</div>
     {live.length > 0 && <button type="button" className="welcome-live" onClick={() => onOpen(live[0])}><span className="activity-pulse" />{live.length === 1 ? <>“{live[0].title}” is still replying</> : <>{live.length} chats are replying</>}<ArrowRight size={13} /></button>}
     <GettingStarted connections={connections} conversations={conversations} onConnections={onConnections} onStart={onTask} onControls={onControls}/><WelcomeTip onShow={onTip} />
   </div>;

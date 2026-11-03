@@ -4,7 +4,7 @@
 .sidebar-navigation .nav-utility>span:not(.nav-dot){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sidebar-navigation .nav-utility .nav-dot{position:absolute;left:19px;top:6px;margin:0;width:6px;height:6px}
 .sidebar .chat-sidebar{margin-top:10px;min-height:110px}
-.sidebar-navigation [aria-label="Storage"]{grid-column:1/-1}
+.sidebar-navigation [aria-label="AI connections"]{grid-column:1/-1}
 .chat-search-row{display:flex;gap:4px;margin:0 0 6px}
 .chat-search-row .chat-search-field{flex:1;min-width:0}
 .sidebar .chat-search-row .chat-search-field{margin:0;padding:6px 8px;min-height:32px}

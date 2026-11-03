@@ -13,6 +13,9 @@ function fixture() {
   wc.executeJavaScript = () => { wc.nativeReads++; return never(); };
   wc.mainFrame = { executeJavaScript: async () => { wc.frameReads++; return { url: wc.url, title: 'Fixture', text: 'Readable text', elements: [{ selector: '[data-exomina-node="fixture"]' }], readyState: 'interactive' }; } };
   wc.capturePage = async () => image;
+  wc.throttling = true;
+  wc.getBackgroundThrottling = () => wc.throttling;
+  wc.setBackgroundThrottling = value => { wc.throttling = value; };
   wc.loadURL = url => {
     wc.emit('did-start-navigation', {}, url, false, true);
     wc.url = url; wc.loading = true; wc.emit('did-navigate', {}, url);
@@ -23,6 +26,65 @@ function fixture() {
   return { wc, runtime };
 }
 const data = result => JSON.parse(result.content.find(item => item.type === 'text').text);
+
+test('overlapping rendering leases restore idle throttling only after the last operation, including rejection', async () => {
+  const { wc, runtime } = fixture();
+  let finishFirst, failSecond;
+  const first = runtime.withRendering(() => new Promise(resolve => { finishFirst = resolve; }));
+  const second = runtime.withRendering(() => new Promise((_resolve, reject) => { failSecond = reject; }));
+  const rejected = assert.rejects(second, /fixture failure/);
+  assert.equal(wc.throttling, false);
+  finishFirst('done');
+  assert.equal(await first, 'done');
+  assert.equal(wc.throttling, false);
+  failSecond(new Error('fixture failure')); await rejected;
+  assert.equal(wc.throttling, true);
+  assert.equal(runtime.renderingUsers, 0);
+  runtime.close();
+});
+
+test('cancelled render warmup prevents dispatch and restores the original throttle policy', async () => {
+  const { wc, runtime } = fixture();
+  wc.throttling = false;
+  wc.mainFrame.executeJavaScript = never;
+  const controller = new AbortController(); let dispatched = false;
+  const operation = runtime.withRendering(() => { dispatched = true; }, { signal: controller.signal, warm: true });
+  const rejected = assert.rejects(operation, /stopped/);
+  controller.abort(); await rejected;
+  assert.equal(dispatched, false);
+  assert.equal(wc.throttling, false);
+  assert.equal(runtime.renderingUsers, 0);
+  runtime.close();
+});
+
+test('render wake failures do not leak a lease or prevent a later operation', async () => {
+  const { wc, runtime } = fixture();
+  const nativeSet = wc.setBackgroundThrottling;
+  wc.setBackgroundThrottling = () => { throw new Error('destroyed during wake'); };
+  await assert.rejects(runtime.withRendering(() => assert.fail('must not dispatch')), /destroyed during wake/);
+  assert.equal(runtime.renderingUsers, 0);
+  wc.setBackgroundThrottling = nativeSet;
+  await runtime.withRendering(() => 'recovered');
+  assert.equal(wc.throttling, true);
+  runtime.close();
+});
+
+test('cancellation during trailing frame cleanup preserves the completed input receipt or original error', async () => {
+  for (const fails of [false, true]) {
+    const { wc, runtime } = fixture();
+    const controller = new AbortController(); let started;
+    const draining = new Promise(resolve => { started = resolve; });
+    wc.mainFrame.executeJavaScript = () => { started(); return never(); };
+    const receipt = { dispatched: true };
+    const pending = runtime.withRendering(() => { if (fails) throw new Error('original input error'); return receipt; }, { signal: controller.signal });
+    const result = fails ? assert.rejects(pending, /original input error/) : pending;
+    await draining; controller.abort();
+    if (fails) await result; else assert.equal(await result, receipt);
+    assert.equal(wc.throttling, true);
+    assert.equal(runtime.renderingUsers, 0);
+    runtime.close();
+  }
+});
 
 test('navigation returns at DOM readiness while resource loading remains pending', async () => {
   const { wc, runtime } = fixture();
@@ -192,4 +254,24 @@ test('a QUIC navigation failure gives a recovery explanation and cleans up liste
   wc.loadURL=url=>{wc.emit('did-start-navigation',{},url,false,true);queueMicrotask(()=>wc.emit('did-fail-load',{},-356,'ERR_QUIC_PROTOCOL_ERROR',url,true));return new Promise(()=>{});};
   await assert.rejects(runtime.navigate('https://example.com/'),/QUIC.*waiting browser update/);
   assert.equal(wc.listenerCount('did-fail-load'),0);runtime.close();
+});
+
+test('a script-blocked plain-text document is read from its response body', async () => {
+  const { wc } = fixture();
+  wc.mainFrame.executeJavaScript = async () => { throw undefined; };
+  const body = 'line one\n'.repeat(10);
+  const runtime = new BrowserRuntime({ wc, readState: () => ({ url: wc.url, title: 'raw', loading: false }), timeouts: { read: 30, capture: 20 },
+    readDocument: async () => ({ url: wc.url, mimeType: 'text/plain', content: body }) });
+  runtime.pageReady = true;
+  const page = data(await runtime.snapshot(undefined, { include_screenshot: false, offset: 9, limit: 9 }));
+  assert.equal(page.text, 'line one\n');
+  assert.equal(page.textScope, 'document response body');
+  assert.equal(page.nextOffset, 18);
+  assert.equal(page.pageRead.available, true);
+  assert.deepEqual(page.elements, []);
+  const none = new BrowserRuntime({ wc, readState: () => ({ url: wc.url, title: 'x', loading: false }), timeouts: { read: 30 }, readDocument: async () => null });
+  const failed = await none.snapshot(undefined, { include_screenshot: false });
+  assert.equal(failed.isError, true);
+  assert.equal(data(failed).pageRead.available, false);
+  runtime.close(); none.close();
 });

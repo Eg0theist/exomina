@@ -1,10 +1,10 @@
-import {readFile,writeFile,mkdir,stat,lstat,rm,link,rename} from 'node:fs/promises';
+import {writeFile,mkdir,stat,lstat,rm} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {PublicUpdates,updateUrl,releaseIsNewer,compareVersions,PUBLIC_UPDATE_AUTHENTICATION_REQUIRED} from './public-updates.mjs';
 import {UpdateMerge} from './update-merge.mjs';
-import {distributionMetadataDirectory} from './app-paths.mjs';
+import {readUpdateState as readJson,writeUpdateState as writePending} from './update-state.mjs';
 
 /** Written by `npm run package` into the build folder; the installer mirrors it into App\. */
 export const STAMP='exomina.build.json';
@@ -12,20 +12,10 @@ const RESULT='last-update.json',PENDING='pending-update.json',PROGRESS='install-
 const READY='update-ready.json';
 function processAlive(pid){if(!Number.isInteger(pid)||pid<=0)return false;try{process.kill(pid,0);return true;}catch(e){return e.code==='EPERM';}}
 const exists=file=>stat(file).then(()=>true,()=>false);
-async function readJson(file){try{return JSON.parse(await readFile(file,'utf8'))}catch{return null}}
-async function writePending(file,value,{claim=false}={}){
-  const temporary=file+'.'+randomUUID()+'.tmp';
-  try{
-    await writeFile(temporary,JSON.stringify(value),{mode:0o600,flag:'wx'});
-    // Linking the completed file makes the initial claim atomic and exclusive.
-    // Later records replace it only after their complete JSON is on disk.
-    if(claim)await link(temporary,file);else await rename(temporary,file);
-  }finally{await rm(temporary,{force:true});}
-}
-export async function readStamp(dir,{platform=process.platform}={}){
-  const value=await readJson(path.join(distributionMetadataDirectory(dir,{platform}),STAMP));
+export async function readStamp(dir){
+  const value=await readJson(path.join(dir,STAMP));
   if(typeof value?.id!=='string'||!/^[\w-]{8,64}$/.test(value.id))return null;
-  return {id:value.id,version:String(value.version||'').slice(0,40),builtAt:String(value.builtAt||'').slice(0,40),...(value.customized&&typeof value.officialId==='string'?{customized:true,officialId:value.officialId,officialVersion:value.officialVersion}:{})};
+  return {id:value.id,version:String(value.version||'').slice(0,40),builtAt:String(value.builtAt||'').slice(0,40),...(typeof value.notes==='string'&&value.notes.trim()?{notes:value.notes.slice(0,10000)}:{}),...(value.customized&&typeof value.officialId==='string'?{customized:true,officialId:value.officialId,officialVersion:value.officialVersion}:{})};
 }
 
 export const updateDefinitions=[

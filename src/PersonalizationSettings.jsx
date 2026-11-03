@@ -9,11 +9,11 @@ const SCOPES = [{ id: 'both', name: 'Chats and documents' }, { id: 'chat', name:
 const clean = error => (error?.message || String(error)).replace(/^Error invoking remote method '[^']+': Error: /, '');
 
 /** Saves a text field when it loses focus, so typing never fights the save. */
-function Field({ label, hint, value, onSave, rows = 3, placeholder, max }) {
+function Field({ label, hint, value, onSave, rows = 3, placeholder, max, ariaLabel }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   return <label className="persona-field"><strong>{label}</strong>{hint && <small>{hint}</small>}
-    <textarea rows={rows} value={draft} maxLength={max} placeholder={placeholder} onChange={event => setDraft(event.target.value)} onBlur={() => draft !== value && onSave(draft)} /></label>;
+    <textarea aria-label={ariaLabel} rows={rows} value={draft} maxLength={max} placeholder={placeholder} onChange={event => setDraft(event.target.value)} onBlur={() => draft !== value && onSave(draft)} /></label>;
 }
 
 /** Learns a writing style from samples: pasted text, text files, mail (.eml/.mbox) or a Slack export. */
@@ -58,7 +58,9 @@ function StyleEditor({ style, onClose, onSaved, personalization, save }) {
 function SoulSettings({ soul, onChanged }) {
   const [name, setName] = useState(soul.name);
   const [error, setError] = useState('');
+  const [models, setModels] = useState([]);
   useEffect(() => setName(soul.name), [soul.name]);
+  useEffect(() => { let live = true; if (soul.enabled) api.invoke('soul.models').then(value => { if (live) setModels(value); }).catch(() => {}); return () => { live = false; }; }, [soul.enabled]);
   const update = patch => reflect({ action: 'patch', patch });
   const budget = soulBudget(soul);
   const reflect = async args => {
@@ -72,6 +74,27 @@ function SoulSettings({ soul, onChanged }) {
     {soul.enabled && <>
       <label className="persona-field"><strong>Name</strong><input value={name} maxLength={40} onChange={event => setName(event.target.value)} onBlur={() => name.trim() && name.trim() !== soul.name && update({ name: name.trim() })} /></label>
       <Field label="Character" hint="Who it is, in its own words. Private chats get only the name and this." value={soul.essence} rows={5} max={1200} onSave={essence => update({ essence })} />
+      <div className="settings-row"><div><strong>Learn from conversations automatically</strong><p>Reflect after completed replies using a connected subscription model. Private chats are excluded. Uncertain observations stay tentative; repeated patterns can shape speech and behavior.</p></div>
+        <button type="button" role="switch" aria-checked={soul.learning.enabled} aria-label="Learn from conversations automatically" className={`toggle ${soul.learning.enabled ? 'on' : ''}`} onClick={() => reflect({ action: 'learning.patch', patch: { enabled: !soul.learning.enabled } })}><span /></button></div>
+      {soul.learning.enabled && <div className="persona-field">
+        <label>Reflection model<select aria-label="Soul reflection model" value={soul.learning.provider ? `${soul.learning.provider}:${soul.learning.model}` : ''} onChange={event => { const split = event.target.value.indexOf(':'); reflect({ action: 'learning.patch', patch: { provider: split < 0 ? '' : event.target.value.slice(0, split), model: split < 0 ? '' : event.target.value.slice(split + 1) } }); }}>
+          <option value="">Automatic · available light model</option>{models.map(model => <option key={`${model.provider}:${model.model}`} value={`${model.provider}:${model.model}`} disabled={!model.available}>{model.provider} · {model.label}{model.available ? '' : ' (unavailable)'}</option>)}
+          {soul.learning.provider && !models.some(model => model.provider === soul.learning.provider && model.model === soul.learning.model) && <option value={`${soul.learning.provider}:${soul.learning.model}`}>{soul.learning.provider} · {soul.learning.model} (unavailable)</option>}
+        </select></label>
+        <label>Reflect every <input aria-label="Replies between Soul reflections" type="number" min="1" max="20" key={`cadence-${soul.learning.cadence}`} defaultValue={soul.learning.cadence} onBlur={event => Number(event.target.value) !== soul.learning.cadence && reflect({ action: 'learning.patch', patch: { cadence: Number(event.target.value) } })} /> completed replies</label>
+        <label>Daily reflection limit <input aria-label="Daily Soul reflection limit" type="number" min="0" max="100" key={`limit-${soul.learning.dailyLimit}`} defaultValue={soul.learning.dailyLimit} onBlur={event => Number(event.target.value) !== soul.learning.dailyLimit && reflect({ action: 'learning.patch', patch: { dailyLimit: Number(event.target.value) } })} /></label>
+        <small>Zero pauses automatic reflection. Each pass uses subscription allowance. {soul.learning.day === new Date().toISOString().slice(0, 10) ? soul.learning.requests : 0} used today (UTC). Learned observations remain available when reflection is paused.</small>
+        {soul.learning.reviews.length > 0 && <small>Last reflection: {soul.learning.reviews.at(-1).status} · {soul.learning.reviews.at(-1).detail}</small>}
+      </div>}
+      <details className="persona-field"><summary>Patterns and expression · {soul.learning.observations.length} observations</summary>
+        <small>Only learned patterns shape replies, within their scope. Inference cannot overrule your stated preferences. Correcting an observation here makes it your own guidance.</small>
+        {soul.learning.observations.map(item => <div className="persona-style" key={item.id}><div><strong>{item.text}</strong><small>{item.scope} · {item.dimension} · {item.corrected ? 'You corrected this' : item.status} · {item.support.length} source turns{item.conflicts.length ? ' · conflicts with an existing preference' : ''}</small>
+          <details><summary>Evidence and correction</summary>{[...item.support, ...item.opposition].map((ref, index) => <p key={`${ref.chatId}-${ref.messageId}-${index}`}>{item.opposition.includes(ref) ? 'Contrary evidence: ' : ''}“{ref.quote}” <small>{ref.at}</small></p>)}<Field label="Correct this pattern" ariaLabel="Correct this pattern" value={item.text} max={600} onSave={text => reflect({ action: 'learning.correct', id: item.id, text })} /></details>
+        </div><button type="button" className="icon-button" aria-label={`Forget learned pattern: ${item.text}`} title="Forget this pattern and its saved evidence" onClick={() => reflect({ action: 'learning.forget', id: item.id })}><Trash2 size={14} /></button></div>)}
+        {!soul.learning.observations.length && <small>No automatic observations yet. Learning happens after enough completed replies, while an available reflection model is connected.</small>}
+      </details>
+      {soul.learning.examples.length > 0 && <details className="persona-field"><summary>Welcomed phrasing · {soul.learning.examples.length} examples</summary><small>Short excerpts with explicit user feedback. These illustrate manner and timing, without becoming a script.</small>{soul.learning.examples.map(item => <div className="persona-style" key={item.id}><div><p>{item.text}</p><small>{item.scope} · {item.reason}</small><p>Feedback: “{item.feedback}”</p></div><button type="button" className="icon-button" aria-label="Forget phrasing example" onClick={() => reflect({ action: 'learning.forget', id: item.id })}><Trash2 size={14} /></button></div>)}</details>}
+      {soul.learning.reviews.length > 0 && <details className="persona-field"><summary>Automatic learning activity</summary>{[...soul.learning.reviews].reverse().map(item => <p key={item.id}><strong>{item.status}</strong> · {item.at} · {item.provider}/{item.model}<br />{item.detail}</p>)}{[...soul.learning.history].reverse().map(item => <p key={item.id}><button type="button" className="secondary-button small" onClick={() => reflect({ action: 'learning.restore', id: item.id })}>Restore patterns from before {item.at}</button></p>)}</details>}
       <div className="persona-field"><strong>What it has learned about you</strong><small>It learns and combines overlapping observations quietly as you work together. Your stated preferences carry more weight than its inferences. You can correct or delete anything.</small>
         <small>{budget.used.toLocaleString()} / {budget.budget.toLocaleString()} characters used. {budget.needsConsolidation ? 'The AIs are asked to consolidate overlapping observations to make room.' : 'Room remains for it to grow.'}</small></div>
       {error && <p role="alert" className="error-text">{error}</p>}

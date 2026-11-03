@@ -13,7 +13,7 @@ export default function useDismiss(ref, open, onClose, { ignore } = {}) {
       if (ignore?.current?.contains(target)) return;
       onClose();
     };
-    const key = event => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } };
+    const key = event => { if (event.key === 'Escape') { event.stopPropagation(); onClose(event); } };
     const blur = () => onClose();
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', key, true);

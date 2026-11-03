@@ -1,14 +1,17 @@
-import {mkdir,readFile,writeFile,lstat,realpath,open,rename,rm} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,writeFile,lstat,realpath,open,rename,rm} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createHash,randomUUID} from 'node:crypto';
 import {DatabaseSync,backup} from 'node:sqlite';
 import path from 'node:path';
+import {tmpdir} from 'node:os';
 import {jsonExportChunks} from './data-export.mjs';
 import {validateState} from './durable-state.mjs';
 import {libraryRestoreLauncher} from './library-launcher.mjs';
+import {validateSkillLibraryState,SKILL_LIMITS} from './skill-library.mjs';
 
 const FORMAT='exomina-library-backup';
 const DATABASES=['memory/notes.sqlite','chat-memory/tree.sqlite','archive.sqlite'];
+const SKILLS='shared-skills/library.json';
 const hex=/^[a-f0-9]{64}$/;
 const within=(root,file)=>file===root||file.startsWith(root+path.sep);
 const key=value=>process.platform==='win32'?path.resolve(value).toLowerCase():path.resolve(value);
@@ -30,13 +33,15 @@ export function backupState(state,{workspace}={}){
  state=structuredClone(state);
  const settings={provider:state.settings?.provider||'codex',permissionMode:'ask',permissionRules:[],desktopEnabled:false,browserEnabled:false,memoryEnabled:state.settings?.memoryEnabled!==false,chatMemoryEnabled:true,chatMemorySummaries:false,chatMemoryBackfill:false,memoryCapture:state.settings?.memoryCapture||'automatic',autoTitle:state.settings?.autoTitle!==false};
  for(const field of ['appearance','personalization','voice','sounds','spellcheck','tutorialProgress','interfaceView'])if(state.settings?.[field]!==undefined)settings[field]=structuredClone(state.settings[field]);
+ // Voice choices transfer; consent belongs to the profile that gave it.
+ if(settings.voice&&typeof settings.voice==='object'&&!Array.isArray(settings.voice))delete settings.voice.aiVoiceAcknowledged;
  if(workspace)settings.workspace=workspace;
  const conversations=(state.conversations||[]).filter(c=>!c.private).map(c=>{
   const rest=Object.fromEntries(['id','title','titleSource','pinned','pinnedOrder','archived','provider','updatedAt','createdAt','projectId','personalization','taskGuide','selection','branch','parentId'].filter(k=>c[k]!==undefined).map(k=>[k,c[k]]));
   if(c.approachRefinements)rest.approachRefinements=c.approachRefinements.filter(r=>['adopted','rejected','retired'].includes(r.status));
   return {...rest,sessions:{},permissionMode:'ask',messages:c.messages.map(m=>{
    const {questions,followups}=m,message=Object.fromEntries(['id','role','content','provider','model','effort','speed','lane','error','continuationError','createdAt','startedAt','finishedAt','attachments','activity','segments','helpers','helpersOmitted','escalated'].filter(k=>m[k]!==undefined).map(k=>[k,m[k]]));
-   return {...message,...(questions?{questions:questions.map(q=>({...q,status:['waiting','open'].includes(q.status)?'cancelled':q.status}))}:{}),...(followups?{followups:followups.map(q=>({...q,status:['running','queued','waiting'].includes(q.status)?'interrupted':q.status,...(['pending','working'].includes(q.taskStatus)?{taskStatus:'blocked',summary:'Interrupted by library transfer; continue explicitly from this chat.'}:{})}))}:{})};
+   return {...message,...(questions?{questions:questions.map(q=>({...q,status:['waiting','open'].includes(q.status)?'cancelled':q.status}))}:{}),...(followups?{followups:followups.map(q=>({...q,status:['sending','answering','running','queued','waiting'].includes(q.status)?'interrupted':q.status,...(['pending','working'].includes(q.taskStatus)?{taskStatus:'blocked',summary:'Interrupted by library transfer; continue explicitly from this chat.'}:{})}))}:{})};
   })};
  });
  const result={settings,conversations,projects:structuredClone(state.projects||[]),prompts:structuredClone(state.prompts||[]),schedules:(state.schedules||[]).map(s=>({...s,enabled:false,recipient:'',delivery:'desktop'}))};
@@ -46,7 +51,14 @@ export function backupState(state,{workspace}={}){
  return result;
 }
 
-export async function createLibraryBackup({dataDir,state,uploads={},assets,folder,version='unknown'}){
+export function portableSkillLibrary(skills,state){
+ const library=validateSkillLibraryState(structuredClone(skills||{version:1,skills:[]}));
+ if(Buffer.byteLength(JSON.stringify(library),'utf8')>SKILL_LIMITS.bytes)throw Error('The skill library is too large.');
+ const chats=new Set((state.conversations||[]).filter(chat=>!chat.private).map(chat=>chat.id)),projects=new Set((state.projects||[]).map(project=>project.id));
+ return {version:1,skills:library.skills.filter(skill=>chats.has(skill.ownerChatId)&&(skill.scope.kind!=='project'||projects.has(skill.scope.id)))};
+}
+
+export async function createLibraryBackup({dataDir,state,uploads={},assets,skills,folder,version='unknown'}){
  const parent=await realpath(folder);if(within(key(dataDir),key(parent)))throw Error('Choose a backup folder outside Exomina’s private data folder.');
  const stage=path.join(parent,'.exomina-backup-'+randomUUID()),destination=path.join(parent,'Exomina-backup-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+randomUUID().slice(0,8));
  await mkdir(stage,{mode:0o700});const manifest={format:FORMAT,version:1,appVersion:version,createdAt:new Date().toISOString(),files:[],counts:{chats:0,messages:0,attachments:0},warnings:[],omitted:['provider sign-ins','accounts','remote pairings','permission grants','queued or scheduled execution','project file contents']};
@@ -54,6 +66,8 @@ export async function createLibraryBackup({dataDir,state,uploads={},assets,folde
  try{
   const portable=backupState(state);manifest.counts.chats=portable.conversations.length;manifest.counts.messages=portable.conversations.reduce((n,c)=>n+c.messages.length,0);
   await jsonFile(path.join(stage,'state.json'),portable);await add('state.json');
+  const portableSkills=portableSkillLibrary(skills,portable);manifest.counts.skills=portableSkills.skills.length;
+  await jsonFile(path.join(stage,SKILLS),portableSkills);await add(SKILLS);
   for(const relative of DATABASES){
    const source=path.join(dataDir,...relative.split('/'));try{await regular(source);}catch(e){if(e.code==='ENOENT')throw Error('A required library database is missing: '+relative);throw e;}
    const target=path.join(stage,...relative.split('/'));await mkdir(path.dirname(target),{recursive:true});const db=new DatabaseSync(source,{readOnly:true});try{await backup(db,target);}finally{db.close();}await add(relative);
@@ -68,13 +82,32 @@ export async function createLibraryBackup({dataDir,state,uploads={},assets,folde
  }catch(e){await rm(stage,{recursive:true,force:true});throw e;}
 }
 
-const allowed=relative=>['state.json','asset-index.json','chat-uploads.json',...DATABASES].includes(relative)||/^assets\/[a-f0-9]{64}\.asset$/.test(relative)||/^uploads\/[\w-]{1,100}$/.test(relative);
+// Account credentials, including remote-mcp-credentials.json, are intentionally outside this allowlist.
+const allowed=relative=>['state.json','asset-index.json','chat-uploads.json',SKILLS,...DATABASES].includes(relative)||/^assets\/[a-f0-9]{64}\.asset$/.test(relative)||/^uploads\/[\w-]{1,100}$/.test(relative);
 export async function inspectLibraryBackup(folder){
  const root=await realpath(folder),file=await safeFile(root,'manifest.json');if((await regular(file)).size>16*1024*1024)throw Error('Backup manifest is too large.');
  const manifestBytes=await readFile(file),manifest=JSON.parse(manifestBytes.toString('utf8'));if(manifest.format!==FORMAT||manifest.version!==1||!Array.isArray(manifest.files)||manifest.files.length>100000)throw Error('Unsupported Exomina backup.');
  const seen=new Set();for(const entry of manifest.files){if(!allowed(entry.path)||seen.has(entry.path)||!Number.isSafeInteger(entry.bytes)||entry.bytes<0||!hex.test(entry.sha256))throw Error('Invalid backup inventory.');seen.add(entry.path);const source=await safeFile(root,entry.path);const actual=await hashFile(source);if(actual.bytes!==entry.bytes||actual.sha256!==entry.sha256)throw Error('Backup integrity check failed: '+entry.path);}
  for(const name of ['state.json','asset-index.json','chat-uploads.json',...DATABASES])if(!seen.has(name))throw Error('Backup is incomplete: '+name);
  return {root,manifest,receipt:createHash('sha256').update(manifestBytes).digest('hex')};
+}
+
+export async function verifyLibraryBackup(folder){
+ const {root,manifest,receipt}=await inspectLibraryBackup(folder);
+ const scratch=await mkdtemp(path.join(tmpdir(),'exomina-backup-check-'));
+ try{
+  for(const relative of DATABASES){
+   const file=path.join(scratch,...relative.split('/')),entry=manifest.files.find(e=>e.path===relative);
+   await copyChecked(await safeFile(root,relative),file,entry);
+   const db=new DatabaseSync(file,{readOnly:true});
+   try{db.exec('PRAGMA trusted_schema=OFF');if(db.prepare('PRAGMA quick_check').get().quick_check!=='ok')throw Error('A backup database failed its quick check: '+relative);}
+   finally{db.close();}
+  }
+ }finally{
+  if(path.dirname(scratch)!==path.resolve(tmpdir())||(await lstat(scratch)).isSymbolicLink())throw Error('Backup check temporary folder changed.');
+  await rm(scratch,{recursive:true,force:true});
+ }
+ return {path:root,recorded:{createdAt:manifest.createdAt,appVersion:manifest.appVersion,counts:manifest.counts},verifiedFiles:manifest.files.length,receipt,checkedAt:new Date().toISOString(),checks:['file-checksums','database-quick-check'],limitations:'Checks file checksums and SQLite structure only. Does not restore or open the library, check application schema or version compatibility, or verify the manifest’s recorded counts.'};
 }
 
 /** Writes a new isolated profile. No existing profile is overwritten. */
@@ -91,6 +124,13 @@ export async function restoreLibraryBackup({folder,destination,executable,expect
   // Verify database structure and integrity before the new profile is published.
   for(const relative of DATABASES.filter(r=>manifest.files.some(f=>f.path===r))){const db=new DatabaseSync(path.join(profile,...relative.split('/')),{readOnly:true});try{db.exec('PRAGMA trusted_schema=OFF');if(db.prepare('PRAGMA quick_check').get().quick_check!=='ok')throw Error('A backup database failed its integrity check.');}finally{db.close();}}
   const sourceState=validateState(JSON.parse(await readFile(await safeFile(root,'state.json'),'utf8'))),state=backupState(sourceState,{workspace});await jsonFile(path.join(profile,'state.json'),state);
+  const skillEntry=manifest.files.find(entry=>entry.path===SKILLS);
+  if(skillEntry){
+   if(skillEntry.bytes>SKILL_LIMITS.bytes)throw Error('The skill library is too large.');
+   const raw=JSON.parse(await readFile(await safeFile(root,SKILLS),'utf8')),library=portableSkillLibrary(raw,state);
+   if(library.skills.length!==raw.skills.length)throw Error('A skill references a chat or project missing from this backup.');
+   await jsonFile(path.join(profile,SKILLS),library);
+  }
   const assetRows=JSON.parse(await readFile(await safeFile(root,'asset-index.json'),'utf8'));if(!Array.isArray(assetRows))throw Error('Invalid asset index.');
   await mkdir(path.join(profile,'assets'),{recursive:true});const db=new DatabaseSync(path.join(profile,'assets/index.sqlite'));try{db.exec('CREATE TABLE assets(id TEXT PRIMARY KEY,mimeType TEXT NOT NULL,bytes INTEGER NOT NULL,sha256 TEXT NOT NULL)');const put=db.prepare('INSERT INTO assets VALUES(?,?,?,?)');for(const a of assetRows){if(!hex.test(a.id)||a.sha256!==a.id||!manifest.files.some(f=>f.path==='assets/'+a.id+'.asset'&&f.sha256===a.sha256&&f.bytes===a.bytes))throw Error('Invalid asset record.');put.run(a.id,a.mimeType,a.bytes,a.sha256);}}finally{db.close();}
   const uploads=JSON.parse(await readFile(await safeFile(root,'chat-uploads.json'),'utf8'));if(!uploads||Array.isArray(uploads)||typeof uploads!=='object')throw Error('Invalid upload index.');await mkdir(path.join(stage,'Workspace'));

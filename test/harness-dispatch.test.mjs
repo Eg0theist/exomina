@@ -2,8 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import { PermissionPolicy, normalizeRule, hostAction } from '../desktop/permissions.mjs';
+import {assertFeature} from '../desktop/features.mjs';
 import { PIPELINE_READ_TOOLS } from '../desktop/tool-pipeline.mjs';
+import { ExternalMcpTools } from '../desktop/external-mcp.mjs';
 
 const source = await readFile(new URL('../desktop/main.mjs', import.meta.url), 'utf8');
 function extract(startText, endText) {
@@ -15,7 +18,7 @@ function extract(startText, endText) {
 test('actual pipeline dispatcher enforces original read denials and preserves browser policy before dispatch', async () => {
   const settings = { permissionMode: 'ask', permissionRules: [] }, calls = [];
   const policy = new PermissionPolicy({ getSettings: () => settings });
-  const context = { PIPELINE_READ_TOOLS, hostAction, policy, callToolImpl: async (...args) => { calls.push(args); return { source: 'ordinary dispatcher' }; } };
+  const context = { PIPELINE_READ_TOOLS, hostAction, policy,toolContext:new AsyncLocalStorage(), callToolImpl: async (...args) => { assert.equal(context.toolContext.getStore().hostTool,args[0]);calls.push(args); return { source: 'ordinary dispatcher' }; } };
   vm.createContext(context); vm.runInContext(extract('function authorizeReadTool(', '\nasync function hostTool('), context);
   for (const tool of ['notes_read', 'memory_recall']) {
     settings.permissionRules = [normalizeRule({ effect: 'deny', tool })];
@@ -67,6 +70,78 @@ test('actual host dispatcher reaches skill, worker and pipeline services and pas
   await assert.rejects(f.context.hostTool('worker_run', { action: 'list' }, 'chat'), /stopped/);
 });
 
+test('actual external host route uses the current chat run signal and preserves the MCP result', async () => {
+  const f = coordinator(), expected = { content: [{ type: 'text', text: 'fixture' }], structuredContent: { connected: true } };
+  f.context.external = { call: async (...args) => { f.calls.push(args); return expected; } };
+  const replacement = { cancelled: false, toolController: new AbortController() };
+  f.context.active.set('chat', replacement);
+  for (const name of ['external_cua_fixture', 'external_suno_fixture']) {
+    const input = { query: 'fixture' };
+    assert.equal(await f.context.hostTool(name, input, 'chat'), expected);
+    const [receivedName, receivedInput, id, options] = f.calls.at(-1);
+    assert.equal(receivedName, name); assert.equal(receivedInput, input); assert.equal(id, 'chat');
+    assert.equal(options.signal, replacement.toolController.signal);
+    assert.notEqual(options.signal, f.run.toolController.signal);
+  }
+});
+
+test('actual external host route refuses absent, stopped and already-aborted runs before dispatch', async () => {
+  for (const state of ['missing', 'cancelled', 'aborted', 'private']) {
+    const f = coordinator({ privateChat: state === 'private' });
+    f.context.external = { call: async () => { f.calls.push('must not dispatch'); } };
+    if (state === 'missing') f.context.active.delete('chat');
+    if (state === 'cancelled') f.run.cancelled = true;
+    if (state === 'aborted') f.run.toolController.abort();
+    await assert.rejects(f.context.hostTool('external_suno_fixture', {}, 'chat'), /stopped|temporary chats/);
+    assert.equal(f.calls.length, 0, state);
+  }
+});
+
+test('actual external host route preserves invocation approval and Stop prevents dispatch after pending consent', async () => {
+  const f = coordinator(), approvals = [], requests = [];
+  const config = { id: 'synthetic', name: 'Synthetic remote', transport: 'http', url: 'https://example.test/mcp', enabled: true };
+  f.settings.externalMcpServers = [config];
+  let allow = true, release, entered;
+  const ready = new Promise(resolve => { entered = resolve; });
+  const client = {
+    dead: false, async connect() {}, async listTools() { return [{ name: 'echo', inputSchema: { type: 'object' } }]; },
+    async request(...args) { requests.push(args); return { content: [{ type: 'text', text: 'approved fixture' }] }; }, async close() { this.dead = true; },
+  };
+  const external = new ExternalMcpTools({
+    getSettings: () => f.settings, createRemoteClient: () => client,
+    approve: async request => { approvals.push(request); if (allow === 'wait') { entered(); return new Promise(resolve => { release = resolve; }); } return allow; },
+  });
+  f.context.external = external;
+  try {
+    await external.refresh('chat');
+    const name = external.definitions[0].name;
+    allow = false;
+    const declined = await f.context.hostTool(name, {}, 'chat');
+    assert.equal(declined.isError, true); assert.match(declined.content[0].text, /did not approve/); assert.equal(requests.length, 0);
+    allow = true;
+    assert.equal((await f.context.hostTool(name, { text: 'fixture' }, 'chat')).content[0].text, 'approved fixture');
+    assert.equal(requests.length, 1); assert.equal(requests[0][2].signal, f.run.toolController.signal);
+    assert.equal(approvals.at(-1).requireConfirmation, true);
+    allow = 'wait';
+    const pending = f.context.hostTool(name, {}, 'chat');
+    await ready; f.context.cancel('chat'); release(true);
+    const stopped = await pending;
+    assert.equal(stopped.isError, true); assert.match(stopped.content[0].text, /cancelled/);
+    assert.equal(requests.length, 1, 'late approval must not reach the remote transport');
+    assert.equal(client.dead, false, 'Stop must not close an unrelated shared connection');
+  } finally { await external.close(); }
+});
+
+test('nested pipeline reads recheck their own feature after a pending approval',async()=>{
+ const settings={disabledFeatures:[]},toolContext=new AsyncLocalStorage(),calls=[];
+ let entered,release;const ready=new Promise(resolve=>entered=resolve);
+ const context={PIPELINE_READ_TOOLS,hostAction,policy:{evaluate:()=>({decision:'allow'})},toolContext,store:{state:{settings}},assertFeature,assertNativeScope:()=>{},requestApproval:async()=>{entered();return new Promise(resolve=>release=resolve);}};
+ context.callToolImpl=async name=>{assertFeature(name,settings);await context.approve({action:{tool:name}});calls.push(name);};
+ vm.createContext(context);vm.runInContext(extract('const approve=','\nfunction cancel(')+'\nglobalThis.approve=approve;',context);vm.runInContext(extract('function authorizeReadTool(','\nasync function hostTool('),context);
+ const pending=toolContext.run({hostTool:'tool_pipeline'},()=>context.executePipelineRead('browser_snapshot',{},'chat'));
+ await ready;settings.disabledFeatures=['browser'];release({approved:true});await assert.rejects(pending,/turned off/);assert.equal(calls.length,0);
+});
+
 test('actual host dispatcher rejects private and scoped requests before any new service runs', async () => {
   for (const options of [{ privateChat: true }, { scoped: true }]) {
     const f = coordinator(options);
@@ -94,10 +169,17 @@ test('pipeline failures propagate through the actual host tool result envelope',
   assert.equal(result.isError, true); assert.equal(JSON.parse(result.content[0].text).status, 'failed');
 });
 
+test('removed Storage tools cannot dispatch through a stale tool catalogue', async () => {
+  const f = coordinator();
+  for (const name of ['disk_status','disk_scan','disk_read','disk_delete']) await assert.rejects(f.context.hostTool(name, {}, 'chat'), /Storage feature has been removed/);
+  assert.equal(f.calls.length, 0);
+});
+
 test('actual reply final cleanup aborts run tools and cancels workers before dropping the active run', async () => {
+  for (const failed of [false,true]) {
   const run = { toolController: new AbortController(), cancelled: false }, active = new Map([['chat', run]]), calls = [];
-  const context = { active, c: { id: 'chat' }, message: {}, imageSupport: { finish: async () => {} }, restartRequested: null,
-    store: { save: async () => {} }, noteTask: null, discoveryRun: null,
+  const context = { active, c: { id: 'chat' }, message: failed?{error:'provider terminated'}:{}, imageSupport: { finish: async () => {} }, restartRequested: null,
+    store: { save: async () => {} }, noteTask: null, discoveryRun: null, privateChat:false,payload:{},soulLearning:{notify:id=>calls.push({learn:id,stillActive:active.has(id)})},
     workers: { cancel: id => calls.push({ id, stillActive: active.has(id), aborted: run.toolController.signal.aborted }) },
     connectorForms: undefined, browser: undefined, chatCompactor: undefined, approvals: new Map(), usagePoller: undefined, workPlans: undefined,
     runWaiters: new Map(), queues: new Map(), emit: () => {}, autoTitle: () => {}, drainQueue: () => {}, restartWhenIdle: () => {} };
@@ -107,5 +189,6 @@ test('actual reply final cleanup aborts run tools and cancels workers before dro
   vm.createContext(context);
   await vm.runInContext('(async function(){try{throw Error("provider terminated")}catch{}' + finalClause + '})()', context);
   assert.equal(run.toolController.signal.aborted, true); assert.equal(active.has('chat'), false);
-  assert.deepEqual(calls, [{ id: 'chat', stillActive: true, aborted: true }]);
+  assert.deepEqual(calls, [{ id: 'chat', stillActive: true, aborted: true },...(failed?[]:[{learn:'chat',stillActive:false}])]);
+  }
 });

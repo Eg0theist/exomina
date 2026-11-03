@@ -14,7 +14,10 @@ export function memoryKind(text) {
 export function rankMemories(rows,query,{conversationId,limit=500}={}) {
   const {phrase,terms}=memoryQuery(query);
   return rows.map(row=>{
-    const lower=row.text.toLowerCase(),matched=terms.filter(term=>lower.includes(term)),exact=!!phrase&&lower.includes(phrase),sameChat=!!conversationId&&row.sourceChatIds?.includes(conversationId);
-    return {...row,match:{terms:matched,phrase:exact,sameChat,kind:memoryKind(row.text)},_score:matched.length*10+(exact?5:0)+(sameChat?1:0)-(row.evidence?.supersededBy?1000:0)};
-  }).filter(row=>row.match.terms.length||row.match.phrase).sort((a,b)=>b._score-a._score||(b.seq||0)-(a.seq||0)).slice(0,limit).map(({_score,...row})=>row);
+    const lower=row.text.toLowerCase(),matched=terms.filter(term=>lower.includes(term));
+    if(!matched.length)return null;
+    const tokens=new Set((lower.match(/[\p{L}\p{N}_][\p{L}\p{N}_.:/\\-]{0,79}/gu)||[]).map(term=>term.replace(/[.:/\\-]+$/g,''))),whole=matched.filter(term=>tokens.has(term)),sameChat=!!conversationId&&row.sourceChatIds?.includes(conversationId);
+    const exact=!!phrase&&lower.includes(phrase)&&(terms.length>1||tokens.has(phrase));
+    return {...row,match:{terms:matched,exactTerms:whole,phrase:exact,sameChat,kind:memoryKind(row.text)},_score:matched.length*100+whole.length*4+(exact?2:0)+(sameChat?1:0)-(row.evidence?.supersededBy?10000:0)};
+  }).filter(Boolean).sort((a,b)=>b._score-a._score||(b.seq||0)-(a.seq||0)).slice(0,limit).map(({_score,...row})=>row);
 }

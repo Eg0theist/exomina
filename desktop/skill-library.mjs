@@ -52,6 +52,19 @@ function receipt(value) {
   return { id: value.id, tool: value.tool, status: value.status, digest: value.digest, startedAt: value.startedAt, completedAt: value.completedAt };
 }
 
+/** Content validation is shared by the live library and portable backups. */
+export function validateSkillLibraryState(state) {
+  if (!object(state) || state.version !== 1 || !Array.isArray(state.skills) || state.skills.length > SKILL_LIMITS.skills) throw Error('Invalid skill library format.');
+  const seen = new Set();
+  for (const skill of state.skills) {
+    if (!object(skill) || !ID.test(skill.id || '') || seen.has(skill.id) || typeof skill.ownerChatId !== 'string' || !SCOPES.has(skill.scope?.kind) || !['active', 'retired'].includes(skill.status) || !Array.isArray(skill.revisions) || !skill.revisions.length || skill.revisions.length > SKILL_LIMITS.revisions) throw Error('Invalid skill library entry.');
+    seen.add(skill.id);
+    if (skill.scope.kind === 'chat' && skill.scope.id !== skill.ownerChatId || skill.scope.kind === 'project' && !skill.scope.id || skill.scope.kind === 'all' && skill.scope.id !== undefined) throw Error('Invalid skill sharing scope.');
+    for (let i = 0; i < skill.revisions.length; i++) { const revision = skill.revisions[i]; if (revision.revision !== i + 1 || revision.hash !== digest(storedContent(revision)) || revision.references.some(ref => ref.hash !== digest(ref.text))) throw Error('Skill revision integrity check failed.'); }
+  }
+  return state;
+}
+
 /** Provider-neutral content only. No native skill/account directories, network imports, or script execution. */
 export class SkillLibrary {
   constructor({ dir, getChat, getSettings = () => ({}), getRefinement = () => null, approve = async () => false, emit = () => {}, now = () => new Date(), writeState = durableReplace }) {
@@ -75,15 +88,7 @@ export class SkillLibrary {
     this.ready = true; return this;
   }
   validate(state) {
-    if (!object(state) || state.version !== 1 || !Array.isArray(state.skills) || state.skills.length > SKILL_LIMITS.skills) throw Error('Invalid skill library format.');
-    const seen = new Set();
-    for (const skill of state.skills) {
-      if (!object(skill) || !ID.test(skill.id || '') || seen.has(skill.id) || typeof skill.ownerChatId !== 'string' || !SCOPES.has(skill.scope?.kind) || !['active', 'retired'].includes(skill.status) || !Array.isArray(skill.revisions) || !skill.revisions.length || skill.revisions.length > SKILL_LIMITS.revisions) throw Error('Invalid skill library entry.');
-      seen.add(skill.id);
-      if (skill.scope.kind === 'chat' && skill.scope.id !== skill.ownerChatId || skill.scope.kind === 'project' && !skill.scope.id || skill.scope.kind === 'all' && skill.scope.id !== undefined) throw Error('Invalid skill sharing scope.');
-      for (let i = 0; i < skill.revisions.length; i++) { const revision = skill.revisions[i]; if (revision.revision !== i + 1 || revision.hash !== digest(storedContent(revision)) || revision.references.some(ref => ref.hash !== digest(ref.text))) throw Error('Skill revision integrity check failed.'); }
-    }
-    return state;
+    return validateSkillLibraryState(state);
   }
   chat(id) { const chat = this.getChat(id); if (!chat || chat.private) throw Error('Skills require a saved, non-private chat.'); return chat; }
   shared() { return this.getSettings().memoryEnabled === true; }

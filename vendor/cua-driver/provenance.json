@@ -1,7 +1,6 @@
 {
   "archiveSha256": "93f658ac02080ac1fac709f88f79ba38980ce77b816725ec2a0128aeba1811f5",
   "license": "MIT",
-  "validation": "Version and 59-tool MCP handshake verified. A dedicated synthetic Electron window passed exact PID/HWND screenshot, UIA readback, foreground Unicode typing after explicit background refusal, background button click, and independent DOM verification. No app/window inventory or full-desktop capture was performed.",
   "files": [
     {
       "file": "cua_driver_abi.h",
@@ -42,7 +41,6 @@
   "licenseSource": "https://raw.githubusercontent.com/trycua/cua/cua-driver-rs-v0.33.4/LICENSE.md",
   "release": "https://github.com/trycua/cua/releases/tag/cua-driver-rs-v0.33.4",
   "archiveBytes": 31012995,
-  "authenticode": "Valid (verified during build)",
   "name": "CUA Driver",
   "source": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.33.4/cua-driver-rs-0.33.4-windows-x86_64-binary.zip",
   "version": "0.33.4"

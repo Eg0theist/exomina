@@ -197,7 +197,7 @@ const dismissKey = (provider, item) => `${provider}:${item.id}:${item.resetsAt |
 function dismissedSet() { try { return new Set(JSON.parse(localStorage.getItem('exomina.usageDismissed') || '[]')); } catch { return new Set(); } }
 
 /** In-chat warning once a window passes 90%, until dismissed or reset. */
-export function UsageBanner({ provider, usage = {}, onSwitch }) {
+export function UsageBanner({ provider, usage = {}, onSwitch, compact = false }) {
   const [dismissed, setDismissed] = useState(dismissedSet);
   const warnings = usageWarnings(usage[provider]).filter(item => !dismissed.has(dismissKey(provider, item)));
   if (!warnings.length) return null;
@@ -209,8 +209,8 @@ export function UsageBanner({ provider, usage = {}, onSwitch }) {
   }
   return <div className={`usage-banner ${out ? 'is-out' : ''}`} role="status">
     <Gauge size={16} />
-    <div><strong>{out ? `${NAMES[provider] || 'This subscription'} has reached its ${worst.label.toLowerCase()} limit` : `${Math.round(worst.usedPercent)}% of your ${NAMES[provider] || ''} ${worst.label.toLowerCase()} is used`}</strong>
-      <p>{worst.resetsAt ? `It ${resetLabel(worst.resetsAt)}. ` : ''}You can keep going right here: switch to another AI or model in the message box, and this chat continues with its context.</p></div>
+      <div><strong>{out ? `${NAMES[provider] || 'AI'} · ${worst.label} limit reached` : `${NAMES[provider] || 'AI'} · ${Math.round(worst.usedPercent)}% of ${worst.label.toLowerCase()} used`}</strong>
+        {worst.resetsAt && <p>{resetLabel(worst.resetsAt)}.</p>}</div>
     {onSwitch && <button type="button" className="secondary-button small" onClick={onSwitch}>Switch AI</button>}
     <button type="button" className="icon-button" aria-label="Dismiss usage warning" onClick={dismiss}><X size={15} /></button>
   </div>;

@@ -9,7 +9,7 @@ const PLAIN = {
   'read-only': 'The AI can look things up and read files, but cannot change anything.',
   ask: 'The AI asks you before it changes a file, runs something or acts on a website or your screen.',
   'auto-edit': 'The AI may edit files in your folder without asking. Everything else still asks first.',
-  full: 'The AI acts without asking, with the same rights as your Windows account. Only for work you fully trust.',
+  full: 'Routine actions may run without asking, with your account permissions. Some actions still require confirmation. Deny rules still apply.',
 };
 
 export const FALLBACK_MODES = [
@@ -42,14 +42,15 @@ export function PermissionPicker({ modes, own = null, defaultMode, onChange, dis
   const current = own ? modeInfo(list, own) : fallback;
   const Icon = LEVEL_ICON[current.id] || ShieldCheck;
   const FallbackIcon = LEVEL_ICON[fallback.id] || ShieldCheck;
+  const scopeTitle = own ? `This chat: ${current.label} (default is ${fallback.label})` : `This chat follows the default: ${current.label}`;
   function choose(id) {
     if (id === 'full' && current.id !== 'full' && !confirming) { setConfirming(true); return; }
     if (id !== own) onChange(id);
     close();
   }
   return <div className="permission-picker" ref={area}>
-    <button type="button" className={`composer-chip level-${current.id} ${own ? 'is-own' : ''}`} aria-label={`Permissions: ${current.label}`} aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onClick={() => (open ? close() : setOpen(true))} title={own ? `This chat: ${current.label} (default is ${fallback.label})` : `This chat follows the default: ${current.label}`}>
-      <Icon size={14} /><span>{current.short || current.label}</span><ChevronDown size={12} className="chip-caret" />
+    <button type="button" className={`composer-chip level-${current.id} ${own ? 'is-own' : ''}`} aria-label={`Permissions: ${current.label}`} aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onClick={() => (open ? close() : setOpen(true))} title={`${standard ? 'Change what the AI may do. ' : ''}${scopeTitle}`}>
+      <Icon size={14} /><span>{standard && current.id === 'ask' ? 'Ask before acting' : current.short || current.label}</span><ChevronDown size={12} className="chip-caret" />
     </button>
     {open && <div className="popover permission-popover" role="dialog" aria-label="Permission level for this chat">
       <div className="popover-label">THIS CHAT</div>

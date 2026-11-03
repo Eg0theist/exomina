@@ -6,7 +6,7 @@
    a neutral step. Write new colours as tokens, never hex: test/theme.test.mjs
    rejects hex literals outside this file. */
 :root{
-  --pet-inner:#e2b5b4;--pet-cream:#fff4e5;--pet-ink:#253337;
+  --pet-inner:#e2b5b4;--pet-cream:#fff4e5;--pet-ink:#253337;--pet-star:#f3d58f;
   --t-ground:#0e110f;--t-ink:#eef1ea;--t-accent:#b8e9cb;--t-leaf:#a9d48a;--t-danger:#ef9f95;--t-warn:#e9c47c;--t-info:#a8c4f0;--t-lilac:#b8a7c4;--t-warm:#d7b095;--t-shadow:#000000;
   /* Mid-tone contrast: step T sits at T + lift·T(100−T)/100 percent ink, so light
      themes can darken secondary text without moving the ground, ink or surfaces. */

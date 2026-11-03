@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 export const PIPELINE_LIMITS = Object.freeze({ steps: 32, output: 64000, stepOutput: 16000, evidence: 512000, stepEvidence: 128000, retained: 2000000, records: 8, ttl: 10 * 60 * 1000 });
 export const PIPELINE_READ_TOOLS = Object.freeze([
   'workspace_list', 'workspace_read', 'browser_snapshot', 'browser_inspect',
-  'analysis_read', 'analysis_search', 'analysis_native', 'analysis_report', 'ghidra_status', 'ghidra_query', 'disk_read',
+  'analysis_read', 'analysis_search', 'analysis_native', 'analysis_report', 'ghidra_status', 'ghidra_query',
   'terminal_read', 'conversation_read', 'conversation_search', 'conversation_find', 'conversation_zoom', 'conversation_date',
   'archive_search', 'archive_read', 'notes_list', 'notes_read', 'notes_overview', 'memory_recall', 'memory_zoom', 'memory_wake',
   'app_inspect', 'model_available',

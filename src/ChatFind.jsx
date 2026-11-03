@@ -17,7 +17,7 @@ export default function ChatFind({ messages, query, onQuery, onHit, onClose }) {
     if (current) hitCallback.current?.({ ...current, matchIndex: index, total: matches.length });
     // Coordinates, rather than the caller's array/callback identity, prevent
     // repeated scrolling when an unrelated parent state changes.
-  }, [query, index, current?.messageIndex, current?.start, current?.end]);
+  }, [query, index, current?.messageIndex, current?.source, current?.start, current?.end]);
 
   function move(direction) {
     if (!matches.length) return;

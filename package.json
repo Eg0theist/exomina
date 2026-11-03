@@ -1,10 +1,9 @@
 {
   "name": "exomina",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
-  "description": "Exomina desktop workspace",
+  "description": "Exomina desktop workspace for AI, memory and tools",
   "author": "Exomina",
-  "license": "Apache-2.0",
   "type": "module",
   "main": "desktop/main.mjs",
   "scripts": {
@@ -12,24 +11,27 @@
     "build": "vite build",
     "start": "electron .",
     "test": "node --test test/*.test.mjs",
-    "prepare:runtimes": "node scripts/prepare-beta-vendor.mjs && node scripts/prepare-grok-runtime.mjs && node scripts/prepare-analysis-node.mjs",
     "package": "node scripts/package-local.mjs",
-    "package:mac": "node scripts/package-cross-platform.mjs darwin",
-    "package:linux": "node scripts/package-cross-platform.mjs linux",
-    "qa:package": "node scripts/qa-packaged.mjs",
-    "qa:installer": "node scripts/qa-beta-installer.mjs",
-    "version:sync": "node scripts/prepare-version.mjs",
+    "stage": "node scripts/stage-build.mjs",
     "package:public": "node scripts/release-windows.mjs",
     "package:official": "node scripts/package-official.mjs",
     "release:update": "node scripts/create-public-update.mjs",
+    "version:sync": "node scripts/prepare-version.mjs",
+    "cloud:start": "node cloud/start.mjs",
+    "preview:design": "vite --port 5179 --open /preview.html",
+    "prepare:runtimes": "node scripts/prepare-beta-vendor.mjs && node scripts/prepare-grok-runtime.mjs && node scripts/prepare-analysis-node.mjs",
     "security:check": "node scripts/security-maintenance.mjs --check",
     "security:prepare": "node scripts/security-maintenance.mjs --prepare",
-    "package:beta": "npm run build && npm run prepare:runtimes && node scripts/prepare-taskbar-icon.mjs && node scripts/prepare-windows-interop.mjs && electron-builder --config scripts/private-beta-installer-config.mjs --win nsis --x64"
+    "qa:package": "node scripts/qa-packaged.mjs",
+    "qa:installer": "node scripts/qa-beta-installer.mjs",
+    "package:mac": "node scripts/package-cross-platform.mjs darwin",
+    "package:linux": "node scripts/package-cross-platform.mjs linux"
   },
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",
     "@lydell/node-pty": "1.1.0",
-    "@muse-code/sdk": "1.4.13",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@muse-code/sdk": "1.4.6",
     "@openai/codex": "0.160.1",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
@@ -42,17 +44,30 @@
     "react-dom": "19.3.1",
     "smol-toml": "1.9.1"
   },
+  "optionalDependencies": {
+    "@xai-official/grok-darwin-arm64": "1.0.46",
+    "@xai-official/grok-darwin-x64": "1.0.46",
+    "@xai-official/grok-linux-arm64": "1.0.46",
+    "@xai-official/grok-linux-x64": "1.0.46",
+    "@xai-official/grok-win32-arm64": "1.0.46",
+    "@xai-official/grok-win32-x64": "1.0.46"
+  },
   "devDependencies": {
-    "electron": "44.9.3",
+    "electron": "44.10.1",
     "electron-builder": "26.18.0",
     "vite": "8.3.5"
   },
   "overrides": {
+    "minimatch": "11.0.4",
+    "glob@>=9": "14.0.3",
+    "@electron/asar": "4.3.1",
     "rea-agents": {
       "zod": "4.6.7"
     }
   },
   "build": {
+    "beforePack": "./scripts/package-dependencies-before.mjs",
+    "afterPack": "./scripts/package-dependencies-after.mjs",
     "electronDist": "node_modules/electron/dist",
     "appId": "local.exomina.desktop",
     "productName": "Exomina",
@@ -62,7 +77,6 @@
     "files": [
       "dist/**",
       "desktop/**",
-      "!desktop/agent-spending.mjs",
       "!desktop/antigravity-browser/**",
       "vendor/**",
       "build/icon.png",
@@ -79,7 +93,8 @@
       "SECURITY-AUDIT.txt",
       "scripts/install-windows.ps1",
       "LICENSE",
-      "NOTICE"
+      "NOTICE",
+      "!desktop/agent-spending.mjs"
     ],
     "asarUnpack": [
       "desktop/**",
@@ -96,12 +111,5 @@
     "npmRebuild": false
   },
   "homepage": "https://github.com/Eg0theist/exomina",
-  "optionalDependencies": {
-    "@xai-official/grok-darwin-arm64": "1.0.46",
-    "@xai-official/grok-darwin-x64": "1.0.46",
-    "@xai-official/grok-linux-arm64": "1.0.46",
-    "@xai-official/grok-linux-x64": "1.0.46",
-    "@xai-official/grok-win32-arm64": "1.0.46",
-    "@xai-official/grok-win32-x64": "1.0.46"
-  }
+  "license": "Apache-2.0"
 }

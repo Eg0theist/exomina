@@ -3,6 +3,7 @@ import {writeFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {beforePack as checkDependencyInputs,afterPack as checkPackagedDependencies} from './package-dependencies.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const metadata=JSON.parse(readFileSync(path.join(root,'package.json'),'utf8'));
@@ -66,7 +67,11 @@ export function crossPlatformConfig(platform,{arch=process.arch,ciOnly=false}={}
   return {
     ...base,appId:'local.exomina.beta.desktop',productName:'Exomina Beta',
     compression:'normal',publish:null,npmRebuild:true,
-    afterPack:markNativeDistribution,
+    async beforePack(context){await checkDependencyInputs(context,{exclude:['@xai-official/*','@anthropic-ai/claude-code-win32-x64']});},
+    async afterPack(context){
+      await checkPackagedDependencies(context,{exclude:['@xai-official/*','@anthropic-ai/claude-code-win32-x64']});
+      await markNativeDistribution(context);
+    },
     directories:{...base.directories,output:`release-${platform}`},
     files:[...(base.files||[]),'LICENSE','BETA.md','FEEDBACK.md','SUPPORT.md',
       '!**/__pycache__/**','!**/*.pyc','!**/*.pyo',

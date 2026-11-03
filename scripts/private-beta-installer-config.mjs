@@ -4,6 +4,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import {beforePack as checkDependencyInputs} from './package-dependencies.mjs';
 
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const metadata=JSON.parse(readFileSync(path.join(project,'package.json'),'utf8'));
@@ -57,7 +58,7 @@ export default {
     warningsAsErrors:true,
   },
   npmRebuild:false,
-  beforePack:configureBetaArchiveCompression,
+  async beforePack(context){await checkDependencyInputs(context,{exclude:['@xai-official/*','@anthropic-ai/claude-code-win32-x64']});configureBetaArchiveCompression();},
   // Manual installers need the same source snapshot and post-edit inventory
   // as signed betas so an unchanged installation can pass the update guard.
   afterPack:verifiedBeta.afterPack,

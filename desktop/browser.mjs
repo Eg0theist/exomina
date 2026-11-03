@@ -1,12 +1,14 @@
-import {WebContentsView,session,Menu,clipboard,shell,app} from 'electron';
+import {BrowserWindow,WebContentsView,session,Menu,clipboard,shell,app} from 'electron';
 import path from 'node:path';
 import {BrowserRuntime,browserDeadline} from './browser-runtime.mjs';
+import {withBrowserDebugger} from './browser-debugger.mjs';
 import {browserLoadError} from './browser-network.mjs';
 import {snapshotOptions} from './browser-extension/page-source.js';
 import {ChatBrowser} from './browser-pages.mjs';
+import {trustedInput,trustedKey} from './browser-extension/trusted-input.js';
 import {attachBrowserContextMenu} from './browser-context-menu.mjs';
 import {attachLoginPopups} from './browser-logins.mjs';
-import {INSPECT_TOOL,inspectOptions,inspectPage} from './browser-extension/inspect-source.js';
+import {INSPECT_TOOL,inspectOptions,inspectPage,plainDocument,readDocumentBody} from './browser-extension/inspect-source.js';
 const empty={type:'object',properties:{},additionalProperties:false};
 const args=(properties,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
 const str={type:'string'};
@@ -16,14 +18,17 @@ export function checkedUrl(input){
 }
 export class BrowserPage{
   constructor({window,emit,approve,getSettings,isActive=()=>true,timeouts,browserSession,openTab}){
-    Object.assign(this,{window,emit,approve,getSettings,isActive});this.visible=false;this.bounds={x:800,y:80,width:500,height:650};this.operations=new Map();this.visibleWaiters=new Set();this.error=null;
+    Object.assign(this,{window,emit,approve,getSettings,isActive});this.visible=false;this.bounds={x:800,y:80,width:500,height:650};this.viewport={width:500,height:650};this.operations=new Map();this.error=null;
     browserSession??=session.fromPartition('persist:exomina-browser');
     browserSession.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
     browserSession.setPermissionCheckHandler(()=>false);
     this.view=new WebContentsView({webPreferences:{session:browserSession,nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,allowRunningInsecureContent:false}});
     this.view.setBackgroundColor('#121615');
     this.wc=this.view.webContents;
-    this.runtime=new BrowserRuntime({wc:this.wc,readState:()=>this.state(),timeouts});
+    this.runtime=new BrowserRuntime({wc:this.wc,readState:()=>this.state(),timeouts,readDocument:signal=>this.withDebugger(async send=>{
+      await send('Page.enable');const frame=(await send('Page.getResourceTree')).frameTree?.frame;
+      return frame&&plainDocument(frame.mimeType)?{url:frame.url,mimeType:frame.mimeType,content:await readDocumentBody(send,frame)}:null;
+    },{signal,milliseconds:this.runtime.timeouts.read})});
     this.detachContextMenu=attachBrowserContextMenu(this.wc,{Menu,clipboard,window,getWindow:()=>this.window,isVisible:()=>this.visible,
       navigate:url=>this.navigate(checkedUrl(url)),openTab:openTab&&(url=>openTab(checkedUrl(url))),openExternal:url=>shell.openExternal(checkedUrl(url)),
       onError:error=>{this.error=error.message;if(!this.wc.isDestroyed())this.emit({type:'browser.state',...this.state()})}});
@@ -41,24 +46,66 @@ export class BrowserPage{
     this.browserSession=browserSession;browserSession.on('will-download',this.downloadHandler);
   }
   state(){if(this.wc.isDestroyed())return {url:'',title:'Browser',loading:false,pageReady:false,error:null,canGoBack:false,canGoForward:false};return {url:this.wc.getURL(),title:this.wc.getTitle(),loading:this.wc.isLoading(),pageReady:!!this.runtime?.pageReady&&!this.error,error:this.error,errorCode:this.errorCode||null,canGoBack:this.wc.navigationHistory.canGoBack(),canGoForward:this.wc.navigationHistory.canGoForward()}}
-  show(visible){if(this.window.isDestroyed()||this.wc.isDestroyed()){this.visible=false;return this.state()}if(!!visible===this.visible)return this.state();this.visible=!!visible;this.loginPopups.show(this.visible);if(this.visible){this.window.contentView.addChildView(this.view);this.view.setBounds(this.bounds);for(const resolve of this.visibleWaiters)resolve()}else this.window.contentView.removeChildView(this.view);return this.state()}
-  setBounds(bounds){if(this.window.isDestroyed()||this.wc.isDestroyed())return;const area=this.window.getContentBounds();const x=Math.max(0,Math.min(area.width-1,Math.round(bounds.x)||0));const y=Math.max(0,Math.min(area.height-1,Math.round(bounds.y)||0));this.bounds={x,y,width:Math.max(1,Math.min(area.width-x,Math.round(bounds.width)||1)),height:Math.max(1,Math.min(area.height-y,Math.round(bounds.height)||1))};this.view.setBounds(this.bounds)}
+  // The page needs a rendering/input host even when its pane has never opened.
+  // Keep this same sandboxed page in a never-shown window; no OS focus is taken.
+  ensureSurface(){
+    if(this.wc.isDestroyed())throw Error('The browser page was closed.');
+    if(!this.visible){
+      if(!this.backgroundWindow||this.backgroundWindow.isDestroyed()){
+        this.backgroundWindow=new BrowserWindow({show:false,focusable:false,skipTaskbar:true,frame:false,useContentSize:true,...this.viewport,webPreferences:{sandbox:true,nodeIntegration:false,contextIsolation:true}});
+        this.backgroundWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+        this.backgroundWindow.webContents.on('will-navigate',event=>event.preventDefault());
+      }
+      this.backgroundWindow.setContentSize(this.viewport.width,this.viewport.height);
+    }
+    const owner=this.visible?this.window:this.backgroundWindow;
+    if(owner.isDestroyed())throw Error('The browser window was closed.');
+    const bounds=this.visible?this.bounds:{x:0,y:0,...this.viewport};
+    if(this.surfaceOwner!==owner||this.surfaceSize?.width!==bounds.width||this.surfaceSize?.height!==bounds.height)this.surfaceEpoch=(this.surfaceEpoch||0)+1;
+    this.surfaceSize={width:bounds.width,height:bounds.height};
+    if(this.surfaceOwner!==owner){
+      if(this.surfaceOwner&&!this.surfaceOwner.isDestroyed())this.surfaceOwner.contentView.removeChildView(this.view);
+      owner.contentView.addChildView(this.view);this.surfaceOwner=owner;
+    }
+    this.view.setBounds(bounds);
+    if(this.visible&&this.backgroundWindow){this.backgroundWindow.destroy();this.backgroundWindow=null;}
+  }
+  show(visible){
+    if(this.window.isDestroyed()||this.wc.isDestroyed()){this.visible=false;return this.state()}
+    this.visible=!!visible;this.loginPopups.show(this.visible);
+    // Unused tabs need no host until they navigate or are shown.
+    if(this.visible||this.surfaceOwner)this.ensureSurface();
+    return this.state();
+  }
+  setBounds(bounds){
+    if(this.window.isDestroyed()||this.wc.isDestroyed())return;
+    const area=this.window.getContentBounds(),x=Math.max(0,Math.min(area.width-1,Math.round(bounds.x)||0)),y=Math.max(0,Math.min(area.height-1,Math.round(bounds.y)||0));
+    this.bounds={x,y,width:Math.max(1,Math.min(area.width-x,Math.round(bounds.width)||1)),height:Math.max(1,Math.min(area.height-y,Math.round(bounds.height)||1))};
+    // Transient collapsed pane geometry must not replace the usable viewport.
+    if(this.bounds.width>1&&this.bounds.height>1)this.viewport={width:this.bounds.width,height:this.bounds.height};
+    if(this.visible||this.surfaceOwner)this.ensureSurface();
+  }
   setWindow(next){
     if(!next||next.isDestroyed()||next===this.window||this.wc.isDestroyed())return;
     const previous=this.window,shown=this.visible;this.hostBounds??=new WeakMap();this.hostBounds.set(previous,this.bounds);
-    if(shown&&!previous.isDestroyed())previous.contentView.removeChildView(this.view);
-    this.window=next;this.loginPopups.setWindow(next);this.setBounds(this.hostBounds.get(next)||{x:0,y:0,width:1,height:1});
-    if(shown)next.contentView.addChildView(this.view);
+    this.window=next;this.loginPopups.setWindow(next);
+    const bounds=this.hostBounds.get(next)||{x:0,y:0,...this.viewport};
+    if(shown)this.setBounds(bounds);else this.bounds=bounds;
   }
-  async navigate(value,signal){return this.runtime.navigate(checkedUrl(value),signal)}
+  async navigate(value,signal){const url=checkedUrl(value);if(signal?.aborted)throw Error('The browser action was stopped.');this.ensureSurface();return this.runtime.withRendering(()=>this.runtime.navigate(url,signal),{signal})}
   stop(){this.wc.stop();this.emit({type:'browser.state',...this.state()});return this.state()}
-  async reveal(signal){
-    if(this.visible)return;
-    this.emit({type:'browser.reveal'});
-    let ready;
-    try{await browserDeadline(()=>new Promise(resolve=>{ready=resolve;this.visibleWaiters.add(resolve)}),{milliseconds:350,signal,message:'The browser pane is not currently visible.'})}
-    catch(error){if(signal?.aborted)throw error}
-    finally{this.visibleWaiters.delete(ready)}
+  withDebugger(operation,options={}){return withBrowserDebugger(this.wc,operation,{milliseconds:this.runtime.timeouts.action,...options})}
+  async withInput(operation,signal,conversationId){
+    if(this.inputActive)throw Error('Another browser input is still using this page. Wait for it to finish.');
+    this.inputActive=true;
+    try{
+      this.ensureSurface();const epoch=this.surfaceEpoch,revision=this.runtime.revision,url=this.wc.getURL();
+      return await this.runtime.withRendering(()=>this.withDebugger((send,assertActive)=>{
+        const assertLayout=()=>{assertActive();if(!this.getSettings().browserEnabled)throw Error('Browser tools were disabled.');if(conversationId!==undefined&&!this.isActive(conversationId))throw Error('The browser action was stopped.');if(revision!==this.runtime.revision||url!==this.wc.getURL())throw Error('The browser page changed before input. Read a fresh snapshot before acting.');if(epoch!==this.surfaceEpoch)throw Error('The browser layout changed. Read a fresh snapshot before retrying.');};
+        assertLayout();
+        return operation((method,args)=>{if(method.startsWith('Input.'))assertLayout();return send(method,args)},assertLayout);
+      },{signal}),{signal,warm:true});
+    }finally{this.inputActive=false;}
   }
   cancel(conversationId){for(const controller of this.operations.get(conversationId)||[])controller.abort()}
   get definitions(){return [
@@ -77,35 +124,48 @@ export class BrowserPage{
     if(name==='browser_open')input={url:checkedUrl(input.url)};
     if(name==='browser_snapshot')input=snapshotOptions(input);
     if(name==='browser_inspect')input=inspectOptions(input);
-    const detail=name==='browser_snapshot'?'Read the current page and share its visible content and screenshot with the selected AI provider.':name==='browser_inspect'?'Share this page’s HTML or loaded source resources with the selected AI provider. HTML may include account-specific page data. No cookies, browser stores or network request bodies are read.\n'+JSON.stringify(input,null,2):JSON.stringify(input,null,2);
+    const inputAction=['browser_click','browser_type','browser_key'].includes(name),approvedUrl=this.wc.getURL(),approvedRevision=this.runtime.revision;
+    const origin=inputAction?(()=>{try{return new URL(approvedUrl).origin}catch{return '(empty page)'}})():'';
+    const detail=name==='browser_snapshot'?'Read the current page and share its visible content and an available screenshot with the selected AI provider.':name==='browser_inspect'?'Share this page’s HTML or loaded source resources with the selected AI provider. HTML may include account-specific page data. No cookies, browser stores or network request bodies are read.\n'+JSON.stringify(input,null,2):(inputAction?'Target page: '+origin+'\n':'')+JSON.stringify(input,null,2);
     if(!await this.approve({title:name==='browser_snapshot'?'Read embedded browser?':'Allow browser action?',detail,conversationId}))throw Error('Browser action declined.');
     if(!this.getSettings().browserEnabled)throw Error('Browser tools were disabled.');
     if(!this.isActive(conversationId))throw Error('The browser action was stopped.');
+    if(inputAction&&(this.runtime.revision!==approvedRevision||this.wc.getURL()!==approvedUrl))throw Error('The browser page changed during approval. Read a fresh snapshot before acting.');
     const controller=new AbortController(),signal=controller.signal;
     const operations=this.operations.get(conversationId)||new Set();operations.add(controller);this.operations.set(conversationId,operations);
     try{
-    await this.reveal(signal);
+    this.ensureSurface();
     if(!this.getSettings().browserEnabled)throw Error('Browser tools were disabled.');
     if(name==='browser_open')return {content:[{type:'text',text:JSON.stringify(await this.navigate(input.url,signal))}]};
-    if(name==='browser_inspect'){
-      if(this.wc.debugger.isAttached())throw Error('This page already has a debugger attached. Close its developer tools and try inspection again.');
-      this.wc.debugger.attach('1.3');
-      try{return await browserDeadline(()=>inspectPage({send:(method,args)=>this.wc.debugger.sendCommand(method,args),evaluate:source=>this.runtime.execute(source,{signal})},input),{milliseconds:this.runtime.timeouts.action,signal,message:'Browser source inspection timed out.'});}
-      finally{if(this.wc.debugger.isAttached())this.wc.debugger.detach();}
-    }
+    if(name==='browser_inspect')return await this.runtime.withRendering(()=>this.withDebugger(send=>inspectPage({send,evaluate:source=>this.runtime.execute(source,{signal})},input),{signal}),{signal,warm:true});
     if(name==='browser_click'||name==='browser_type'){
-      const source=`(()=>{if(Date.now()>${Date.now()+this.runtime.timeouts.action})throw new Error('This browser action expired before the page could handle it.');const e=document.querySelector(${JSON.stringify(input.selector)});if(!e)throw new Error('Element not found');e.focus();${name==='browser_click'?'e.click();':`if(!('value' in e)&&!e.isContentEditable)throw new Error('Target is not editable');if(e.isContentEditable)e.textContent=${JSON.stringify(input.text)};else {const p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;const d=Object.getOwnPropertyDescriptor(p,'value');if(d?.set)d.set.call(e,${JSON.stringify(input.text)});else e.value=${JSON.stringify(input.text)};}e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));`}return 'Action completed';})()`;
-      await this.runtime.execute(source,{signal,userGesture:true});
+      const action=await this.withInput((send,assertActive)=>browserDeadline(()=>trustedInput(send,{action:name.slice('browser_'.length),input,expiresAt:Date.now()+this.runtime.timeouts.action},signal,point=>{
+        assertActive();
+        // CDP mouse dispatch waits for a compositor hit-test acknowledgement
+        // that an unattached WebContentsView cannot provide. Electron targets
+        // the same renderer directly, without touching the OS input queue.
+        const x=Math.round(point.x),y=Math.round(point.y);
+        this.wc.sendInputEvent({type:'mouseMove',x,y});
+        this.wc.sendInputEvent({type:'mouseDown',x,y,button:'left',clickCount:1});
+        this.wc.sendInputEvent({type:'mouseUp',x,y,button:'left',clickCount:1});
+      }),{milliseconds:this.runtime.timeouts.action,signal,message:'Browser input timed out. Inspect the page before retrying.'}),signal,conversationId);
+      return {content:[{type:'text',text:JSON.stringify({...this.state(),input:action})}]};
     }
     if(name==='browser_key'){
       if(!['Enter','Tab','Escape','ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Backspace'].includes(input.key))throw Error('Unsupported key');
-      this.wc.sendInputEvent({type:'keyDown',keyCode:input.key});this.wc.sendInputEvent({type:'keyUp',keyCode:input.key});
+      await this.withInput((send,assertActive)=>browserDeadline(()=>trustedKey(send,{input,expiresAt:Date.now()+this.runtime.timeouts.action},signal,key=>{
+        assertActive();
+        const keyCode={ArrowDown:'Down',ArrowUp:'Up',ArrowLeft:'Left',ArrowRight:'Right'}[key]||key;
+        this.wc.sendInputEvent({type:'keyDown',keyCode});
+        if(key==='Enter')this.wc.sendInputEvent({type:'char',keyCode:'\r'});
+        this.wc.sendInputEvent({type:'keyUp',keyCode});
+      }),{milliseconds:this.runtime.timeouts.action,signal,message:'Browser key input timed out. Inspect the page before retrying.'}),signal,conversationId);
     }
-    if(name==='browser_snapshot')return await this.runtime.snapshot(signal,input);
+    if(name==='browser_snapshot')return await this.runtime.withRendering(()=>this.runtime.snapshot(signal,input),{signal,warm:true});
     return {content:[{type:'text',text:JSON.stringify(this.state())}]};
     }finally{operations.delete(controller);if(!operations.size)this.operations.delete(conversationId)}
   }
-  close(){for(const id of this.operations.keys())this.cancel(id);this.loginPopups.close();this.detachContextMenu();this.browserSession.removeListener('will-download',this.downloadHandler);this.runtime.close();if(!this.wc.isDestroyed())this.wc.close()}
+  close(){for(const id of this.operations.keys())this.cancel(id);this.loginPopups.close();this.detachContextMenu();this.browserSession.removeListener('will-download',this.downloadHandler);this.runtime.close();if(this.surfaceOwner&&!this.surfaceOwner.isDestroyed())this.surfaceOwner.contentView.removeChildView(this.view);this.surfaceOwner=null;if(this.backgroundWindow&&!this.backgroundWindow.isDestroyed())this.backgroundWindow.destroy();if(!this.wc.isDestroyed())this.wc.close()}
 }
 
 export class EmbeddedBrowser extends ChatBrowser {

@@ -7,14 +7,18 @@ import {DatabaseSync} from 'node:sqlite';
 // A derived, rebuildable keyword index over the immutable chat originals. It lives in its own
 // database, so nothing here can alter or delay the source log. Writes happen only on a worker
 // thread; the main thread runs short read-only queries.
-const INDEX_VERSION = '2';
+const INDEX_VERSION = '3';
 const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
   CREATE VIRTUAL TABLE IF NOT EXISTS search_docs USING fts5(body, tool, chat_id UNINDEXED, id UNINDEXED, role UNINDEXED, kind UNINDEXED, created_at UNINDEXED, tokenize='trigram');
-  CREATE TABLE IF NOT EXISTS search_marks(chat_id TEXT PRIMARY KEY, next_id INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS search_marks(chat_id TEXT PRIMARY KEY, next_id INTEGER NOT NULL DEFAULT 0, repair_revision INTEGER NOT NULL DEFAULT 0);
   CREATE TABLE IF NOT EXISTS search_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);`;
 
 export const searchFile = dataDir => path.join(path.resolve(dataDir), 'chat-memory', 'search.sqlite');
 export const treeFile = dataDir => path.join(path.resolve(dataDir), 'chat-memory', 'tree.sqlite');
+function prepareIndex(db){
+  db.exec(SCHEMA);
+  if(!db.prepare('PRAGMA table_info(search_marks)').all().some(row=>row.name==='repair_revision'))db.exec('ALTER TABLE search_marks ADD COLUMN repair_revision INTEGER NOT NULL DEFAULT 0');
+}
 
 // Streamed tool output used to be stored once per growing snapshot: "<call>:output:<hash>:part:<n>".
 const snapshot = key => { const match = /^(.*):output:([0-9a-f]+):part:\d+$/.exec(key); return match ? { call: match[1], hash: match[2] } : null; };
@@ -22,7 +26,11 @@ const snapshot = key => { const match = /^(.*):output:([0-9a-f]+):part:\d+$/.exe
 /** Indexes originals of one chat that are newer than its mark. Returns the number of documents added. */
 export function indexChat(tree, search, chatId, { batch = 250 } = {}) {
   const last = tree.prepare('SELECT MAX(id) AS id FROM tree_originals WHERE chat_id=?').get(chatId)?.id;
-  const from = search.prepare('SELECT next_id FROM search_marks WHERE chat_id=?').get(chatId)?.next_id ?? 0;
+  const revision=tree.prepare('SELECT repair_revision FROM tree_chats WHERE chat_id=?').get(chatId)?.repair_revision||0;
+  const saved=search.prepare('SELECT next_id,repair_revision FROM search_marks WHERE chat_id=?').get(chatId);
+  const repaired=!!saved&&saved.repair_revision!==revision;
+  if(repaired)removeChat(search,chatId);
+  const from=saved&&saved.repair_revision===revision?saved.next_id:0;
   if (last == null) { removeChat(search, chatId); return 0; }
   let start = from;
   if (start > last + 1) { removeChat(search, chatId); start = 0; }
@@ -41,7 +49,7 @@ export function indexChat(tree, search, chatId, { batch = 250 } = {}) {
   }
   const read = tree.prepare('SELECT id, role, kind, created_at AS createdAt, event_key AS key, text FROM tree_originals WHERE chat_id=? AND id>=? AND id<? ORDER BY id');
   const insert = search.prepare('INSERT INTO search_docs(body, tool, chat_id, id, role, kind, created_at) VALUES(?,?,?,?,?,?,?)');
-  const mark = search.prepare('INSERT INTO search_marks(chat_id, next_id) VALUES(?,?) ON CONFLICT(chat_id) DO UPDATE SET next_id=excluded.next_id');
+  const mark = search.prepare('INSERT INTO search_marks(chat_id, next_id, repair_revision) VALUES(?,?,?) ON CONFLICT(chat_id) DO UPDATE SET next_id=excluded.next_id,repair_revision=excluded.repair_revision');
   let added = 0;
   for (let id = start; id <= last; id += batch) {
     const end = Math.min(id + batch, last + 1);
@@ -50,16 +58,19 @@ export function indexChat(tree, search, chatId, { batch = 250 } = {}) {
       for (const row of read.all(chatId, id, end)) {
         const parsed = row.kind === 'echo' ? snapshot(row.key) : null;
         if (parsed && finalHash.get(parsed.call) !== parsed.hash) continue;
-        if (!row.text || !row.text.trim()) continue;
+        if (row.kind === 'duplicate' || !row.text || !row.text.trim()) continue;
         const isTool = row.kind === 'echo' || row.kind === 'tool';
         const text = row.text;
         insert.run(isTool ? '' : text, isTool ? text : '', chatId, row.id, row.role, row.kind, row.createdAt || '');
         added++;
       }
-      mark.run(chatId, end);
+      mark.run(chatId, end, revision);
       search.exec('COMMIT');
     } catch (error) { search.exec('ROLLBACK'); throw error; }
   }
+  // FTS tombstones for a large retired backlog otherwise keep common-word
+  // queries expensive even when only a few real documents remain.
+  if(repaired)search.exec("INSERT INTO search_docs(search_docs) VALUES('optimize')");
   return added;
 }
 
@@ -72,7 +83,7 @@ export function removeChat(search, chatId) {
 /** Runs one request against freshly opened databases; shared by the worker and by tests. */
 export function runIndexRequest(dataDir, request) {
   const search = new DatabaseSync(searchFile(dataDir));
-  search.exec(SCHEMA);
+  prepareIndex(search);
   try {
     const rebuild=search.prepare('SELECT value FROM search_meta WHERE key=?').get('index-version')?.value!==INDEX_VERSION;
     if(rebuild){
@@ -115,13 +126,13 @@ function excerpt(text, tokens, width = 360) {
 
 export class ChatMemorySearch {
   #db = null; #worker = null; #queue = Promise.resolve(); #timers = new Map(); #idle = null;
-  constructor(dataDir, { workerUrl = new URL('./chat-memory-search-worker.mjs', import.meta.url), createWorker = null, delay = 3000 } = {}) {
-    Object.assign(this, { dataDir, workerUrl, createWorker, delay, closed: false, lastError: null, pending: 0 });
+  constructor(dataDir, { workerUrl = new URL('./chat-memory-search-worker.mjs', import.meta.url), createWorker = null, delay = 3000, idleMs = 30000 } = {}) {
+    Object.assign(this, { dataDir, workerUrl, createWorker, delay, idleMs, closed: false, lastError: null, pending: 0 });
   }
   async init() {
     if (this.#db) return this;
     await mkdir(path.dirname(searchFile(this.dataDir)), { recursive: true, mode: 0o700 });
-    const writer = new DatabaseSync(searchFile(this.dataDir)); writer.exec(SCHEMA); writer.close();
+    const writer = new DatabaseSync(searchFile(this.dataDir)); prepareIndex(writer); writer.close();
     this.#db = new DatabaseSync(searchFile(this.dataDir), { readOnly: true });
     this.#db.exec('PRAGMA busy_timeout=2000');
     return this;
@@ -137,8 +148,10 @@ export class ChatMemorySearch {
   #request(request) {
     this.pending++;
     const run = () => this.closed ? undefined : new Promise((resolve, reject) => {
+      // A previous request's idle deadline must never terminate active indexing.
+      clearTimeout(this.#idle);
       const worker = this.#spawn();
-      const finish = (fn, value) => { worker.off('message', onMessage); worker.off('error', onError); worker.off('exit', onExit); clearTimeout(this.#idle); this.#idle = setTimeout(() => this.#release(), 30000); this.#idle.unref?.(); fn(value); };
+      const finish = (fn, value) => { worker.off('message', onMessage); worker.off('error', onError); worker.off('exit', onExit); clearTimeout(this.#idle); this.#idle = setTimeout(() => this.#release(), this.idleMs); this.#idle.unref?.(); fn(value); };
       const onMessage = message => message.error ? finish(reject, Error(message.error)) : finish(resolve, message);
       const onError = error => { this.#worker = null; finish(reject, error); };
       const onExit = () => { this.#worker = null; finish(reject, Error('The search indexer stopped.')); };
@@ -152,12 +165,12 @@ export class ChatMemorySearch {
   #release() { const worker = this.#worker; this.#worker = null; worker?.terminate?.(); }
   /** Debounced catch-up for a chat that just received records. */
   touch(chatId) {
-    if (this.closed || this.#timers.has(chatId)) return;
+    if (this.closed || this.paused || this.#timers.has(chatId)) return;
     const timer = setTimeout(() => { this.#timers.delete(chatId); this.sync(chatId).catch(() => {}); }, this.delay);
     timer.unref?.(); this.#timers.set(chatId, timer);
   }
-  sync(chatId) { return this.#request({ type: 'sync', chatId }); }
-  backfill() { return this.#request({ type: 'backfill' }); }
+  sync(chatId) { return this.paused ? Promise.resolve({deferred:true}) : this.#request({ type: 'sync', chatId }); }
+  backfill() { return this.paused ? Promise.resolve({deferred:true}) : this.#request({ type: 'backfill' }); }
   remove(chatId) { clearTimeout(this.#timers.get(chatId)); this.#timers.delete(chatId); return this.#request({ type: 'remove', chatId }).catch(() => {}); }
   async flush(chatId) { clearTimeout(this.#timers.get(chatId)); this.#timers.delete(chatId); await this.sync(chatId).catch(() => {}); }
   status() {

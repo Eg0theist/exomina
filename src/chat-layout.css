@@ -15,3 +15,4 @@
 .composer-toolbar .model-chip .provider-mark{flex-shrink:0}
 @container(max-width:670px){.composer-toolbar .model-chip{max-width:200px}.composer-toolbar .chip-sub{display:none}}
 @container(max-width:440px){.composer-toolbar .chip-caret{display:none}.composer-toolbar .composer-chip{padding:0 5px}.composer-toolbar .model-chip{max-width:90px}.composer .composer-toolbar{gap:1px}}
+@media(max-width:520px){.composer .model-popover{position:fixed;left:12px;right:12px;bottom:12px;width:auto;min-width:0;max-width:none;max-height:calc(var(--viewport-height,100dvh) - 76px);overflow:auto;overscroll-behavior:contain}}

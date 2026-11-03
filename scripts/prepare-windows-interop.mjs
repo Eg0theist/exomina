@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const directory=path.join(project,'desktop','windows-interop');
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
-const targets=['Vault','Desktop','Speech','Busy','Scan'];
+const targets=['Vault','Desktop','Speech','Busy'];
 export async function prepareWindowsInterop(){
  const framework=path.join(process.env.SystemRoot||'C:\\Windows','Microsoft.NET','Framework64','v4.0.30319');
  const compiler=path.join(framework,'csc.exe');await stat(compiler);

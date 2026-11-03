@@ -3,6 +3,11 @@ import { attachmentReferences, clipToolHistory, fingerprint, historyObject, hist
 import { chatMemoryEnabled, formatChatView } from './chat-memory-context.mjs';
 import { recallBlock, recallTerms } from './chat-memory-recall.mjs';
 
+// Live cards publish the whole growing answer for rendering. Only a settled card
+// is source history. Older imported cards may have no runtime status or date.
+export const completedFollowupAnswer = item => Boolean(item?.answer &&
+  (item.finishedAt && !['sending', 'answering'].includes(item.status) || !item.status));
+
 /** Bridges existing transcripts and visible runtime events to the immutable source log. */
 export class ChatMemoryService {
   constructor({ tree, compactor, search = null, settings = () => ({}), isActive = () => false, isHostTool = () => false, isPrivate = () => false, onStatus = () => {} }) {
@@ -35,7 +40,7 @@ export class ChatMemoryService {
     this.seen.set(key, observation); if (this.seen.size > 8192) this.seen.delete(this.seen.keys().next().value);
     if (!this.batchDepth) await this.publishStats(chatId);
   }
-  async publishStats(chatId) { this.chatStats.set(chatId, await this.tree.stats(chatId)); this.compactor?.notify(chatId); this.search?.touch(chatId); this.onStatus(this.status(chatId)); }
+  async publishStats(chatId) { this.chatStats.set(chatId, await this.tree.stats(chatId)); this.compactor?.notify(chatId); if(!this.repairing)this.search?.touch(chatId); this.onStatus(this.status(chatId)); }
   append(chatId, event) { return this.enqueue(() => this.record(chatId, event)); }
   async sync(chat) {
     if (!chat || this.removed.has(chat.id) || chat.private === true || this.isPrivate(chat.id) || !chatMemoryEnabled(this.settings())) return;
@@ -69,10 +74,63 @@ export class ChatMemoryService {
       } finally { this.batchDepth--; await this.publishStats(chat.id); }
     });
   }
-  async recordFollowup(chatId, item) {
+  async recordFollowup(chatId, item, {repair=true}={}) {
+    if (this.closed || this.removed.has(chatId) || this.isPrivate(chatId) || !chatMemoryEnabled(this.settings())) return;
     if (item.text || item.question) await this.record(chatId, { key: `followup:${item.id}:user`, kind: 'user', text: item.text || item.question, createdAt: item.createdAt || item.queuedAt || null, metadata: { followupId: item.id } });
-    if (item.answer) await this.record(chatId, { key: `followup:${item.id}:answer:${fingerprint(item.answer)}`, kind: 'assistant', text: item.answer, createdAt: item.finishedAt || null, metadata: { followupId: item.id, provider: item.provider } });
+    if (completedFollowupAnswer(item)) {
+      await this.record(chatId, { key: `followup:${item.id}:answer`, kind: 'assistant', text: item.answer, createdAt: item.finishedAt || null, metadata: { followupId: item.id, provider: item.provider } });
+      const repaired = repair ? await this.tree.repairFollowupDuplicates?.(chatId, item.id, splitHistory(item.answer), item.finishedAt || null) : null;
+      if (repaired?.removed) {
+        await this.publishStats(chatId);
+      }
+    }
     if (item.taskStatus || item.summary) await this.record(chatId, { key: `followup:${item.id}:resolution:${fingerprint(JSON.stringify([item.taskStatus,item.summary,item.taskUpdatedAt||null]))}`, kind: 'work', text: `Follow-up ${item.id}: ${item.taskStatus || item.status || 'pending'}. ${item.summary || ''}`, createdAt: item.taskUpdatedAt || null, metadata: { followupId: item.id } });
+  }
+  /** One local migration through the same recording/privacy path as normal sync. */
+  async repairFollowupHistory(chats) {
+    this.repairing = true;
+    const result = { chats: 0, answers: 0, retired: 0, failed: false };
+    try {
+      if(!chatMemoryEnabled(this.settings()))return result;
+      for (const chat of chats) {
+        if (this.closed) break;
+        if (chat.private === true || this.isPrivate(chat.id) || this.removed.has(chat.id)) continue;
+        const items = (chat.messages || []).flatMap(message => message.followups || []).filter(completedFollowupAnswer);
+        if (!items.length) continue;
+        const before = await this.tree.stats(chat.id);
+        for (const item of items) {
+          await this.enqueue(async () => {
+            try { await this.recordFollowup(chat.id, item, {repair:false}); }
+            catch (error) { result.failed = true; throw error; }
+          });
+          // Allow the window to paint and user actions to run between cards.
+          await new Promise(resolve => setImmediate(resolve));
+        }
+        await this.enqueue(async()=>{
+          if(this.closed||this.removed.has(chat.id)||chat.private===true||this.isPrivate(chat.id)||!chatMemoryEnabled(this.settings()))return;
+          try {
+            const latest=[...new Map(items.map(item=>[item.id,item])).values()];
+            const repaired=await this.tree.repairFollowupBatch(chat.id,latest.map(item=>({followupId:item.id,parts:splitHistory(item.answer),createdAt:item.finishedAt||null})));
+            if(repaired.incomplete)throw Error('A completed follow-up answer could not be located for cleanup.');
+            if(repaired.removed)await this.publishStats(chat.id);
+          }catch(error){result.failed=true;throw error;}
+        });
+        const after = await this.tree.stats(chat.id);
+        result.chats++; result.answers += items.length;
+        result.retired += Math.max(0,(after.retiredDuplicates || 0) - (before.retiredDuplicates || 0));
+        if ((after.retiredDuplicates || 0) !== (before.retiredDuplicates || 0)) this.search?.touch(chat.id);
+      }
+      return result;
+    } catch(error) {
+      result.failed = true;
+      throw error;
+    } finally {
+      this.repairing = false;
+      this.repairFailed = result.failed;
+      this.repairResult = result;
+      this.compactor?.notify('*');
+      this.onStatus(this.status());
+    }
   }
   async recordQuestion(chatId,group){
     await this.record(chatId,{key:'question:'+group.id+':asked',kind:'assistant',text:'Question card '+group.id+':\n'+JSON.stringify(group.questions),createdAt:group.createdAt||null,metadata:{questionId:group.id}});
@@ -167,11 +225,11 @@ export class ChatMemoryService {
   clearToolNames(chatId) { for (const key of this.toolNames.keys()) if (key.startsWith(chatId+'\0')) this.toolNames.delete(key); }
   async finish(chat) { if(chat.private===true||this.isPrivate(chat.id))return; this.buffers.delete(chat.id); await this.enqueue(() => this.flushChatOutputs(chat.id)); await this.sync(chat); await this.queue; this.clearToolNames(chat.id); this.search?.touch(chat.id); }
   status(chatId) {
-    return { enabled: chatMemoryEnabled(this.settings()), summariesEnabled: this.settings().chatMemorySummaries !== false && this.settings().chatMemoryOnDemand === true, ...(this.chatStats.get(chatId) || {}), background: this.compactor?.stats?.() || { state: 'starting' }, backfill: this.backfill?.status?.() || null, lastError: this.lastError };
+    return { enabled: chatMemoryEnabled(this.settings()), summariesEnabled: this.settings().chatMemorySummaries !== false && this.settings().chatMemoryOnDemand === true, ...(this.chatStats.get(chatId) || {}), repair: { running: this.repairing === true, failed: this.repairFailed === true, ...(this.repairResult || {}) }, background: this.compactor?.stats?.() || { state: 'starting' }, backfill: this.backfill?.status?.() || null, lastError: this.lastError };
   }
   async inspectSnapshot(chatId) {
     const pending = this.queue;
-    await pending;
+    if(!this.repairing)await pending;
     if (this.removed.has(chatId) || this.isPrivate(chatId)) return { enabled: false, lastError: 'This chat is unavailable.' };
     const stats = await this.tree.stats(chatId);
     const progress = await this.tree.progress?.([chatId], { limit: 1 });

@@ -57,3 +57,59 @@ test('Adopting a finished project sets an existing project aside instead of refu
   const replaced=(await readdir(folder)).filter(x=>x.startsWith('replaced-'));assert.equal(replaced.length,1);assert.equal(await readFile(path.join(folder,replaced[0],'Exomina.gpr'),'utf8'),'partial');
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('deleting saved Ghidra projects is confirmed, chat-scoped and preserves original files',async t=>{
+ const {mkdtemp,mkdir,writeFile,readFile,access,rm}=await import('node:fs/promises'),{tmpdir}=await import('node:os'),path=await import('node:path'),{createHash}=await import('node:crypto');
+ const root=await mkdtemp(path.join(tmpdir(),'exo-delete-project-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const dataDir=path.join(root,'profile'),folder=id=>path.join(dataDir,'ghidra-workspaces',createHash('sha256').update(id).digest('hex'));
+ await mkdir(path.join(folder('one'),'binary','checkpoints'),{recursive:true});await writeFile(path.join(folder('one'),'binary','checkpoints','before.gzf'),'derived checkpoint');
+ await mkdir(folder('two'),{recursive:true});await writeFile(path.join(folder('two'),'keep.gpr'),'other chat');
+ const original=path.join(root,'original.exe');await writeFile(original,'original bytes');
+ const chat={analysisTarget:{path:original,selectionId:'one'},ghidraProject:{project:path.join(folder('one'),'a'.repeat(64))},ghidraEditing:true,working:true};let saves=0;
+ const workspace=new GhidraWorkspaces({dataDir,analysis:{},getChat:()=>chat,save:async()=>{saves++;}});
+ await assert.rejects(workspace.deleteProjects('one'),/Confirm deletion/);assert.equal(saves,0);
+ workspace.sessions.set('one',{dead:false});await assert.rejects(workspace.deleteProjects('one',{confirmed:true}),/Save and stop/);workspace.sessions.clear();
+ workspace.starting.set('one',Promise.resolve());await assert.rejects(workspace.deleteProjects('one',{confirmed:true}),/Save and stop/);workspace.starting.clear();
+ const clearing=workspace.deleteProjects('one',{confirmed:true});await assert.rejects(workspace.start('one'),/being changed/);await assert.rejects(workspace.adopt('one','unused.gpr'),/being changed/);await clearing;
+ await assert.rejects(access(folder('one')),/ENOENT/);assert.equal(await readFile(original,'utf8'),'original bytes');assert.equal(await readFile(path.join(folder('two'),'keep.gpr'),'utf8'),'other chat');
+ assert.equal(chat.ghidraProject,undefined);assert.equal(chat.ghidraEditing,undefined);assert.equal(chat.analysisTarget.path,original);assert.equal(saves,2);
+});
+
+test('failed project cleanup keeps saved metadata and recovery checkpoints discoverable',async t=>{
+ const {mkdtemp,mkdir,writeFile,readFile,rm,symlink}=await import('node:fs/promises'),{tmpdir}=await import('node:os'),path=await import('node:path'),{createHash}=await import('node:crypto');
+ const root=await mkdtemp(path.join(tmpdir(),'exo-refuse-delete-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const dataDir=path.join(root,'profile'),folder=path.join(dataDir,'ghidra-workspaces',createHash('sha256').update('one').digest('hex')),outside=path.join(root,'originals');
+ await mkdir(folder,{recursive:true});await mkdir(outside);await writeFile(path.join(outside,'original.exe'),'keep');await writeFile(path.join(folder,'checkpoint.gzf'),'checkpoint');await symlink(outside,path.join(folder,'linked'),'junction');
+ const saved={project:path.join(folder,'a'.repeat(64))},chat={ghidraProject:saved,ghidraEditing:true};const workspace=new GhidraWorkspaces({dataDir,analysis:{},getChat:()=>chat});
+ await assert.rejects(workspace.deleteProjects('one',{confirmed:true}),/linked/);assert.equal(chat.ghidraProject,saved);assert.equal(chat.ghidraEditing,true);assert.equal(await readFile(path.join(folder,'checkpoint.gzf'),'utf8'),'checkpoint');assert.equal(await readFile(path.join(outside,'original.exe'),'utf8'),'keep');
+});
+
+test('project deletion refuses target-switch maintenance and active analysis jobs before filesystem work',async()=>{
+ const analysis={maintenance:new Set(['one'])},chat={ghidraProject:{project:'must remain'}};
+ const workspace=new GhidraWorkspaces({dataDir:'must-not-be-read',analysis,getChat:()=>chat});
+ await assert.rejects(workspace.deleteProjects('one',{confirmed:true}),/finish changing its selection/);analysis.maintenance.clear();
+ workspace.jobs.set('one',{startedAt:Date.now(),finishedAt:null});await assert.rejects(workspace.deleteProjects('one',{confirmed:true}),/Save and stop/);workspace.jobs.clear();
+ workspace.sessions.set('one',{dead:true,child:{exitCode:null,signalCode:null}});await assert.rejects(workspace.deleteProjects('one',{confirmed:true}),/Save and stop/);
+ assert.equal(chat.ghidraProject.project,'must remain');assert.equal(workspace.deleting.size,0);
+});
+
+test('project cleanup rolls back metadata-save failure and refuses mismatched or missing saved folders',async t=>{
+ const {mkdtemp,mkdir,writeFile,readFile,readdir,rm}=await import('node:fs/promises'),{tmpdir}=await import('node:os'),path=await import('node:path');
+ const root=await mkdtemp(path.join(tmpdir(),'exo-delete-rollback-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const chat={ghidraEditing:true},workspace=new GhidraWorkspaces({dataDir:root,analysis:{},getChat:()=>chat,save:async()=>{throw Error('Metadata save failed');}}),folder=workspace.folder('one'),saved={project:path.join(folder,'a'.repeat(64))};chat.ghidraProject=saved;
+ await mkdir(saved.project,{recursive:true});await writeFile(path.join(saved.project,'Exomina.gpr'),'intact');
+ await assert.rejects(workspace.deleteProjects('one',{confirmed:true}),/Metadata save failed/);assert.equal(chat.ghidraProject,saved);assert.equal(chat.ghidraEditing,true);assert.equal(await readFile(path.join(saved.project,'Exomina.gpr'),'utf8'),'intact');assert.equal((await readdir(path.dirname(folder))).filter(name=>name.includes('.deleting-')).length,0);
+ chat.ghidraProject={project:root};assert.throws(()=>workspace.assertProjectsDeletable('one'),/expected storage layout/);
+ chat.ghidraProject=saved;await rm(folder,{recursive:true,force:true});await assert.rejects(workspace.deleteProjects('one',{confirmed:true}),/folder is missing/);assert.equal(chat.ghidraProject,saved);
+});
+
+test('stopping adoption after the copy cancels before replacement and keeps the earlier project intact',async t=>{
+ const {mkdtemp,mkdir,writeFile,readFile,readdir,rm}=await import('node:fs/promises'),{tmpdir}=await import('node:os'),path=await import('node:path'),{createHash}=await import('node:crypto');
+ const root=await mkdtemp(path.join(tmpdir(),'exo-cancel-adopt-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const bytes=Buffer.from('synthetic exe'),hash=createHash('sha256').update(bytes).digest('hex'),src=path.join(root,'source');await mkdir(path.join(src,'p.rep'),{recursive:true});await writeFile(path.join(src,'p.gpr'),'new');await writeFile(path.join(src,'p.rep','data'),'new-data');
+ let entered,release;const copying=new Promise(resolve=>{entered=resolve;}),block=new Promise(resolve=>{release=resolve;});
+ const analysis={target:async()=>({kind:'file',name:'t.exe',path:'t.exe',identity:{}}),bytes:async()=>bytes,confirmTarget:async()=>{entered();await block;}};
+ const workspace=new GhidraWorkspaces({dataDir:path.join(root,'profile'),analysis,getChat:()=>({})}),folder=path.join(workspace.folder('one'),hash);await mkdir(folder,{recursive:true});await writeFile(path.join(folder,'Exomina.gpr'),'earlier');
+ const adopting=workspace.adopt('one',path.join(src,'p.gpr'));adopting.catch(()=>{});await copying;const stopping=workspace.stop('one');release();await assert.rejects(adopting,/adoption cancelled/);await stopping;
+ assert.equal(await readFile(path.join(folder,'Exomina.gpr'),'utf8'),'earlier');assert.equal((await readdir(workspace.folder('one'))).filter(name=>name.startsWith('.adopting-')).length,0);assert.equal(await readFile(path.join(src,'p.gpr'),'utf8'),'new');
+});

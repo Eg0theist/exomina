@@ -25,6 +25,14 @@ const audioStats=stats=>{const value={energy:0,bytes:0,known:false,sentBytes:0,s
   else if(report.type==='outbound-rtp'){value.sentBytes+=report.bytesSent||0;value.sentPackets+=report.packetsSent||0;}
 });return value;};
 const audioTrace=value=>`rtp:in=${value.bytes},energy=${value.energy.toPrecision(5)},out=${value.sentBytes},packets=${value.sentPackets}`;
+export function realtimeVoiceError(error) {
+  if(error?.name==='NotAllowedError')return 'Microphone access was denied. Allow microphone access for Exomina in your device settings, then choose Talk again.';
+  if(error?.name==='NotFoundError')return 'No microphone was found. Connect one, then choose Talk again.';
+  if(error?.name==='NotReadableError')return 'The microphone could not be opened. Check whether another app is using it, then choose Talk again.';
+  const message=String(error?.message||error).replace(/^Error invoking remote method '[^']+': Error: /,'');
+  if(/method not found|unknown (?:method|request)|unsupported.*realtime|does not provide realtime/i.test(message))return 'AI voice is unavailable in this ChatGPT runtime. Check your ChatGPT connection and Exomina updates, or explicitly choose this PC’s speech if offered.';
+  return message;
+}
 async function boundedStats(stats) {
   if(!stats)return null;let timer;
   try{return await Promise.race([Promise.resolve(stats).catch(()=>null),new Promise(resolve=>{timer=setTimeout(()=>resolve(null),750);})]);}
@@ -42,8 +50,8 @@ export class RealtimeVoiceSession {
     let stats;try{stats=preview?this.peer?.getStats?.():null;}catch{}
     this.sessionId='';this.mode='';this.caption='';this.pendingResponseAt=null;this.cleanup();this.state(error?'error':'idle',{error,hint:error?'':hint});
     if(live)void this.invoke('voice.realtime.trace',{result:error?'error':'stopped',events:timings}).catch(()=>{});
-    if(sessionId){
-      const stopping=this.invoke('voice.realtime.stop',{sessionId}).catch(()=>{});
+    if(sessionId||live){
+      const stopping=this.invoke('voice.realtime.stop',sessionId?{sessionId}:{}).catch(()=>{});
       if(preview){
         const bounded=await boundedStats(stats);
         if(bounded)events.push(audioTrace(audioStats(bounded)));
@@ -55,13 +63,14 @@ export class RealtimeVoiceSession {
   async start({previewVoice}={}) {
     const stopped=this.stop(),generation=this.generation;await stopped;if(generation!==this.generation)return;
     const preview=typeof previewVoice==='string';
-    this.mode=preview?'preview':'realtime';this.previewVoice=previewVoice;this.scope=this.current().conversationId||'';this.scopePage=this.current().page;this.caption='';this.canonicalCaption=false;this.muted=false;this.hasPreviewAudio=false;this.playbackStarted=false;this.lastAudioAt=0;this.lastMeasuredEnergy=0;this.previewEvents=[];this.previewTrace=[];this.state('starting',{error:'',hint:preview?'Connecting voice preview…':'Connecting ChatGPT realtime voice…'});
+    this.mode=preview?'preview':'realtime';this.previewVoice=previewVoice;this.scope=this.current().conversationId||'';this.scopePage=this.current().page;this.scopeProvider=this.current().provider;this.caption='';this.canonicalCaption=false;this.muted=false;this.hasPreviewAudio=false;this.playbackStarted=false;this.lastAudioAt=0;this.lastMeasuredEnergy=0;this.previewEvents=[];this.previewTrace=[];this.state('starting',{error:'',hint:preview?'Connecting voice preview…':'Connecting ChatGPT realtime voice…'});
     this.liveStartedAt=this.now();this.liveTrace=[];this.pendingResponseAt=null;this.liveTiming('session-start');
     const current=()=>generation===this.generation;
     if(preview)this.startupTimer=this.schedule(()=>{if(current())this.stop({error:'The voice preview could not finish connecting. Try again.'});},45000);
     let prepared;
     try {
       prepared=await this.invoke(preview?'voice.realtime.preview.prepare':'voice.realtime.prepare',preview?{}:{conversationId:this.scope||undefined});
+      if(prepared?.cancelled){if(current())await this.stop({hint:'AI voice was not started. Microphone stayed off.'});return;}
       if(!current()){await this.invoke('voice.realtime.stop',{sessionId:prepared.sessionId});return;}
       this.sessionId=prepared.sessionId;
       this.liveTiming('prepare-complete');
@@ -105,7 +114,7 @@ export class RealtimeVoiceSession {
         };
         channel.onopen=sample;if(channel.readyState==='open')sample();
       }else{this.scope=result.conversationId;this.onConversation?.(result.conversationId);}
-    } catch(error) {if(current())await this.stop({error:String(error?.message||error).replace(/^Error invoking remote method '[^']+': Error: /,'')});}
+    } catch(error) {if(current())await this.stop({error:realtimeVoiceError(error)});}
   }
   async receive(value) {
     if(value.type==='voice.reset'&&this.mode){await this.stop();return;}
@@ -185,5 +194,6 @@ export class RealtimeVoiceSession {
   }
   toggleMute() {if(!this.mode||!this.stream)return;this.muted=!this.muted;this.liveTiming(this.muted?'microphone-muted':'microphone-unmuted');this.stream.getAudioTracks().forEach(track=>{track.enabled=!this.muted;});this.state(this.phase,{hint:this.muted?'Microphone muted.':'Microphone on. You can interrupt.'});}
   interrupt() {if(!this.channel||this.channel.readyState!=='open')return;this.channel.send(JSON.stringify({type:'response.cancel'}));this.channel.send(JSON.stringify({type:'output_audio_buffer.clear'}));this.pendingResponseAt=null;this.liveTiming('interrupted');this.caption='';this.state('listening',{hint:'Reply interrupted. Microphone on.'});}
-  scopeChanged(conversationId,page,provider) {if(this.mode&&(this.mode==='preview'?(page!==this.scopePage||(conversationId||'')!==this.scope):(page!=='chat'||(conversationId||'')!==this.scope||provider!=='codex')))this.stop();}
+  // Text-model selection is independent of this fixed ChatGPT audio connection.
+  scopeChanged(conversationId,page,_provider) {if(this.mode&&(this.mode==='preview'?(page!==this.scopePage||(conversationId||'')!==this.scope):(page!=='chat'||(conversationId||'')!==this.scope)))this.stop();}
 }

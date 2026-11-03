@@ -14,7 +14,7 @@ export class WindowsVoice {
     this.active = null; this.cached = null; this.probe = null; this.serial = 0; this.closed = false;
   }
   launch(mode, request, onMessage, onExit) {
-    if (this.platform !== 'win32') throw failure('Voice is currently available in the Windows desktop app.');
+    if (this.platform !== 'win32') throw failure('Device speech requires Windows. ChatGPT AI voice is a separate option in Voice settings.');
     const executable = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     const child = this.spawnImpl(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Mode', mode], { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
     let buffer = '', finished = false;
@@ -39,7 +39,7 @@ export class WindowsVoice {
   }
   async status() {
     if (this.cached) return structuredClone(this.cached);
-    if (this.platform !== 'win32') return { available: false, recognizers: [], voices: [], error: 'Local dictation and local spoken replies require Windows. ChatGPT Realtime voice is available separately with microphone permission.' };
+    if (this.platform !== 'win32') return { available: false, recognizers: [], voices: [], error: 'Device speech requires Windows. ChatGPT AI voice is a separate option in Voice settings (Realtime voice).' };
     if (!this.probe) this.probe = new Promise((resolve, reject) => {
       let response, helperError;
       const child = this.launch('status', null, event => { if (event.type === 'status') response = event; if (event.type === 'error') helperError = failure(event.message); }, error => {
@@ -57,6 +57,7 @@ export class WindowsVoice {
     const serial = ++this.serial; this.stopActive();
     const status = await this.status();
     if (serial !== this.serial) throw failure('Voice was stopped.');
+    if(status.error&&!status.available)throw failure(status.error);
     const options = normalizeVoice(payload);
     if (mode === 'listen') {
       const language = options.language || (status.recognizers.find(item => item.language === status.language) || status.recognizers.find(item => item.language.startsWith('en-')) || status.recognizers[0])?.language;

@@ -64,3 +64,41 @@ test('worker environment strips inherited Node startup hooks and only fixed oper
 test('oversize selected files are rejected and directory inventory discloses their exclusion',async t=>{const f=await setup(t),target=await app(f),large=path.join(target,'large.bin'),handle=await open(large,'w');try{await handle.truncate(64*1024*1024+1);}finally{await handle.close();}await assert.rejects(f.tools.select('one',large),/64 MiB/);await f.tools.select('one',target);const result=unpack(await f.tools.call('analysis_run',{operation:'inventory'},'one'));assert.equal(result.files,1);assert.equal(result.omitted,1);assert.ok(result.limitations.some(value=>value.includes('over-limit')));});
 test('saved reports reject parent junction changes before reading report metadata',async t=>{const f=await setup(t),target=await app(f);await f.tools.select('one',target);const result=unpack(await f.tools.call('analysis_run',{operation:'inventory'},'one')),folder=path.join(f.tools.folder('one'),result.id);await rename(folder,folder+'-original');await symlink(folder+'-original',folder,'junction');await assert.rejects(f.tools.call('analysis_report',{id:result.id},'one'),/cannot follow links/);});
 test('assistant can select its own target after approval, and declines change nothing',async t=>{const f=await setup(t),target=await app(f);let stopped=0;f.tools.beforeSelect=async()=>{stopped++;};assert.match(f.tools.context('one'),/analysis_select/);await assert.rejects(f.tools.call('analysis_read',{path:'main.js'},'one'),/analysis_select/);f.tools.approve=async()=>false;await assert.rejects(f.tools.call('analysis_select',{path:target},'one'),/declined/);assert.equal((await f.tools.status('one')).target,null);assert.equal(stopped,0);f.tools.approve=async request=>{f.approvals.push(request);return true;};const result=unpack(await f.tools.call('analysis_select',{path:target},'one'));assert.equal(result.target.path,target);assert.equal(stopped,1);assert.equal(f.approvals.at(-1).action.tool,'analysis_select');await assert.rejects(f.tools.call('analysis_select',{path:'relative/x.exe'},'one'),/picker/);await f.tools.call('analysis_select',{path:target},'one');assert.equal(stopped,1);});
+
+test('clearing a selection waits for the actual inspection and project stop while preserving saved reports',async t=>{
+  const f=await setup(t),target=await app(f);await f.tools.select('one',target);
+  const saved=unpack(await f.tools.call('analysis_run',{operation:'inventory'},'one'));
+  let release,entered;const blocked=new Promise(resolve=>{release=resolve;}),reading=new Promise(resolve=>{entered=resolve;});
+  const bytes=f.tools.bytes.bind(f.tools);f.tools.bytes=async(...args)=>{entered();await blocked;return bytes(...args);};
+  const inspection=f.tools.call('analysis_run',{operation:'inventory'},'one');inspection.catch(()=>{});await reading;
+  let projectStopped=false;f.tools.beforeSelect=async()=>{assert.equal(f.tools.runs.has('one'),false);projectStopped=true;};
+  const clearing=f.tools.clear('one');assert.equal(f.tools.maintenance.has('one'),true);assert.equal(projectStopped,false);
+  release();await assert.rejects(inspection,/cancelled/);const cleared=await clearing;
+  assert.equal(cleared.target,null);assert.equal(projectStopped,true);assert.equal(cleared.reports.length,1);assert.equal(cleared.reports[0].id,saved.id);
+  assert.match(await readFile(path.join(target,'main.js'),'utf8'),/ipcMain/);
+});
+
+test('report deletion requires confirmation and removes only this chat’s derived reports',async t=>{
+  const f=await setup(t),target=await app(f);await f.tools.select('one',target);await f.tools.select('two',target);
+  const first=unpack(await f.tools.call('analysis_run',{operation:'inventory'},'one')),other=unpack(await f.tools.call('analysis_run',{operation:'inventory'},'two'));
+  await assert.rejects(f.tools.clearReports('one'),/Confirm deletion/);assert.equal((await f.tools.status('one')).reports.length,1);
+  f.tools.runs.set('one',{});await assert.rejects(f.tools.clearReports('one',{confirmed:true}),/Finish or cancel/);f.tools.runs.delete('one');
+  f.chats.get('one').working=true;const cleared=await f.tools.clearReports('one',{confirmed:true});
+  assert.equal(cleared.reports.length,0);assert.equal(cleared.target.path,target);await assert.rejects(access(path.join(f.tools.folder('one'),first.id)),/ENOENT/);
+  assert.equal((await f.tools.status('two')).reports[0].id,other.id);assert.match(await readFile(path.join(target,'main.js'),'utf8'),/ipcMain/);
+});
+
+test('report deletion refuses linked chat folders and linked descendants before removing data',async t=>{
+  const f=await setup(t),target=await app(f),outside=path.join(f.workspace,'untouched');await mkdir(outside);await writeFile(path.join(outside,'keep.txt'),'keep');
+  await mkdir(path.dirname(f.tools.folder('one')),{recursive:true});await symlink(outside,f.tools.folder('one'),'junction');
+  await assert.rejects(f.tools.clearReports('one',{confirmed:true}),/links|aliases/);assert.equal(await readFile(path.join(outside,'keep.txt'),'utf8'),'keep');
+  await rm(f.tools.folder('one'));await mkdir(f.tools.folder('one'));await writeFile(path.join(f.tools.folder('one'),'keep-report.json'),'keep report');await symlink(outside,path.join(f.tools.folder('one'),'linked'),'junction');
+  await assert.rejects(f.tools.clearReports('one',{confirmed:true}),/linked/);assert.equal(await readFile(path.join(f.tools.folder('one'),'keep-report.json'),'utf8'),'keep report');assert.equal(await readFile(path.join(outside,'keep.txt'),'utf8'),'keep');
+});
+
+test('report cleanup rolls back a failed metadata save and keeps the original reports readable',async t=>{
+  const f=await setup(t),reportId='12345678-1234-4123-8123-123456789abc',folder=path.join(f.tools.folder('one'),reportId);await mkdir(folder,{recursive:true});
+  await writeFile(path.join(folder,'report.json'),'intact report');f.tools.save=async()=>{throw Error('Metadata save failed');};
+  await assert.rejects(f.tools.clearReports('one',{confirmed:true}),/Metadata save failed/);
+  assert.equal(await readFile(path.join(folder,'report.json'),'utf8'),'intact report');assert.equal(f.chats.get('one').analysisCleanup,undefined);assert.equal(f.tools.cleanups.size,0);assert.equal(f.tools.maintenance.size,0);
+});

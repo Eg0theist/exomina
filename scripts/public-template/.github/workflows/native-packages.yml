@@ -44,6 +44,10 @@ jobs:
       - name: Confirm native runner architecture
         run: node -e "if(process.platform!=='${{ matrix.platform }}'||process.arch!=='${{ matrix.arch }}')throw Error('Wrong native runner target')"
       - run: npm ci --ignore-scripts
+      - name: Apply the pinned matcher API adapter and reject dependency advisories
+        run: |
+          node scripts/prepare-dependency-compat.mjs
+          npm audit --audit-level=low --registry=https://registry.npmjs.org
       - name: Install the pinned native Electron program
         run: node node_modules/electron/install.js
       - name: Check source and permissions

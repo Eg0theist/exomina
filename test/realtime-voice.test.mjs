@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {SubscriptionRealtimeVoice,audioPermission,REALTIME_PREVIEW_REQUEST,REALTIME_PREVIEW_INSTRUCTION} from '../desktop/realtime-voice.mjs';
-import {RealtimeVoiceSession,createSilentPreviewInput} from '../src/realtime-voice-session.js';
+import {RealtimeVoiceSession,createSilentPreviewInput,realtimeVoiceError} from '../src/realtime-voice-session.js';
 import {WindowsVoice} from '../desktop/voice.mjs';
 import {appendVoiceTranscript} from '../desktop/voice-transcript.mjs';
 import {RealtimeTranscriptCollector,sanitizeRealtimeTranscriptEvent} from '../desktop/realtime-transcript.mjs';
@@ -187,7 +187,7 @@ function client(overrides={}) {
   const previewTrack={enabled:true,stopped:false,stop(){this.stopped=true;}},previewStream={getTracks:()=>[previewTrack],getAudioTracks:()=>[previewTrack]};
   const channel={readyState:'open',send:value=>{const event=JSON.parse(value);sent.push(event);if(overrides.rejectResponse&&'response'in event)throw Error("Unknown parameter: 'response'.");},close(){this.closed=true;}};
   const peer={localDescription:null,connectionState:'new',tracks:[],addTrack(track){this.tracks.push(track);},addTransceiver(kind,options){this.transceiver={kind,...options};},createDataChannel:()=>channel,createOffer:async()=>({type:'offer',sdp:offer}),setLocalDescription:async function(description){this.localDescription=description;},setRemoteDescription:async function(description){this.remoteDescription=description;},close(){this.closed=true;}};
-  const audio={play:async()=>{},pause(){this.paused=true;},remove(){}};let config={conversationId:'chat',provider:'codex',page:'chat',settings:{realtimeVoice:'cove',...overrides.settings}};
+  const audio={play:async()=>{},pause(){this.paused=true;},remove(){}};let config={conversationId:'chat',provider:overrides.provider||'codex',page:'chat',settings:{realtimeVoice:'cove',...overrides.settings}};
   const session=new RealtimeVoiceSession({invoke:async(method,payload)=>{calls.push({method,payload});return overrides.invoke?overrides.invoke(method,payload):method.endsWith('.prepare')?{sessionId:'session',voices:['juniper','cove'],defaultVoice:'juniper'}:method.endsWith('.start')?{sessionId:'session',conversationId:'chat'}:{};},current:()=>config,update:state=>events.push(state),getMedia:overrides.getMedia||(async()=>stream),createPreviewInput:overrides.createPreviewInput||(async()=>({stream:previewStream,close(){previewTrack.stop();}})),createPeer:()=>peer,createAudio:()=>audio,onConversation:id=>{config={...config,conversationId:id};}});
   return {session,calls,events,track,stream,previewTrack,previewStream,peer,audio,channel,sent};
 }
@@ -300,6 +300,26 @@ test('preview reports received sound, silent packets and missing audio without c
     assert.equal(trace.voice,'cove');assert.ok(trace.events.some(event=>event.startsWith('rtp:in=')));
     assert.equal(f.calls.filter(call=>call.method==='voice.realtime.preview.sample').length,1);
   }
+});
+test('AI voice follows the chat while its independent text provider can change',async()=>{
+  const f=client({provider:'claude'});await f.session.start();
+  f.session.scopeChanged('chat','chat','claude');await turn();assert.equal(f.session.mode,'realtime');assert.equal(f.track.stopped,false);
+  f.session.scopeChanged('chat','chat','codex');await turn();assert.equal(f.session.mode,'realtime');assert.equal(f.track.stopped,false);
+  f.session.scopeChanged('other-chat','chat','codex');await turn();assert.equal(f.session.mode,'');assert.equal(f.track.stopped,true);
+});
+test('unavailable AI voice fails before capture with guidance and no Windows speech fallback',async()=>{
+  let capture=0;const f=client({getMedia:async()=>{capture++;throw Error('Unexpected capture');},invoke:async method=>{if(method==='voice.realtime.prepare')throw Error('Method not found');return {};}});
+  await f.session.start();assert.equal(capture,0);assert.equal(f.session.mode,'');assert.match(f.events.at(-1).error,/unavailable in this ChatGPT runtime/);
+  assert.equal(f.calls.some(call=>['voice.listen','voice.speak'].includes(call.method)),false);
+  for(const [name,expected] of [['NotAllowedError',/access was denied/],['NotFoundError',/No microphone/],['NotReadableError',/could not be opened/]])assert.match(realtimeVoiceError({name}),expected);
+});
+test('cancelled AI voice acknowledgment never opens a microphone or a realtime thread',async()=>{
+ let capture=0;const f=client({getMedia:async()=>{capture++;throw Error('No capture before acknowledgment');},invoke:async method=>method==='voice.realtime.prepare'?{cancelled:true}:{}});
+ await f.session.start();assert.equal(capture,0);assert.equal(f.session.mode,'');assert.equal(f.session.phase,'idle');assert.equal(f.calls.some(call=>call.method==='voice.realtime.start'),false);assert.match(f.events.at(-1).hint,/Microphone stayed off/);
+});
+test('Stop during AI voice acknowledgment notifies the host before a session id exists and ignores late agreement',async()=>{
+ let release,capture=0;const wait=new Promise(resolve=>release=resolve),f=client({getMedia:async()=>{capture++;throw Error('Unexpected microphone');},invoke:async method=>method==='voice.realtime.prepare'?wait:{}});
+ const starting=f.session.start();await turn();await f.session.stop();assert.ok(f.calls.some(call=>call.method==='voice.realtime.stop'&&!call.payload.sessionId));release({sessionId:'late',voices:['juniper'],defaultVoice:'juniper'});await starting;assert.equal(capture,0);assert.equal(f.session.mode,'');assert.ok(f.calls.some(call=>call.method==='voice.realtime.stop'&&call.payload.sessionId==='late'));
 });
 test('native flat transcript finals save user and model speech, pair canonical duplicates, and preserve repeated utterances',async()=>{
   const f=host(),prepared=await f.voice.prepare();await f.voice.start({sessionId:prepared.sessionId,sdp:offer,conversationId:'chat',workspace:'C:/synthetic'});

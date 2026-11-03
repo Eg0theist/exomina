@@ -3,33 +3,31 @@ import assert from 'node:assert/strict';
 import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {MessagingHub,chunk,CHANNEL_TOOLS} from '../desktop/messaging.mjs';
+import {MessagingHub,chunk,CHANNEL_TOOLS,discordAttachments} from '../desktop/messaging.mjs';
+
+test('Discord attachments preserve upload bytes without credentials and reject unsafe or oversized downloads',async()=>{
+  const item={url:'https://cdn.discordapp.com/attachments/1/2/screenshot.png',filename:'screenshot.png',content_type:'image/png',size:3};
+  let calls=0;
+  const fetchImpl=async(url,options)=>{calls++;assert.equal(options.headers,undefined);assert.equal(options.redirect,'error');return new Response(Buffer.from([1,2,3]));};
+  assert.deepEqual(await discordAttachments([item],{fetchImpl}),[{name:'screenshot.png',mimeType:'image/png',dataBase64:'AQID'}]);
+  await assert.rejects(discordAttachments([{...item,url:'https://localhost/attachments/x'}],{fetchImpl}),/address/);
+  await assert.rejects(discordAttachments([{...item,size:21*1024*1024}],{fetchImpl}),/20 MiB/);
+  assert.equal(calls,1);
+  await assert.rejects(discordAttachments([item],{fetchImpl:async()=>new Response(Buffer.from([1,2,3,4]))}),/declared size/);
+  await assert.rejects(discordAttachments([item],{fetchImpl:async()=>new Response(Buffer.from([1]))}),/incomplete/);
+});
 
 function setup(t){
   const sent=[],chats=[];let settings={};
   class FakeBridge{constructor(options){this.options=options;FakeBridge.last=this;}async start(){return {name:'@exo_bot'};}stop(){}async send(chatKey,text){sent.push({chatKey,text});}typing(){}}
   return mkdtemp(path.join(tmpdir(),'exomina-msg-')).then(dataDir=>{
     t.after(()=>rm(dataDir,{recursive:true,force:true}));
-    const hub=new MessagingHub({dataDir,encryption:{isEncryptionAvailable:()=>true,encryptString:value=>Buffer.from('enc:'+value),decryptString:buffer=>buffer.toString().slice(4)},getSettings:()=>settings,saveSettings:async patch=>{settings={...settings,...patch};},
+    const hub=new MessagingHub({dataDir,encryption:{encryptString:value=>Buffer.from('enc:'+value),decryptString:buffer=>buffer.toString().slice(4)},getSettings:()=>settings,saveSettings:async patch=>{settings={...settings,...patch};},
       chat:async request=>{chats.push(request);return {conversationId:request.conversationId||'chat-1',text:'Reply to '+request.text};},usageText:()=>'Claude · 5-hour session: 40% left',providerFor:name=>name==='claude'?{id:'claude',name:'Claude'}:null,Bridges:{telegram:FakeBridge,discord:FakeBridge}});
     return {hub,sent,chats,dataDir,bridge:()=>FakeBridge.last,settings:()=>settings};
   });
 }
 const from=(text,userId='42')=>({channel:'telegram',chatKey:'100',userId,name:'Alex',text});
-
-test('unavailable secret protection refuses new bot credentials while retaining existing bytes and settings',async t=>{
- const f=await setup(t);await f.hub.connect('telegram','123456789:AAexampleTokenValue_x');
- const before=await readFile(f.hub.file,'utf8'),settings=structuredClone(f.settings());let cryptoCalls=0;
- for(const blocked of [{isEncryptionAvailable:()=>false},{isEncryptionAvailable:()=>true,getSelectedStorageBackend:()=> 'basic_text',encryptString:()=>{cryptoCalls++;throw Error('must not encrypt');},decryptString:()=>{cryptoCalls++;throw Error('must not decrypt');}}]){
-  f.hub.encryption=blocked;
-  await assert.rejects(f.hub.connect('telegram','123456789:AAreplacementTokenValue_x'),error=>error.code==='SECRET_STORAGE_UNAVAILABLE');
-  await assert.rejects(f.hub.token('telegram'),error=>error.code==='SECRET_STORAGE_UNAVAILABLE');
-  assert.equal(await readFile(f.hub.file,'utf8'),before);assert.deepEqual(f.settings(),settings);
- }
- assert.equal(cryptoCalls,0);
- // Disconnect remains available without unlocking credentials.
- await f.hub.disconnect('telegram');assert.deepEqual(JSON.parse(await readFile(f.hub.file,'utf8')),{});
-});
 test('scheduled delivery only reaches a paired recipient and unpairing revokes it',async t=>{const f=await setup(t);await f.hub.connect('telegram','123456789:AAexampleTokenValue_x');const code=f.hub.newCode('telegram');await f.hub.receive(from('/pair '+code));assert.deepEqual(f.hub.recipients('telegram'),[{chatKey:'100',name:'Alex'}]);await f.hub.sendScheduled('telegram','100','Scheduled result');assert.equal(f.sent.at(-1).text,'Scheduled result');await assert.rejects(f.hub.sendScheduled('telegram','999','Never send this'),/no longer paired/);await f.hub.unpair('telegram','42');await assert.rejects(f.hub.sendScheduled('telegram','100','Never send this'),/no longer paired/);});
 
 test('only paired accounts reach Exomina; strangers get one notice', async t=>{
@@ -106,6 +104,11 @@ test('Discord bridge: identifies for direct messages and ignores servers and bot
   deliver({op:0,s:3,t:'MESSAGE_CREATE',d:{guild_id:'g',channel_id:'c2',author:{id:'42'},content:'in a server'}});
   deliver({op:0,s:4,t:'MESSAGE_CREATE',d:{channel_id:'c1',author:{id:'1',bot:true},content:'echo'}});
   assert.deepEqual(received,[{channel:'discord',chatKey:'c1',userId:'42',name:'alex',text:'hello'}]);
+  const attachments=[{url:'https://cdn.discordapp.com/attachments/1/2/a.png',size:3,filename:'a.png'}];
+  deliver({op:0,s:5,t:'MESSAGE_CREATE',d:{channel_id:'c1',author:{id:'42',username:'alex'},content:'',attachments}});
+  assert.deepEqual(received[1],{channel:'discord',chatKey:'c1',userId:'42',name:'alex',text:'',attachments});
+  deliver({op:0,s:6,t:'MESSAGE_CREATE',d:{channel_id:'c1',author:{id:'42',username:'alex'},content:'Two wolves',attachments}});
+  assert.equal(received[2].text,'Two wolves');assert.deepEqual(received[2].attachments,attachments);
   bridge.stop();
 });
 

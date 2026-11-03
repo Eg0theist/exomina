@@ -44,3 +44,16 @@
 .recommendations .recommendation-text.muted { opacity: 0.72; font-size: 12px; }
 .recommendations .tag { margin-left: 6px; vertical-align: 1px; }
 .recommendation-discover { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; }
+.remote-services{margin-top:24px;padding-top:20px;border-top:1px solid var(--border);min-width:0}
+.remote-services h3{margin:0;font-size:17px}
+.remote-service-preset{display:flex;align-items:center;gap:18px;justify-content:space-between;padding:16px;border:1px solid var(--border);border-radius:8px;margin:14px 0}
+.remote-service-preset p{margin:4px 0 0;font-size:13px;line-height:1.5;color:var(--muted)}
+.remote-service-preset button{flex-shrink:0}
+.remote-services details{margin-top:16px}.remote-services summary{cursor:pointer}
+.remote-service-form{display:grid;gap:12px;max-width:620px;padding-top:12px}
+.remote-service-form label{display:grid;gap:6px}.remote-service-form input{min-width:0;width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:7px;background:var(--raised);color:var(--text);font:inherit}
+.remote-services .connection-small{text-align:left;line-height:1.5}
+.remote-service-form button{justify-self:start}
+.remote-service-row .remote-service-state,.remote-service-row .remote-service-message{white-space:normal;overflow:visible;line-height:1.4}
+.remote-service-row p[title]{white-space:normal;overflow-wrap:anywhere;overflow:visible}
+@media(max-width:760px){.remote-service-preset{align-items:flex-start;flex-direction:column}.remote-service-row button{white-space:normal}}

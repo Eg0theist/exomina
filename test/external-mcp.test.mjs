@@ -94,3 +94,10 @@ test('a server disabled while its launch approval is open never starts', async (
   assert.match(result.status[0].error, /configuration changed/);
   assert.equal(external.clients.size, 0);
 });
+
+test('disconnecting one server does not cancel another server’s in-flight discovery',{timeout:5000},async()=>{
+ const other={id:'other',name:'Other synthetic service',transport:'http',url:'https://example.test/mcp',enabled:true};let entered,release,closed=false;
+ const ready=new Promise(resolve=>entered=resolve),client={dead:false,connect:async()=>{entered();await new Promise(resolve=>release=resolve);},listTools:async()=>[{name:'echo',inputSchema:{type:'object'}}],close:async()=>{closed=true;}};
+ const external=new ExternalMcpTools({getSettings:()=>({externalMcpServers:[config,other]}),approve:()=>true,createRemoteClient:()=>client});
+ try{const refreshing=external.refresh(undefined,{serverIds:['other']});await Promise.race([ready,refreshing.then(()=>{throw Error('The fixture never entered discovery.');})]);await external.disconnect('cua');release();await refreshing;assert.equal(closed,false);assert(external.status.some(server=>server.id==='other'&&server.connected));assert.equal(external.definitions.length,1);}finally{await external.close();}
+});

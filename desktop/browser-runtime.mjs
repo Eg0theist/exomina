@@ -26,15 +26,17 @@ export function browserDeadline(operation, { milliseconds, message, signal, onTi
 // mainFrame.executeJavaScript can read a parsed page while its resources still load;
 // webContents.executeJavaScript instead waits for the entire load to finish.
 export class BrowserRuntime {
-  constructor({ wc, readState, timeouts = {} }) {
+  constructor({ wc, readState, readDocument = null, timeouts = {} }) {
     this.wc = wc;
     this.readState = readState;
+    this.readDocument = readDocument;
     this.timeouts = { navigation: 12000, read: 4000, capture: 2500, action: 4000, ...timeouts };
     this.pageReady = false;
     this.revision = 0;
     this.navigation = 0;
     this.documentCommitted = true;
     this.captureTask = null;
+    this.renderingUsers = 0;
     this.listeners = {
       'did-start-navigation': (_event, _url, inPlace, main) => { if (main && !inPlace) { this.revision++; this.documentCommitted = false; this.pageReady = false; this.captureTask = null; } },
       'did-navigate': () => { this.documentCommitted = true; },
@@ -78,6 +80,39 @@ export class BrowserRuntime {
     });
   }
 
+  // A hidden page needs time to become renderable after unthrottling. Keep the
+  // lease through native frames queued by input, then allow idle tabs to sleep.
+  async renderFrames(signal) {
+    try {
+      await this.execute('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))', { signal, timeout: 1200 });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      // Script-blocked documents and pages without a compositor remain readable.
+    }
+  }
+
+  async withRendering(operation, { signal, warm = false } = {}) {
+    if (signal?.aborted) throw stopped();
+    if (this.closed) throw new Error('The browser page was closed.');
+    if (!this.renderingUsers) {
+      this.renderingThrottle = this.wc.getBackgroundThrottling();
+      this.wc.setBackgroundThrottling(false);
+    }
+    this.renderingUsers++;
+    try {
+      if (warm) await this.renderFrames(signal);
+      if (signal?.aborted) throw stopped();
+      return await operation();
+    } finally {
+      // Frame draining is cleanup. Cancellation here must not erase a receipt
+      // for native input that has already completed, or replace its own error.
+      try { if (!signal?.aborted && !this.closed && !this.wc.isDestroyed()) await this.renderFrames(signal).catch(() => {}); }
+      finally {
+        if (!--this.renderingUsers && !this.closed && !this.wc.isDestroyed()) this.wc.setBackgroundThrottling(this.renderingThrottle);
+      }
+    }
+  }
+
   capture(signal) {
     if (signal?.aborted) return Promise.reject(stopped());
     if (this.captureTask) return Promise.reject(new Error('A previous screenshot capture is still pending. Page text can still be read.'));
@@ -93,15 +128,35 @@ export class BrowserRuntime {
     return browserDeadline(() => task, { milliseconds: this.timeouts.capture, signal, message: 'Screenshot capture timed out.' });
   }
 
+  // Scripts cannot run in documents served with `CSP: sandbox` (raw GitHub files, for example).
+  // Plain-text documents are then read from their response body; they have no actionable elements.
+  async readPlain(options, signal) {
+    if (!this.readDocument) return null;
+    const controller = new AbortController();
+    try {
+      const doc = await browserDeadline(() => this.readDocument(controller.signal), { milliseconds: this.timeouts.read, signal, onTimeout: () => controller.abort(), onCancel: () => controller.abort(), message: 'Reading the document body timed out.' });
+      if (!doc || typeof doc.content !== 'string') return null;
+      const length = doc.content.length, offset = Math.min(options.offset, length), end = Math.min(offset + options.limit, length);
+      return { url: doc.url, title: this.readState().title, readyState: 'complete', text: doc.content.slice(offset, end), textScope: 'document response body',
+        mimeType: doc.mimeType, textOffset: offset, totalTextLength: length, nextOffset: end < length ? end : null, textTruncated: end < length, elements: [] };
+    } catch { return null; }
+    finally { controller.abort(); }
+  }
+
   async snapshot(signal, input = {}) {
     const options = snapshotOptions(input);
     const revision = this.revision;
     const id = randomUUID();
-    const [read, capture] = await Promise.allSettled([
+    let [read, capture] = await Promise.allSettled([
       this.execute(snapshotSource(id, options), { signal, timeout: this.timeouts.read }),
       options.include_screenshot ? this.capture(signal) : Promise.resolve(null)
     ]);
     if (signal?.aborted) throw stopped();
+    if (!(read.status === 'fulfilled' && read.value && typeof read.value === 'object')) {
+      const plain = await this.readPlain(options, signal);
+      if (signal?.aborted) throw stopped();
+      if (plain) read = { status: 'fulfilled', value: plain };
+    }
     const state = this.readState();
     const available = read.status === 'fulfilled' && read.value && typeof read.value === 'object';
     const page = available ? read.value : { url: state.url, title: state.title, text: '', elements: [] };
@@ -136,6 +191,7 @@ export class BrowserRuntime {
   }
 
   close() {
+    this.closed = true;
     this.captureTask = null;
     for (const [name, listener] of Object.entries(this.listeners)) this.wc.removeListener(name, listener);
   }
