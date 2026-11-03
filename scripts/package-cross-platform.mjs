@@ -21,6 +21,14 @@ try{
  const checked=await nativePackagePreflight(root,{platform:requested,arch});
  if(process.argv.includes('--preflight-only'))console.log(JSON.stringify(checked));
  else {
+  if(requested==='darwin'){
+   // Canonicalize the source plist with Apple's parser before signing nested
+   // vendor programs. AMFI's entitlement parser is stricter than XML readers.
+   const entitlement=path.join(root,'build','entitlements.mac.plist');
+   const run=promisify(execFile);
+   await run('/usr/bin/plutil',['-lint',entitlement],{cwd:root,timeout:30000});
+   await run('/usr/bin/plutil',['-convert','xml1',entitlement],{cwd:root,timeout:30000});
+  }
   const {prepareVersion}=await import('./prepare-version.mjs');await prepareVersion(root);
   const built=await promisify(execFile)(process.execPath,[path.join(root,'node_modules','vite','bin','vite.js'),'build'],{cwd:root,timeout:120000,maxBuffer:65536});process.stdout.write(built.stdout);
   const {build,Platform,Arch}=await import('electron-builder');
