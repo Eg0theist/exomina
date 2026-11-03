@@ -1,5 +1,6 @@
 param([string]$Output = (Join-Path $PSScriptRoot '..\.verification\installer-locks'))
 $ErrorActionPreference='Stop'
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security') -ErrorAction Stop
 $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'install-windows.ps1'))
 $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$null,[ref]$null)
 $names=@('Fail','Assert-PlainDirectory','Assert-ExpectedBuild','Get-ProgramFiles','Get-ProgramHash','Copy-Tree','Move-ProgramDirectory','Install-Program')

@@ -5,7 +5,7 @@ import {appPaths,installDistribution} from '../desktop/app-paths.mjs';
 import {privateGate} from '../desktop/private-gate.mjs';
 
 test('packaged paths belong to Exomina, independently of its build directory',()=>{
-  const result=appPaths({packaged:true,root:'C:\\build\\app',localAppData:'C:\\Users\\test\\AppData\\Local',documents:'D:\\Documents',env:{},pathApi:path.win32});
+  const result=appPaths({packaged:true,root:'C:\\build\\app',localAppData:'C:\\Users\\test\\AppData\\Local',documents:'D:\\Documents',env:{},platform:'win32',pathApi:path.win32});
   assert.deepEqual(result,{dataDir:'D:\\Documents\\Exomina\\Private\\data',accountsDir:'D:\\Documents\\Exomina\\Private\\accounts',workspace:'D:\\Documents\\Exomina\\Workspace'});
 });
 test('explicit profiles stay isolated and can exercise separated account storage',()=>{
@@ -21,17 +21,17 @@ test('parallel runtime requests wait for the same complete audit',async()=>{
   complete({encrypted:true,restrictedAccess:true});await Promise.all([a,b]);assert.equal(authorized,2);assert.equal(statuses.at(-1).ready,true);
 });
 test('an existing portable installation keeps its data until verified relocation',()=>{
-  const options={packaged:true,root:'C:\\build',localAppData:'C:\\Local',documents:'C:\\Docs',legacyDataDir:'C:\\Old\\data',legacyDataExists:true,env:{},pathApi:path.win32};
+  const options={packaged:true,root:'C:\\build',localAppData:'C:\\Local',documents:'C:\\Docs',legacyDataDir:'C:\\Old\\data',legacyDataExists:true,env:{},platform:'win32',pathApi:path.win32};
   assert.equal(appPaths(options).dataDir,'C:\\Old\\data');assert.equal(appPaths({...options,ownDataExists:true}).dataDir,'C:\\Docs\\Exomina\\Private\\data');
 });
 test('fresh beta installs keep private stores local while the project folder may be redirected',()=>{
-  const options={packaged:true,root:'C:\\Programs\\Exomina',localAppData:'C:\\Users\\test\\AppData\\Local',documents:'C:\\Users\\test\\OneDrive\\Documents',distribution:{profile:'beta',manualUpdates:true},env:{},pathApi:path.win32};
+  const options={packaged:true,root:'C:\\Programs\\Exomina',localAppData:'C:\\Users\\test\\AppData\\Local',documents:'C:\\Users\\test\\OneDrive\\Documents',distribution:{profile:'beta',manualUpdates:true},env:{},platform:'win32',pathApi:path.win32};
   assert.deepEqual(appPaths(options),{dataDir:'C:\\Users\\test\\AppData\\Local\\Exomina\\Private\\data',accountsDir:'C:\\Users\\test\\AppData\\Local\\Exomina\\Private\\accounts',workspace:'C:\\Users\\test\\OneDrive\\Documents\\Exomina\\Workspace'});
   assert.equal(appPaths({...options,distribution:undefined}).dataDir,'C:\\Users\\test\\OneDrive\\Documents\\Exomina\\Private\\data');
   assert.equal(appPaths({...options,distribution:{profile:'beta',manualUpdates:false}}).dataDir,'C:\\Users\\test\\OneDrive\\Documents\\Exomina\\Private\\data');
 });
 test('beta metadata preserves existing profiles and explicit location choices',()=>{
-  const options={packaged:true,root:'C:\\Programs\\Exomina',localAppData:'C:\\Local',documents:'C:\\Docs',distribution:{profile:'beta',manualUpdates:true},env:{},pathApi:path.win32};
+  const options={packaged:true,root:'C:\\Programs\\Exomina',localAppData:'C:\\Local',documents:'C:\\Docs',distribution:{profile:'beta',manualUpdates:true},env:{},platform:'win32',pathApi:path.win32};
   assert.equal(appPaths({...options,ownDataExists:true}).dataDir,'C:\\Docs\\Exomina\\Private\\data');
   assert.equal(appPaths({...options,ownDataExists:true,betaDataExists:true}).dataDir,'C:\\Local\\Exomina\\Private\\data');
   const portable={...options,legacyDataDir:'C:\\Portable\\data',legacyDataExists:true};
