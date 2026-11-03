@@ -7,7 +7,7 @@ export const ROUTING_MODES = ['auto', 'chat', 'tools'];
 /** Runtimes that can run lean: their built-in tools can be switched off per run. */
 export const LEAN_PROVIDERS = new Set(['codex', 'claude']);
 /** Host tools that stay available in chat mode: memory, history and conversation help. */
-export const LEAN_TOOLS = /^(memory_|archive_|notes_overview$|conversation_(search|read|find|set_title|zoom|date)$|followup_update$|handoff_save$|ask_user_question(?:_async)?$|request_user_input(?:_async)?$|question_update$|personalization_update$|soul_reflect$|image_(generate|read)$|model_(available|consult)$|app_update_status$|app_inspect$)/;
+export const LEAN_TOOLS = /^(memory_|archive_|notes_overview$|conversation_(search|read|find|set_title|zoom|date)$|followup_update$|handoff_save$|ask_user_question(?:_async)?$|request_user_input(?:_async)?$|question_update$|personalization_update$|soul_reflect$|image_(generate|read)$|model_(available|consult)$|app_update_status$|app_inspect$|outcome_verify$)/;
 
 export const REQUEST_TOOLS = {
   name: 'request_tools',

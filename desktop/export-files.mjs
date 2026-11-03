@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bundledPythonPath } from './runtime-targets.mjs';
+import {bundledPythonPath} from './runtime-targets.mjs';
 
 const runtimeRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..').replace(/([\\/])app\.asar([\\/]|$)/, '$1app.asar.unpacked$2');
 const readerPath = path.join(runtimeRoot, 'desktop', 'read-export.py');

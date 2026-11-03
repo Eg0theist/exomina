@@ -24,6 +24,9 @@
 .chat-find-actions .icon-button:disabled { opacity: .3; cursor: default; }
 .message-content mark.chat-match { background: color-mix(in oklab,color-mix(in oklab,var(--t-leaf) 85%,var(--n-0)) 31%,transparent); color: color-mix(in oklab,var(--t-leaf) 16%,var(--n-100)); border-radius: 2px; }
 .message-content mark.chat-match.current { background: color-mix(in oklab,var(--t-leaf) 78%,var(--n-100)); color: color-mix(in oklab,var(--t-leaf) 10%,var(--n-0)); outline: 2px solid color-mix(in oklab,var(--t-leaf) 35%,var(--n-100)); outline-offset: 1px; }
+.chat-search-excerpt { margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface-3); overflow-wrap: anywhere; }
+.chat-search-excerpt > small { color: var(--text-3); }
+.chat-search-excerpt > p { margin: 5px 0 0; white-space: pre-wrap; }
 @media (max-width: 640px) {
   .chat-find-bar { gap: 7px; margin: 8px 10px 0; padding: 6px 7px 6px 10px; }
   .chat-find-count { font-size: 11px; }

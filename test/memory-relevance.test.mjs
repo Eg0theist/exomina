@@ -25,6 +25,17 @@ test('same-chat provenance is only a tie break after matching terms',()=>{
  assert.equal(rankMemories(rows,'export restore',{conversationId:'p'})[0].id,'relevant');
  assert.equal(rankMemories(rows,'export',{conversationId:'p'})[0].id,'same');
 });
+
+test('whole words and exact versions outrank substring collisions without dropping partial matches',()=>{
+ const rows=[{id:'apple',seq:1,text:'Apple orchard.'},{id:'pineapple',seq:100,text:'Pineapple fruit.'},{id:'version',seq:2,text:'Build 0.6.8.'},{id:'longer',seq:200,text:'Build 0.6.80.'}];
+ assert.equal(rankMemories(rows,'Apple')[0].id,'apple');
+ assert.equal(rankMemories(rows,'0.6.8')[0].id,'version');
+ assert.deepEqual(rankMemories(rows,'0.6.8')[0].match.exactTerms,['0.6.8']);
+ assert.equal(rankMemories(rows,'0.6.8')[1].match.phrase,false);
+ assert.equal(rankMemories(rows,'pine')[0].id,'pineapple');
+ const coverage=[{id:'exact',seq:2,text:'export'},{id:'more',seq:1,text:'exported restored'}];
+ assert.equal(rankMemories(coverage,'export restore')[0].id,'more');
+});
 test('original notes, dates, provenance and summaries are unchanged; deletion and new-only filters apply',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'exomina-relevance-')),store=new MemoryStore(dir);
  try{

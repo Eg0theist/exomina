@@ -4,7 +4,6 @@ import {mkdtemp,mkdir,writeFile,readFile,readdir,lstat,rm,rmdir,symlink,link,ren
 import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
-import {finished} from 'node:stream/promises';
 import {createPackage} from '@electron/asar';
 import {stagingPaths,stageBuild,recoverStaging,inspectPackage,withStagingLock,assertPackageIdle} from '../scripts/stage-build.mjs';
 import {packageLocal} from '../scripts/package-local.mjs';
@@ -24,7 +23,7 @@ async function fixture(t){
     await writeFile(path.join(input,'package.json'),JSON.stringify({version:build.version}));
     // The pinned ASAR API resolves with its output stream before the final
     // buffered write finishes. Inventory only a completed fixture archive.
-    const archive=await createPackage(input,path.join(dir,'resources','app.asar'));await finished(archive);
+    await createPackage(input,path.join(dir,'resources','app.asar'));
     await writeFile(path.join(dir,'Exomina.exe'),'synthetic executable '+revision);await writeFile(path.join(dir,'exomina.build.json'),JSON.stringify(build));
     await writeFile(path.join(dir,'resources','app.asar.unpacked','desktop','app-version.json'),JSON.stringify({version:build.version}));
     return build;
@@ -110,7 +109,9 @@ test('the staging lock rejects concurrent writers and remains owned by its holde
 });
 test('package orchestration uses the fixed candidate and leaves current stage on build failure',async t=>{
   const f=await fixture(t);await f.make(f.p.stage,1);const calls=[];
-  await packageLocal({root:f.root,prepare:async(root,options)=>{assert.equal(root,f.root);assert.deepEqual(options,{advance:false});return '0.5.0-beta.2';},run:async(root,args)=>{calls.push(args);if(args[0].includes('electron-builder'))await f.make(f.p.candidate,2);},stage:options=>stageBuild({...options,idle})});
+  let recorded;
+  await packageLocal({root:f.root,prepare:async root=>{assert.equal(root,f.root);return '0.5.0-beta.2';},record:async(root,build)=>{assert.equal(root,f.root);recorded=build;},run:async(root,args)=>{calls.push(args);if(args[0].includes('electron-builder'))await f.make(f.p.candidate,2);},stage:options=>stageBuild({...options,idle})});
+  assert.equal(recorded.id,'synthetic-build-2');
   assert.ok(calls.find(args=>args[0].includes('electron-builder')).includes('--config.directories.output='+path.dirname(f.p.candidate)));assert.equal((await inspectPackage(f.p.stage)).build.id,'synthetic-build-2');
   await assert.rejects(packageLocal({root:f.root,prepare:async()=> '0.5.0-beta.3',run:async(root,args)=>{if(args[0].includes('electron-builder')){await f.make(f.p.candidate,3);throw Error('synthetic build failure');}}}),/synthetic build failure/);
   assert.equal((await inspectPackage(f.p.stage)).build.id,'synthetic-build-2');await assert.rejects(packageLocal({root:f.root,prepare:async()=>assert.fail('version must not advance')}),/previous build transaction/);await f.protectedUnchanged();
@@ -119,4 +120,17 @@ test('Windows process check detects a package script in use',{skip:process.platf
   const f=await fixture(t);await f.make(f.p.candidate,1);const script=path.join(f.p.candidate,'resources','hold.mjs');await writeFile(script,"console.log('ready');setInterval(()=>{},1000);");
   const child=spawn(process.execPath,[script],{windowsHide:true,stdio:['ignore','pipe','ignore']});t.after(()=>child.kill());await new Promise((resolve,reject)=>{child.once('error',reject);child.stdout.once('data',resolve);});
   await assert.rejects(assertPackageIdle(f.p.candidate),/in use|process state/);child.kill();await new Promise(resolve=>child.once('exit',resolve));
+});
+test('a stale staging lock from an exited build is reclaimed with its unpromoted candidate',async t=>{
+  const f=await fixture(t);
+  const exited=spawn(process.execPath,['-e','']);await new Promise(r=>exited.once('close',r));
+  await writeFile(f.p.lock,JSON.stringify({pid:exited.pid,startedAt:new Date().toISOString()}));
+  await mkdir(f.p.candidate,{recursive:true});await writeFile(path.join(f.p.candidate,'partial'),'x');
+  let ran=false;await withStagingLock(f.root,async()=>{ran=true;});
+  assert.equal(ran,true);assert.equal(await present(f.p.lock),false);assert.equal(await present(path.dirname(f.p.candidate)),false);
+  // An unreadable owner is never presumed gone.
+  await writeFile(f.p.lock,'');await assert.rejects(withStagingLock(f.root,async()=>assert.fail()),/Another build/);await unlink(f.p.lock);
+  // With a transaction journal, the candidate stays for recovery.
+  await writeFile(f.p.lock,JSON.stringify({pid:exited.pid}));await mkdir(f.p.candidate,{recursive:true});await writeFile(f.p.journal,'{}');
+  await withStagingLock(f.root,async()=>{});assert.equal(await present(f.p.candidate),true);
 });

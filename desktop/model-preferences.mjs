@@ -70,7 +70,10 @@ export function fallbackCompatible(selection, connection, models = [], requireme
 export function fallbackTargets({ preferences, connections, models = {}, usage = {}, current, requirements = {}, preferred }) {
   const p = normalizeModelPreferences(preferences);
   const ready = connections.filter(c => c.connected && c.available !== false && getProvider(c.id)?.mode !== 'api' && !p.hiddenProviders.includes(c.id));
-  const candidates = p.fallback.mode === 'ordered' ? p.fallback.targets : [
+  // An empty list is an unfinished configuration, not an off switch. Keep
+  // automatic handoff useful until a list is added; a populated list remains
+  // restrictive even when all its entries are currently unavailable.
+  const candidates = p.fallback.mode === 'ordered' && p.fallback.targets.length ? p.fallback.targets : [
     ...(preferred && ['subscription','local'].includes(getProvider(preferred.provider)?.mode) ? [{...preferred,model:modelId(preferred.model)}] : []),
     ...ready.filter(c => ['subscription', 'local'].includes(getProvider(c.id)?.mode)).map(c => ({ provider: c.id, model: preferredModel(p, c.id, models[c.id]) || c.model || 'auto', effort: '' })),
     ...(['subscription', 'local'].includes(getProvider(current.provider)?.mode) ? models[current.provider] || [] : []).map(m => ({ provider: current.provider, model: modelId(m.id), effort: '' })),

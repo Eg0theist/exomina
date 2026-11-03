@@ -5,7 +5,7 @@ export const DISCOVERY_TOOLS = new Set(['browser_open', 'browser_snapshot', 'bro
 // Only these public topic labels leave local saved memory. No original note,
 // personal name, employer, location or private project title is copied to research.
 const INTERESTS = [
-  ['Fiction writing and storytelling',/\b(novel|manuscript|fiction|storytelling|fantasy|roman|schreib\w*|erebus)\b/i],
+  ['Fiction writing and storytelling',/\b(novel|manuscript|fiction|storytelling|fantasy|roman|schreib\w*)\b/i],
   ['Theatre and acting',/\b(theat\w*|acting|actor|schauspiel\w*|ensemble)\b/i],
   ['Philosophy and literature',/\b(philosoph\w*|literatur\w*|stoic\w*|cioran|taleb|antifragil\w*)\b/i],
   ['Mathematics and learning',/\b(mathemati\w*|mathe|calculus|algebra|geometr\w*)\b/i],

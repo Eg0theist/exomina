@@ -6,7 +6,7 @@ import {promisify} from 'node:util';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
-import {mergePublicJson,publicPathAllowed,reconcilePublicBase} from '../scripts/public-export.mjs';
+import {mergePublicJson,publicPathAllowed,reconcilePublicBase,applyPublicTemplate,inspectPublicTree} from '../scripts/public-export.mjs';
 
 const run=promisify(execFile),root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 async function temporary(task){
@@ -23,6 +23,19 @@ test('public path policy allows source and docs while excluding credential and o
  for(const relative of ['desktop/main.mjs','scripts/package-cross-platform.mjs','scripts/release-windows.mjs','docs/release-notes.md','docs/de/index.html','build/entitlements.mac.plist','LICENSE'])assert.equal(publicPathAllowed(relative),true,relative);
  for(const relative of ['accounts/key.json','desktop/accounts/key.json','data/chats.json','node_modules/tool/index.js','scripts/.env','scripts/signing.pem','scripts/output/key.json','src/assets/theme-art/a.png','../desktop/main.mjs','release-linux/app','unknown-root.txt'])assert.equal(publicPathAllowed(relative),false,relative);
 });
+
+test('public exports refuse environment secrets, database sidecars and case variants in every source root',()=>{
+ for(const file of ['cloud/server.env','cloud/production.env.local','scripts/.ENV','docs/a.sqlite-wal','public/a.sqlite3-shm','test/fixtures/a.db-journal','src/assets/THEME-ART/a.png','src/assets/VOICE-PREVIEWS/a.wav','desktop/windows-interop/Vault.dll'])assert.equal(publicPathAllowed(file),false,file);
+ for(const file of ['cloud/server.env.example','cloud/.env.example','test/fixtures/source.mjs'])assert.equal(publicPathAllowed(file),true,file);
+});
+
+test('template copying uses the privacy policy, and final inspection catches private paths reintroduced later',async()=>temporary(async directory=>{
+ const root=await fixture(directory,'source',{'scripts/public-template/package-overlay.json':'{}','scripts/public-template/README.md':'Synthetic public text','scripts/public-template/.github/server.env':'SYNTHETIC_PRIVATE_CANARY','scripts/public-template/scripts/cache.db-wal':'SYNTHETIC_PRIVATE_CANARY'}),output=path.join(directory,'output');
+ await mkdir(output);await applyPublicTemplate(root,output);
+ await assert.rejects(access(path.join(output,'.github/server.env')),{code:'ENOENT'});await assert.rejects(access(path.join(output,'scripts/cache.db-wal')),{code:'ENOENT'});
+ assert.equal((await inspectPublicTree(output)).contentScanRequired,true);
+ await writeFile(path.join(output,'scripts','server.env'),'SYNTHETIC_PRIVATE_CANARY');await assert.rejects(inspectPublicTree(output),/Private or linked file/);
+}));
 
 test('public package reconciliation preserves newer dependencies and native scripts',()=>{
  const merged=mergePublicJson({version:'0.5.0',dependencies:{electron:'44.5.1'},scripts:{build:'vite build'},files:['app','old']},
@@ -68,7 +81,8 @@ test('public export includes build and test inputs, Apache notices and platform 
  assert.equal(pkg.dependencies['@xai-official/grok-win32-x64'],undefined);assert.equal(Object.keys(pkg.optionalDependencies).filter(name=>name.startsWith('@xai-official/grok-')).length,6);
  assert.deepEqual(lock.packages[''].optionalDependencies,pkg.optionalDependencies);assert.deepEqual(lock.packages[''].dependencies,pkg.dependencies);
  for(const name of Object.keys(pkg.optionalDependencies).filter(name=>name.startsWith('@xai-official/grok-')))assert.equal(lock.packages[`node_modules/${name}`].optional,true);
- for(const relative of ['scripts/check-changes.mjs','scripts/public-export.mjs','scripts/public-template/LICENSE','scripts/private-beta-installer-config.mjs','scripts/package-cross-platform.mjs','scripts/native-package-preflight.mjs','scripts/qa-native-install.mjs','build/entitlements.mac.plist','docs/index.html','.github/workflows/native-packages.yml'])await access(path.join(output,relative));
+ for(const relative of ['scripts/check-changes.mjs','scripts/public-export.mjs','scripts/public-template/LICENSE','scripts/private-beta-installer-config.mjs','scripts/package-cross-platform.mjs','scripts/native-package-preflight.mjs','scripts/qa-native-install.mjs','scripts/package-version.mjs','scripts/qa-tool-update-archive.ps1','scripts/qa-installer-locks.ps1','build/entitlements.mac.plist','docs/index.html','.github/workflows/native-packages.yml'])await access(path.join(output,relative));
+ assert.match(await readFile(path.join(output,'scripts/prepare-beta-release.mjs'),'utf8'),/replaceAll\('Alex','Alex'\)/);
  for(const command of Object.values(pkg.scripts))for(const match of command.matchAll(/node scripts\/([^\s]+)/g))await access(path.join(output,'scripts',match[1]));
  await assert.rejects(access(path.join(output,'PRIVATE-BETA.md')),{code:'ENOENT'});
  for(const relative of ['data','Private','accounts','node_modules','release','scripts/beta-docs'])await assert.rejects(access(path.join(output,relative)),{code:'ENOENT'});

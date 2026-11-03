@@ -50,12 +50,12 @@
 [data-hud="hidden"] .user-bubble .message-content>:first-child::before{content:"› ";font-style:normal;color:var(--t-accent)}
 
 /* The message box floats as one glass pill; only Send remains beside it. */
-[data-hud="hidden"] .composer-region{max-width:760px;padding:8px 32px 6vh}
-[data-hud="hidden"] .composer{display:flex;align-items:flex-end;gap:10px;border-radius:26px;padding:10px 10px 10px 22px;background:color-mix(in oklab,var(--bg) 70%,transparent);border:1px solid color-mix(in oklab,var(--t-accent) 22%,transparent);box-shadow:0 0 0 1px color-mix(in oklab,var(--t-accent) 6%,transparent),0 18px 60px color-mix(in oklab,var(--t-accent) 12%,transparent);transition:border-color .3s,box-shadow .3s}
+[data-hud="hidden"].app-frame .composer-region{max-width:760px;padding:8px 32px 6vh}
+[data-hud="hidden"].app-frame .composer{display:flex;flex-direction:row;align-items:flex-end;gap:10px;border-radius:26px;padding:10px 10px 10px 22px;background:color-mix(in oklab,var(--bg) 70%,transparent);border:1px solid color-mix(in oklab,var(--t-accent) 22%,transparent);box-shadow:0 0 0 1px color-mix(in oklab,var(--t-accent) 6%,transparent),0 18px 60px color-mix(in oklab,var(--t-accent) 12%,transparent);transition:border-color .3s,box-shadow .3s}
 [data-hud="hidden"] .composer:focus-within{border-color:color-mix(in oklab,var(--t-accent) 50%,transparent);box-shadow:0 0 0 1px color-mix(in oklab,var(--t-accent) 18%,transparent),0 18px 70px color-mix(in oklab,var(--t-accent) 22%,transparent)}
-[data-hud="hidden"] .composer textarea[aria-label="Message"]{flex:1 1 auto;width:auto;min-width:0;font-size:15px;min-height:24px;background:transparent}
-[data-hud="hidden"] .composer .composer-toolbar{flex:0 0 auto;width:auto;min-width:0;margin:0;padding:0;border:0}
-[data-hud="hidden"] .send-button{border-radius:50%}
+[data-hud="hidden"].app-frame .composer textarea[aria-label="Message"]{flex:1 1 auto;width:auto;min-width:0;font-size:15px;min-height:24px;padding:2px 0 4px;background:transparent}
+[data-hud="hidden"].app-frame .composer .composer-toolbar{flex:0 0 auto;width:auto;min-width:0;margin:0;padding:0;border:0}
+[data-hud="hidden"].app-frame .composer .send-button{border-radius:50%}
 
 /* Conversation interactions stay available while the work log is hidden. */
 [data-hud="hidden"] .hud-questions{display:grid;gap:12px;margin:18px 0}
@@ -91,6 +91,6 @@
 @keyframes hud-scan{from{background-position:-40% 0}to{background-position:140% 0}}
 @keyframes hud-glow{50%{border-color:color-mix(in oklab,var(--t-accent) 55%,transparent);box-shadow:0 0 0 1px color-mix(in oklab,var(--t-accent) 22%,transparent),0 18px 80px color-mix(in oklab,var(--t-accent) 28%,transparent)}}
 
-@media (max-width:760px){[data-hud="hidden"] .messages{padding:8vh 20px 24px}[data-hud="hidden"] .composer-region{padding:8px 14px 18px}[data-hud="hidden"] .message.assistant .message-content{font-size:16px}}
+@media (max-width:760px){[data-hud="hidden"] .messages{padding:8vh 20px 24px}[data-hud="hidden"].app-frame .composer-region{padding:8px 14px 18px}[data-hud="hidden"] .message.assistant .message-content{font-size:16px}}
 @media (prefers-reduced-motion:reduce){[data-hud="hidden"] .message,[data-hud="hidden"] .message::before,[data-hud="hidden"] .message::after,[data-hud="hidden"] .composer,.hud-pulse i{animation:none}.hud-pulse i{opacity:.6}}
 [data-motion="reduced"] [data-hud="hidden"] .message,[data-motion="reduced"] [data-hud="hidden"] .message::before,[data-motion="reduced"] [data-hud="hidden"] .message::after,[data-motion="reduced"] [data-hud="hidden"] .composer,[data-motion="reduced"] .hud-pulse i{animation:none}

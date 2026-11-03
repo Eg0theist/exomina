@@ -134,10 +134,9 @@ try {
     'desktop/browser.mjs', 'desktop/browser-runtime.mjs',
     'vendor/python/python.exe', 'vendor/python/python313.zip', 'desktop/note-store.mjs', 'desktop/vault-windows.ps1', 'desktop/conversation-tools.mjs',
     'vendor/cua-driver/cua-driver.exe', 'vendor/cua-driver/cua-driver-uia.exe', 'vendor/cua-driver/cua_driver_sdk.dll',
+    'node_modules/@anthropic-ai/claude-code-win32-x64/claude.exe',
     'node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe',
   ];
-  paths.push('desktop/local-models.mjs');
-  if (PROVIDER_CATALOG.some(provider => provider.id === 'claude' && !provider.optIn)) paths.push('node_modules/@anthropic-ai/claude-code-win32-x64/claude.exe');
   for (const relative of paths) await access(path.join(runtimeRoot, relative));
   report.checks.runtimeFiles = paths.length;
   for (const relative of ['desktop/provider-gemini.mjs', 'node_modules/@google/gemini-cli', 'node_modules/@google/gemini-cli-core']) {
@@ -147,14 +146,14 @@ try {
   const shippedPackage = JSON.parse(extractFile(path.join(path.dirname(executable), 'resources/app.asar'), 'package.json').toString('utf8'));
   assert.equal(shippedPackage.dependencies?.['@google/gemini-cli'], undefined);
   report.checks.legacyGeminiRemoved = { catalog: true, adapter: true, cliPackage: true, corePackage: true, dependency: true };
-  for (const relative of ['desktop/provider-copilot.mjs', 'desktop/provider-kimi-config.mjs', 'node_modules/@moonshot-ai/kimi-code', 'node_modules/@github/copilot-sdk']) {
+  for (const relative of ['desktop/provider-copilot.mjs', 'desktop/provider-kimi-config.mjs', 'desktop/local-models.mjs', 'node_modules/@moonshot-ai/kimi-code', 'node_modules/@github/copilot-sdk']) {
     await assert.rejects(access(path.join(runtimeRoot, relative)), { code: 'ENOENT' }, `${relative} must not ship.`);
   }
-  for (const id of ['codex', 'claude', 'antigravity', 'grok', 'muse-code', 'openai-api', 'anthropic-api', 'gemini', 'xai']) assert.ok(PROVIDER_CATALOG.some(item => item.id === id));
+  assert.deepEqual(PROVIDER_CATALOG.map(item => item.id), ['codex', 'claude', 'antigravity', 'grok', 'muse-code', 'openai-api', 'anthropic-api', 'gemini', 'xai', 'custom-api']);
   for(const relative of ['desktop/api-agent.mjs','desktop/api-connections.mjs','desktop/request-guard.mjs','desktop/github.mjs','desktop/extensions.mjs','desktop/chat-memory-recall.mjs'])await access(path.join(runtimeRoot,relative));
   assert.equal(shippedPackage.dependencies?.['@moonshot-ai/kimi-code'], undefined);
   assert.equal(shippedPackage.dependencies?.['@github/copilot-sdk'], undefined);
-  report.checks.removedConnections = { catalog: PROVIDER_CATALOG.map(item => item.id), kimiAndCopilotPackages: false, apiModulesRetained:true,localModules:true };
+  report.checks.removedConnections = { catalog: PROVIDER_CATALOG.map(item => item.id), kimiAndCopilotPackages: false, apiModulesRetained:true,localModules:false };
   // Keep this synthetic test process attached to its runner. The independent
   // Windows relay is tested separately and would detach the debugging pipes.
   const env = { ...process.env, EXOMINA_DATA_DIR: profile, EXOMINA_WINDOWS_INDEPENDENT: randomUUID() };
@@ -310,8 +309,7 @@ try {
   await page.evaluate(()=>document.querySelector('.browser-toggle').click());
   report.checks.packagedBrowserLoading={readableBeforeLoadEnds:true,stopButtonEndsLoad:true,isolatedBrowserRenderer:true,modelRequests:0};
   console.log('Packaged QA: embedded browser remains readable during loading and Stop ends the load.');
-  assert.equal(bootstrap.connections.filter(connection => !['antigravity','claude'].includes(connection.id)).every(connection => connection.installed), true);
-  assert.equal(bootstrap.connections.some(connection => connection.id === 'claude' && connection.installed), false);
+  assert.equal(bootstrap.connections.filter(connection => connection.id !== 'antigravity').every(connection => connection.installed), true);
   assert.equal(bootstrap.connections.some(connection => connection.id === 'gemini-cli'), false);
   assert.equal(bootstrap.connections.some(connection => connection.id === 'antigravity'), true);
   assert.equal(bootstrap.connections.every(connection => !connection.connected), true);

@@ -1,0 +1,79 @@
+/* 0.7: one navigation hierarchy and a task-focused writing surface. */
+.app-frame{--shell-rail:248px;--ui-control:34px}
+.app-frame .sidebar{width:var(--shell-rail);flex-basis:var(--shell-rail);padding:14px 12px 10px;gap:0}
+.app-frame .sidebar .quick-nav-trigger{margin-bottom:12px;min-height:34px;background:transparent;border-color:var(--line);border-radius:8px}
+.app-frame .sidebar .new-chat-button{min-height:38px;margin:0;padding:9px 12px;border-radius:8px;font-size:13px}
+.app-frame .new-chat-actions{gap:6px;margin-bottom:12px}
+.app-frame .sidebar .sidebar-navigation{display:flex;flex-direction:column;gap:2px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.app-frame .sidebar-navigation .nav-item{width:100%;min-height:35px;padding:8px 10px;gap:10px;font-size:13px;border-radius:7px;letter-spacing:0;font-weight:450}
+.app-frame .sidebar-navigation .nav-item.active{background:var(--accent-soft);box-shadow:inset 2px 0 var(--accent);color:var(--text)}
+.app-frame .sidebar-navigation .nav-item>span:not(.nav-dot){white-space:normal;overflow:visible}
+.app-frame .sidebar .chat-sidebar{margin-top:12px;min-height:90px}
+.app-frame .sidebar .chat-search-field{background:transparent;border-color:transparent;padding-left:8px}
+.app-frame .sidebar .chat-search-field:focus-within{background:var(--surface);border-color:var(--line-strong)}
+.app-frame .sidebar .chat-open{padding:8px;min-height:34px}
+.app-frame .sidebar .chat-group-heading{font-size:10px;letter-spacing:.8px;margin:12px 8px 5px;color:var(--text-3)}
+.app-frame .sidebar .sidebar-bottom{border-top:1px solid var(--line);padding-top:7px}
+.app-frame .sidebar-bottom>.nav-item{padding:7px 10px;min-height:33px;font-size:12.5px;border-radius:7px}
+.sidebar-notebook-host>.scratchpad-trigger{display:none}
+.sidebar-notebook-host>.composer-chip{display:none}
+.app-frame .topbar-provider{display:none}
+.app-frame .topbar-heading{font-weight:550;font-size:13px}
+.app-frame .chat-page.is-home{justify-content:center;overflow-y:auto;gap:0;padding-top:28px}
+.app-frame .chat-page.is-home .chat-scroll{flex:0 0 auto;overflow:visible}
+.app-frame .standard-home{max-width:760px;padding:0 28px 24px;gap:10px}
+.app-frame .standard-home .welcome-mark{margin-bottom:5px}
+.app-frame .standard-home .brand-mark{width:38px;height:38px}
+.home-eyebrow{font-size:10px;font-weight:600;letter-spacing:2.5px;color:var(--accent)}
+.app-frame .standard-home h1{font-size:clamp(26px,3vw,37px);font-weight:580;line-height:1.2;letter-spacing:-1.1px;margin:2px 0}
+.app-frame .standard-home>p{font-size:14px;line-height:1.6;color:var(--text-2);margin:0 0 10px;max-width:440px}
+.app-frame .standard-from{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;width:100%;margin:4px 0 0;max-width:600px}
+.app-frame .standard-from>button{display:flex;align-items:center;justify-content:flex-start;gap:10px;padding:13px 12px;min-height:50px;border:1px solid var(--line);border-radius:9px;background:color-mix(in oklab,var(--surface) 75%,transparent);font-size:12px;color:var(--text-2);white-space:nowrap}
+.app-frame .standard-from>button>svg:first-child{color:var(--accent)}
+.app-frame .standard-from>button>svg:last-child{margin-left:auto;opacity:.45}
+.app-frame .standard-from>button:hover{background:var(--surface-2);border-color:var(--line-strong);color:var(--text)}
+.app-frame .standard-explore{width:auto;max-width:600px;border:0;padding:0;text-align:center}
+.app-frame .standard-explore>summary{padding:8px;font-size:12px;color:var(--text-3)}
+.app-frame .standard-explore[open]{width:100%;padding:0 0 10px}
+.app-frame .standard-explore .ambition-ideas{text-align:left}
+.app-frame .composer-region{width:100%;max-width:880px;margin-inline:auto;padding:0 26px 16px}
+.app-frame .chat-page.is-home .composer-region{max-width:780px;flex:0 0 auto;padding-bottom:40px}
+.app-frame .composer{background:var(--surface);border:1px solid var(--line-strong);border-radius:16px;padding:7px 12px 9px;box-shadow:0 8px 30px -22px var(--t-shadow)}
+.app-frame .composer:focus-within{border-color:color-mix(in oklab,var(--accent) 50%,var(--line-strong));box-shadow:0 0 0 1px color-mix(in oklab,var(--accent) 10%,transparent)}
+.app-frame .composer textarea{padding:10px 4px 16px;font-size:15px;line-height:1.6;min-height:66px}
+.app-frame .composer .composer-toolbar{width:100%;display:flex;align-items:center;justify-content:flex-start;flex-wrap:nowrap;gap:5px;border-top:1px solid var(--line);padding-top:8px}
+.app-frame .composer-toolbar>.model-selector{margin-left:auto;max-width:min(320px,42%);min-width:0;flex:0 1 auto}
+.app-frame .composer-toolbar .composer-chip{border-radius:7px;min-height:32px;max-width:100%;height:auto;font-size:12px;padding:7px 8px;gap:6px;background:transparent}
+.app-frame .composer-toolbar .composer-chip:hover{background:var(--surface-2)}
+.app-frame .composer-toolbar .model-chip{overflow:hidden;min-width:0;width:100%}
+.app-frame .composer-toolbar .model-chip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-frame .composer-toolbar>.permission-picker>.composer-chip{width:auto;padding:7px 8px}
+.app-frame .composer-toolbar>.permission-picker>.composer-chip>span{display:inline;font-size:11.5px;max-width:120px}
+.app-frame .composer-toolbar>.permission-picker>.composer-chip>.chip-caret{display:none}
+.app-frame .composer-toolbar .attach-button .standard-chip-label{display:none}
+.app-frame .composer-toolbar .send-button{margin-left:2px;width:34px;height:34px;flex:0 0 34px;border-radius:10px}
+.composer-options{position:relative;flex:0 0 auto}
+.composer-options-panel{position:absolute;bottom:calc(100% + 12px);left:0;width:300px;max-height:min(440px,70vh);overflow:auto;z-index:55;background:var(--surface);border:1px solid var(--line-strong);border-radius:12px;box-shadow:var(--shadow-pop);padding:8px}
+.composer-options-panel[hidden]{display:none}
+.composer-options-panel>header{display:flex;align-items:center;justify-content:space-between;padding:3px 5px 9px;border-bottom:1px solid var(--line);font-size:12px}
+.composer-options-fields{display:flex;flex-direction:column;align-items:stretch;padding-top:6px;gap:3px}
+.app-frame .composer-options-fields .composer-chip{width:100%;justify-content:flex-start;padding:10px;max-width:100%;min-height:38px}
+.app-frame .composer-options-fields .composer-chip>span{display:inline;max-width:230px;overflow:hidden;text-overflow:ellipsis}
+.app-frame .composer-options-fields .project-selector select{width:100%;max-width:230px}
+.app-frame .composer-options-fields .advanced-only{width:100%}
+.app-frame .composer-options-fields .chat-style{width:100%}
+.app-frame .composer-options-fields .chat-style .popover{position:static;box-shadow:none;max-width:100%;width:100%}
+.app-frame .composer-caption{padding:8px 4px 0;gap:12px;align-items:flex-start;font-size:10.5px}
+.chat-data-disclosure{min-width:0;flex:1}
+.chat-data-disclosure>summary{display:flex;align-items:center;gap:5px;color:var(--text-3);cursor:pointer;list-style:none;width:fit-content}
+.chat-data-disclosure>summary::-webkit-details-marker{display:none}
+.chat-data-disclosure>p{margin:8px 0 0;font-size:11px;line-height:1.6;color:var(--text-2);max-width:660px}
+.app-frame .messages{padding-top:28px}
+.app-frame[data-interface-view="standard"] .composer-region{max-width:820px}
+.app-frame[data-interface-view="standard"] .composer-toolbar .model-chip .chip-sub{display:none}
+.sidebar-interface-view{display:none}
+@media(max-width:640px){.app-frame .window-header .topbar-actions>.interface-view.compact{display:none}.app-frame .sidebar-interface-view{display:block;padding:3px 10px 8px}.sidebar-interface-view .interface-view{display:flex;justify-content:space-between;width:100%}.sidebar-interface-view .interface-view>span{display:inline}.sidebar-interface-view .interface-view select{max-width:none;min-width:140px}}
+@media(max-width:1100px){.app-frame{--shell-rail:228px}.app-frame .composer-toolbar .chip-sub{display:none}}
+@media(max-width:860px){.app-frame .sidebar{width:248px;flex-basis:248px}.app-frame .composer-region{padding-inline:16px}.app-frame .standard-home{padding-inline:20px}}
+@media(max-width:600px){.app-frame .chat-page.is-home{justify-content:flex-start;padding-top:20px}.app-frame .standard-home{padding:0 18px 14px;gap:6px}.app-frame .standard-home .welcome-mark{display:none}.app-frame .standard-home h1{font-size:27px;letter-spacing:-.7px}.app-frame .standard-home>p{font-size:12px;margin-bottom:4px}.app-frame .standard-from{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.app-frame .standard-from>button{padding:10px;min-height:42px}.app-frame .composer-region{padding:0 10px 10px}.app-frame .chat-page.is-home .composer-region{padding-bottom:20px}.app-frame .composer{padding-inline:8px;border-radius:13px}.app-frame .composer textarea{font-size:15px;min-height:62px}.app-frame .composer-toolbar .composer-chip{padding:6px;min-height:34px;font-size:11px}.app-frame .composer-toolbar>.permission-picker>.composer-chip{padding:6px}.app-frame .composer-toolbar>.permission-picker>.composer-chip>span{font-size:10.5px;max-width:80px}.app-frame .composer-toolbar .model-chip .provider-mark{display:none}.app-frame .composer-toolbar>.model-selector{max-width:37%;min-width:60px}.app-frame .composer-options-trigger>span{display:none}.app-frame .composer-caption>span{display:none}.composer-options-panel{position:fixed;left:12px;right:12px;bottom:70px;width:auto;max-height:60vh}.app-frame .composer-toolbar .model-popover{position:fixed;inset:auto 12px 12px;width:auto;max-height:calc(100dvh - 70px);overflow:auto}.app-frame .sidebar .sidebar-bottom{padding-bottom:3px}}
+@media(max-height:700px){.app-frame .chat-page.is-home{justify-content:flex-start;padding-top:14px}.app-frame .standard-home .welcome-mark{display:none}.app-frame .standard-home{padding-bottom:10px}.app-frame .chat-page.is-home .composer-region{padding-bottom:16px}.app-frame .sidebar .new-chat-actions{margin-bottom:6px}.app-frame .sidebar .sidebar-navigation{padding-bottom:5px}.app-frame .sidebar .chat-sidebar{margin-top:6px}}

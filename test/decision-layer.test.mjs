@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, rm, readFile} from 'node:fs/promises';
+import {mkdtemp, rm, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {chooseTier, parseWindowsProbe, probeHardware} from '../desktop/decision-hardware.mjs';
@@ -162,6 +162,30 @@ test('recorded decisions persist and conflicting gate definitions are refused', 
   } finally { await rm(dir, {recursive: true, force: true}); }
 });
 
+test('UTF-8 decision history with a BOM retains its recorded examples', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'exomina-decision-bom-'));
+  t.after(() => rm(dir, {recursive:true, force:true}));
+  const file = path.join(dir, 'decisions.json');
+  const original = '\uFEFF' + JSON.stringify({version:2,gates:{risk:{kind:'noul',labels:['false','true'],examples:[{text:'synthetic',label:1,conversationId:'source-chat'}]}}});
+  await writeFile(file, original, 'utf8');
+  const layer = new DecisionLayer({...quiet,file,probe:async()=>machine(),findServer:async()=>null});
+  assert.equal((await layer.status()).gates[0].examples, 1);
+  assert.equal(layer.gates.get('risk').examples[0].conversationId, 'source-chat');
+  assert.equal(await readFile(file, 'utf8'), original, 'reading status never rewrites the history');
+});
+
+test('unreadable decision history is preserved and can be refreshed after repair', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'exomina-decision-repair-'));
+  t.after(() => rm(dir, {recursive:true, force:true}));
+  const file = path.join(dir, 'decisions.json');
+  await writeFile(file, '{incomplete', 'utf8');
+  const layer = new DecisionLayer({...quiet,file,probe:async()=>machine(),findServer:async()=>null});
+  await assert.rejects(layer.status(), /original file was kept/);
+  assert.equal(await readFile(file, 'utf8'), '{incomplete');
+  await writeFile(file, JSON.stringify({version:2,gates:{}}), 'utf8');
+  assert.deepEqual((await layer.status()).gates, []);
+});
+
 const jsonResponse = body => ({ok: true, status: 200, json: async () => body});
 
 test('local model answers are read from option-letter probabilities', async () => {
@@ -216,7 +240,7 @@ test('a local server started later is found after the re-check interval', async 
 
 test('a local model that answers slowly is demoted to background work', async () => {
   let ticks = 0;
-  const layer = new DecisionLayer({...quiet,
+  const layer = new DecisionLayer({...quiet, 
     now: () => (ticks += 2000),
     probe: async () => machine({ramGb: 64, threads: 32, gpus: [{name: 'RTX', vramGb: 24, integrated: false}]}),
     findServer: async () => ({name: 'Ollama', url: 'x', model: 'm'}),

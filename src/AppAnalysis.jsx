@@ -138,6 +138,17 @@ export default function AppAnalysis({ conversationId, conversationTitle, onOpenC
     });
   }
 
+  function clearReports() {
+    const currentScope = scope.current;
+    action('clear-reports', async () => {
+      const result = await api.invoke('analysis.clearReports', { conversationId });
+      if (currentScope !== scope.current || result?.cancelled || result?.canceled) return;
+      ++reportRequest.current;
+      setReport(null);
+      setNotice(result?.deletion?.deleted === false ? 'No saved inspection reports remained to delete.' : 'Saved inspection reports deleted.');
+    });
+  }
+
   async function cancel() {
     const currentScope = scope.current;
     setCanceling(true);
@@ -225,14 +236,14 @@ export default function AppAnalysis({ conversationId, conversationTitle, onOpenC
           {!status.target && <span>Select the files you want this chat to inspect.</span>}
         </div>
         {loading && <LoaderCircle className="app-analysis-spinner" size={17} aria-label="Loading app analysis" />}
-        {status.target && <button className="text-button" disabled={disabled} onClick={clearTarget}>Clear selection</button>}
+        {status.target && <button className="text-button" disabled={!!busy || loading} onClick={clearTarget}>{busy === 'clear' ? 'Clearing…' : 'Clear selection'}</button>}
       </div>
       <div className="app-analysis-actions">
         <button className="secondary-button" disabled={disabled} onClick={() => choose('file')}><FileCode2 size={15} aria-hidden="true" />{busy === 'choose-file' ? 'Choosing file…' : 'Choose file'}</button>
         <button className="secondary-button" disabled={disabled} onClick={() => choose('folder')}><FolderOpen size={15} aria-hidden="true" />{busy === 'choose-folder' ? 'Choosing folder…' : 'Choose folder'}</button>
         {status.target && onOpenChat && <button className="text-button" onClick={() => onOpenChat()}><MessageSquare size={15} aria-hidden="true" />Ask in this chat</button>}
       </div>
-      <p className="app-analysis-shared-selection">Both modes use this selection and the native analysis setup below. Switching modes keeps your reports and saved Ghidra project. Changing or clearing the selection stops a running Ghidra project.</p>
+      <p className="app-analysis-shared-selection">Both modes use this selection and the native analysis setup below. Clearing the selection cancels its inspection and saves and stops its Ghidra project. Saved reports and projects are kept until you delete them below.</p>
 
       {running && <div className="app-analysis-progress" role="status" aria-live="polite">
         <LoaderCircle className="app-analysis-spinner" size={18} aria-hidden="true" />
@@ -270,12 +281,15 @@ export default function AppAnalysis({ conversationId, conversationTitle, onOpenC
 
       {status.reports.length > 0 && <div className="app-analysis-reports">
         <h3>Recent reports</h3>
+        <button type="button" className="text-button" disabled={disabled} onClick={clearReports}>{busy === 'clear-reports' ? 'Deleting reports…' : 'Delete saved reports…'}</button>
         <ul>{status.reports.map(item => <li key={item.id}>
           <div className="app-analysis-report-summary"><strong>{operationTitle(item.operation)}</strong><span>{[dateLabel(item.createdAt), sizeLabel(item.bytes), item.status].filter(Boolean).join(' · ')}</span></div>
           <button className="text-button" disabled={!!report?.loading} onClick={() => readReport(item.id)}>View report</button>
           <button className="text-button" disabled={!!busy} onClick={() => exportReport(item.id)}><Download size={14} aria-hidden="true" />Save JSON</button>
         </li>)}</ul>
       </div>}
+
+      {status.cleanup?.paths?.length > 0 && <div role="status"><p>Some detached report files still need cleanup. They cannot be opened as current reports.</p><SelectableText>{status.cleanup.paths.join('\n')}</SelectableText><button type="button" className="text-button" disabled={disabled} onClick={clearReports}>Retry report cleanup…</button></div>}
 
       {report && <div className="app-analysis-report-viewer" aria-busy={report.loading}>
         <div className="app-analysis-report-heading"><h3>{operationTitle(selectedReport?.operation)} report</h3><button className="text-button" aria-label="Close report" onClick={() => { ++reportRequest.current; setReport(null); }}><X size={17} /></button></div>

@@ -109,43 +109,52 @@ function ProviderSetup({ provider, connection, onClose, onSaved, onModalChange, 
   </section></div>, document.body);
 }
 
-export default function ProviderConnections({ catalog, connections, busyAction, act, refresh, connect, signOut, onModalChange = () => {}, onNotice, openExternal, openWebsite = openExternal, isWeb = false, extra, onBack }) {
+export default function ProviderConnections({ catalog, connections, busyAction, act, refresh, connect, signOut, onModalChange = () => {}, onNotice, openExternal, openWebsite = openExternal, isWeb = false, extra, onBack, backLabel = 'Back to Settings', target }) {
   const [confirmOut, setConfirmOut] = useState('');
   const [setup, setSetup] = useState(null);
   const [filter, setFilter] = useState('');
   const [chosenType, setConnectionType] = useState('subscription');
-  // Standard shows the account sign-ins people already have; API keys and GitHub live in Advanced.
-  const standard = useStandardView();
-  const connectionType = standard ? 'subscription' : chosenType;
+  const targetInfo = catalog.find(item => item.id === target?.id);
+  const targetType = targetInfo?.configurableEndpoint ? 'custom' : targetInfo?.mode || 'subscription';
+  const standardPreferred = useStandardView();
+  const standard = standardPreferred && !(targetInfo && targetType !== 'subscription');
+  const connectionType = chosenType;
   const extraTabs = !extra ? [] : Array.isArray(extra) ? extra.filter(Boolean) : [{ id: 'github', label: 'GitHub', content: extra }];
   const groups = [
     { mode: 'subscription', title: 'Subscriptions', description: 'Use the official sign-in flow for a supported subscription.' },
     { mode: 'api', title: 'API keys', description: 'Pay per use with your own key. Exomina’s safety limits apply, and there is never an automatic fallback to an API.' },
     { mode: 'custom', title: 'Your own AI', description: 'An optional connection for a local model server or a hosted service. Configure it once, then choose it in any chat.' },
   ];
+  useEffect(() => { if (targetInfo) { setFilter(''); setConnectionType(targetType); } }, [target?.id, target?.request, targetType]);
+  useEffect(() => {
+    if (!targetInfo || connectionType !== targetType) return;
+    const timer = setTimeout(() => { const card = [...document.querySelectorAll('[data-provider]')].find(item => item.dataset.provider === target.id); card?.scrollIntoView({block:'center'}); card?.focus({preventScroll:true}); }, 0);
+    return () => clearTimeout(timer);
+  }, [target?.id, target?.request, connectionType, targetType]);
   async function saved(message) { await refresh(); onNotice(message); }
   const filtered = catalog.filter(item => `${item.name} ${item.engine || ''} ${(item.aliases || []).join(' ')}`.toLowerCase().includes(filter.trim().toLowerCase()));
   return <div className="content-page connections-page">
-    {onBack && <button className="text-button" onClick={onBack}><ArrowLeft size={14} />Back to Settings</button>}
-    <div className="page-heading"><div><div className="eyebrow">ACCOUNTS & MODELS</div><h1>Connect your accounts</h1><p>{standard ? 'Sign in to the AI accounts you already have. You can sign out again at any time.' : 'Use your subscriptions, API keys or your own AI server. Each connection can be removed again at any time.'}</p></div><button className="secondary-button" onClick={() => act('refresh-connections', refresh)}>{busyAction === 'refresh-connections' ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}Refresh status</button></div>
-    {!isWeb&&<ModelAvailability catalog={catalog}/>}
+    {onBack && <button className="text-button" onClick={onBack}><ArrowLeft size={14} />{backLabel}</button>}
+    <div className="page-heading"><div><h1>AI connections</h1><p>{standard ? 'Connect the AI accounts you already use.' : 'Subscriptions, API keys and your own AI server.'}</p></div><button className="secondary-button" onClick={() => act('refresh-connections', refresh)}>{busyAction === 'refresh-connections' ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}Refresh</button></div>
     {catalog.length > 10 && <div className="provider-catalog-search search-field"><Globe2 size={15} /><input aria-label="Filter providers" placeholder="Find a provider…" value={filter} onChange={event => setFilter(event.target.value)} />{filter && <button className="icon-button" aria-label="Clear provider filter" onClick={() => setFilter('')}><X size={13} /></button>}</div>}
-    {standard ? <p className="connection-standard-note">API keys, your own AI and GitHub are in Advanced view.</p> : <div className="connection-types" role="tablist" aria-label="Connection types">{[...groups.map(group=>({id:group.mode,label:group.title})),...extraTabs].map(type=><button type="button" role="tab" key={type.id} id={`connection-tab-${type.id}`} aria-selected={connectionType===type.id} aria-controls={`connection-panel-${type.id}`} className={connectionType===type.id?'selected':''} onClick={()=>setConnectionType(type.id)}>{type.label}</button>)}</div>}
-    {groups.map(group => { const members = filtered.filter(item => (item.configurableEndpoint ? 'custom' : item.mode || 'subscription') === group.mode); if (!members.length) return null; return <section className="provider-group" role="tabpanel" id={`connection-panel-${group.mode}`} aria-labelledby={`connection-tab-${group.mode}`} hidden={connectionType!==group.mode} data-mode={group.mode} key={group.mode}><div className="provider-group-heading"><h2>{group.title}</h2><p>{group.description}</p></div><div className="connection-grid">{members.map(item => {
+    <div className="connection-types" role="tablist" aria-label="Connection types" onKeyDown={event=>{const buttons=[...event.currentTarget.querySelectorAll('[role=tab]')],index=buttons.indexOf(event.target);if(index<0||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;buttons[next].click();buttons[next].focus();}}>{[...groups.map(group=>({id:group.mode,label:group.title})),...extraTabs].map(type=><button type="button" role="tab" key={type.id} id={`connection-tab-${type.id}`} tabIndex={connectionType===type.id?0:-1} aria-selected={connectionType===type.id} aria-controls={`connection-panel-${type.id}`} className={connectionType===type.id?'selected':''} onClick={()=>setConnectionType(type.id)}>{type.label}</button>)}</div>
+    {groups.map(group => { const members = filtered.filter(item => (item.configurableEndpoint ? 'custom' : item.mode || 'subscription') === group.mode); if (!members.length) return null; return <section className="provider-group" role="tabpanel" id={`connection-panel-${group.mode}`} aria-labelledby={`connection-tab-${group.mode}`} hidden={connectionType!==group.mode} data-mode={group.mode} key={group.mode}><p className="provider-group-description">{group.description}</p><div className="connection-grid">{members.map(item => {
       const status = connections.find(entry => entry.id === item.id);
       const native = group.mode === 'subscription';
       const checking = status?.checking === true;
-      const off = item.optIn && status?.enabled !== true;
-      const blocked = !checking && !off && unavailable(item, status, isWeb);
+      const blocked = !checking && unavailable(item, status, isWeb);
       const ready = !blocked && providerReady(status);
-      return <article className={`connection-card catalog-connection-card ${ready ? 'connected' : ''}`} key={item.id} data-provider={item.id}>
-        <div className="connection-card-top"><ProviderMark provider={item.id} info={item} /><span className={`tag ${ready ? 'mint' : ''}`}>{checking ? 'Checking…' : blocked ? 'Unavailable here' : ready ? <><span className="status-dot" />{native ? 'Connected' : 'Configured'}</> : item.optional ? 'Optional' : native ? status?.installed ? 'Ready to sign in' : 'Setup needed' : group.mode === 'api' ? 'API key required' : 'Not configured'}</span></div>
-        <h2>{item.name}</h2><p className="connection-subtitle">{native ? (standard ? 'Your account' : `Uses ${item.engine}`) : providerModeLabel(item.mode)}</p>
-        <p className="connection-description">{standard && native ? `Use your ${item.name} plan here. Sign in once and Exomina remembers it on this PC.` : item.description || (native ? `Connect through ${item.engine}.` : group.mode === 'local' ? 'Use models served locally on your computer.' : 'Connect with your own API key and choose a model.')}</p>
-        {(native || ready || blocked) && <div className="connection-detail">{native && !standard ? <Terminal size={14} /> : <KeyRound size={14} />}<span>{(blocked && (status?.unavailableReason || 'This provider needs a connected host that supports it.')) || (standard && native && !ready ? (status?.installed ? 'Not signed in yet.' : 'Needs a one-time setup. Click below and follow the steps.') : '') || status?.detail || (ready && status.model ? `Model: ${status.model}` : native ? 'Connection has not been checked.' : 'No connection configured.')}</span></div>}
+      return <article className={`connection-card catalog-connection-card ${ready ? 'connected' : ''}`} key={item.id} data-provider={item.id} tabIndex={-1}>
+        <div className="connection-identity"><ProviderMark provider={item.id} info={item} /><div><h2>{item.name}</h2><p className="connection-subtitle">{native ? item.engine : providerModeLabel(item.mode)}</p></div></div>
+        <span className={`tag connection-state ${ready ? 'mint' : ''}`}>{checking ? 'Checking…' : blocked ? 'Unavailable here' : ready ? <><span className="status-dot" />{native ? 'Connected' : 'Configured'}</> : native ? status?.installed ? 'Sign in needed' : 'Setup needed' : group.mode === 'api' ? 'API key required' : 'Not configured'}</span>
+        {blocked&&<p className="connection-blocked" role="status">{status?.unavailableReason || 'This provider needs a connected host that supports it.'}</p>}
+        <div className="connection-primary-actions"><button aria-label={`${ready?'Manage':'Connect'} ${item.name}`} className={`${ready ? 'secondary-button' : 'primary-button'}`} disabled={checking || blocked || busyAction === `connect-${item.id}`} onClick={() => native ? connect(item.id) : setSetup(item)}>{checking || busyAction === `connect-${item.id}` ? <LoaderCircle size={15} className="spin" /> : ready ? <KeyRound size={15} /> : <ArrowRight size={15} />}{checking ? 'Checking…' : blocked ? 'Unavailable' : native ? ready ? 'Manage sign-in' : status?.installed ? 'Sign in' : 'Set up' : ready ? 'Manage' : item.configurableEndpoint ? 'Set up' : group.mode === 'local' ? 'Connect' : 'Add key'}</button></div>
+        <details className="connection-more"><summary>Details, billing &amp; privacy</summary><div className="connection-more-body">
+        {item.optIn && status?.enabled !== false && <button className="text-button" disabled={!!busyAction} onClick={()=>act(`disable-${item.id}`,async()=>{await api.invoke('provider.optIn',{provider:item.id,enabled:false});await refresh();onNotice(`${item.name} is turned off.`);})}>Turn off {item.name}</button>}
+        <p className="connection-description">{item.description || (native ? `Connect through ${item.engine}.` : group.mode === 'local' ? 'Use models served locally on your computer.' : 'Connect with your own API key and choose a model.')}</p>
+        {(native || ready || blocked) && <div className="connection-detail">{native ? <Terminal size={14} /> : <KeyRound size={14} />}<span>{status?.detail || (ready && status.model ? `Model: ${status.model}` : native ? 'Connection has not been checked.' : 'No connection configured.')}</span></div>}
         {['codex','grok'].includes(item.id) && !blocked && status?.imageGeneration && <div className="connection-detail image-capability-note"><ImageIcon size={14} /><span><strong>{item.id==='grok'?'Imagine images & videos':'Image generation'}</strong><br />{status.imageGeneration.detail || 'Image availability has not been checked.'}</span></div>}
         {item.mediaWebsite && <details className="connection-billing connection-capabilities"><summary>Images &amp; videos</summary><p className="connection-small">Create images and videos on Gemini’s website with your Google plan.</p><button className="text-button" onClick={() => openWebsite(item.mediaWebsite.url)}>{item.mediaWebsite.label}<ExternalLink size={11} /></button></details>}
-        <button className={`${ready ? 'secondary-button' : 'primary-button'} full-width`} disabled={checking || blocked || busyAction === `connect-${item.id}`} onClick={() => native ? connect(item.id) : setSetup(item)}>{checking || busyAction === `connect-${item.id}` ? <LoaderCircle size={15} className="spin" /> : ready ? <KeyRound size={15} /> : <ArrowRight size={15} />}{checking ? 'Checking…' : blocked ? 'Unavailable on this host' : native ? ready ? 'Manage sign-in' : status?.installed ? `Sign in to ${item.name}` : `Set up ${standard ? item.name : item.engine}` : ready ? 'Manage connection' : item.configurableEndpoint ? 'Add your own AI' : group.mode === 'local' ? 'Connect local model' : 'Add API key'}</button>
         {native && ready && !isWeb && signOut && (confirmOut === item.id
           ? <div className="connection-signout-confirm" role="group" aria-label={`Sign out of ${item.name}`}><span>Sign out of {item.name}?</span><button className="danger-text-button" disabled={busyAction === `signout-${item.id}`} onClick={() => { setConfirmOut(''); signOut(item.id, item.name); }}>{busyAction === `signout-${item.id}` ? <LoaderCircle size={13} className="spin" /> : <LogOut size={13} />}Sign out</button><button className="text-button" onClick={() => setConfirmOut('')}>Cancel</button></div>
           : <button className="text-button connection-signout" disabled={!!busyAction} onClick={() => setConfirmOut(item.id)}><LogOut size={13} />Sign out</button>)}
@@ -153,11 +162,13 @@ export default function ProviderConnections({ catalog, connections, busyAction, 
         <details className="connection-billing"><summary>Billing &amp; limits</summary><p className="connection-small">{item.billingNote || (native ? 'Your subscription and provider usage settings apply.' : group.mode === 'local' ? 'The model runs on your local server.' : 'Your provider’s API quotas and billing rules apply. No automatic fallback.')}</p></details>
         <ProviderPrivacy provider={item.id} openExternal={openExternal} />
         {item.setupUrl && !standard && <button className="provider-setup-link text-button" onClick={() => openExternal(item.setupUrl)}>Provider setup <ExternalLink size={11} /></button>}
+        </div></details>
       </article>;
     })}</div></section>; })}
     {!filtered.length && <p className="provider-no-results">No providers match that name.</p>}
     {extraTabs.map(tab => <div role="tabpanel" key={tab.id} id={`connection-panel-${tab.id}`} aria-labelledby={`connection-tab-${tab.id}`} hidden={connectionType!==tab.id}>{tab.content}</div>)}
-    <div className="explanation-card"><ShieldCheck size={22} strokeWidth={1.4} /><div><h3>You choose the connection</h3><p>Exomina never switches from a subscription to an API key by itself. API keys are stored encrypted on this computer and are held to the safety limits in Settings → Usage. Creating an image with ChatGPT from another provider’s chat asks for your approval first. Models, limits and available tools depend on the provider.</p></div></div>
+    <details className="connection-policy"><summary><ShieldCheck size={15}/>Connection safeguards</summary><p>Exomina never switches from a subscription to an API key by itself. API keys are stored encrypted on this computer and are held to the safety limits in Settings → Usage. Creating an image with ChatGPT from another provider’s chat asks for your approval first. Models, limits and tools depend on the provider.</p></details>
+    {!isWeb&&<details className="connection-model-options"><summary>Model availability</summary><ModelAvailability catalog={catalog}/></details>}
     {setup && <ProviderSetup isWeb={isWeb} key={setup.id} provider={setup} connection={connections.find(item => item.id === setup.id)} onClose={() => setSetup(null)} onSaved={saved} onModalChange={onModalChange} />}
   </div>;
 }

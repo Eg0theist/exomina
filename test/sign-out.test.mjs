@@ -83,7 +83,6 @@ test('ChatGPT, Claude, Grok and Gemini sign out through their own routes and dro
   const spawned = [], rpc = [], events = [];
   const manager = new ProviderManager({
     dataDir: path.join(dir, 'private'), workspace: path.join(dir, 'workspace'), codexPath: process.execPath, claudePath: process.execPath, emit: event => events.push(event),
-    isProviderEnabled: () => true,
     spawnImpl: (executable, args) => {
       const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.stdin = new PassThrough(); child.pid = 0; child.kill = () => {};
       spawned.push(args); setImmediate(() => child.emit('close', 0, null)); return child;

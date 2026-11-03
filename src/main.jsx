@@ -15,6 +15,8 @@ import './live-followups.css';
 import './extravagant-themes.css';
 import './extensions.css';
 import './theme-materials.css';
+import './shell-redesign.css';
+import './views-redesign.css';
 
 if (window.visualViewport) {
   const updateViewport = () => document.documentElement.style.setProperty('--viewport-height', `${Math.round(window.visualViewport.height)}px`);

@@ -2,7 +2,6 @@ import { readFile, writeFile, mkdir, open, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { MAX_ASSET_BYTES } from './assets.mjs';
-import { pathsEqual } from './path-policy.mjs';
 
 export const MAX_UPLOADS = 10;
 export const MAX_UPLOAD_TOTAL = 20 * 1024 * 1024;
@@ -59,7 +58,7 @@ export class ChatUploads {
     if (!Array.isArray(ids) || ids.length > MAX_UPLOADS) throw Error('Attach at most 10 files to one message.');
     const records = ids.map(id => { const record = typeof id === 'string' && Object.hasOwn(this.records, id) ? this.records[id] : null; if (!record) throw Error('An attachment is unavailable. Attach it again.'); return record; });
     if (records.reduce((sum, item) => sum + item.attachment.bytes, 0) > MAX_UPLOAD_TOTAL) throw Error('Attachments must total at most 20 MiB per message.');
-    if (records.some(item => !pathsEqual(item.workspace,this.workspaceTools.getSettings().workspace))) throw Error('The project folder changed. Attach these files again in the current folder.');
+    if (records.some(item => path.resolve(item.workspace).toLowerCase() !== path.resolve(this.workspaceTools.getSettings().workspace).toLowerCase())) throw Error('The project folder changed. Attach these files again in the current folder.');
     return records;
   }
   async input(records) {

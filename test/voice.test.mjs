@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { WindowsVoice } from '../desktop/voice.mjs';
 import { normalizeVoice, patchVoice, spokenText } from '../desktop/voice-settings.mjs';
+import {companionVoiceAction} from '../src/companion-voice.js';
 
 test('voice control patches preserve independently changed fields in either request order',()=>{
   const initial=normalizeVoice({realtimeVoice:'maple',previewTone:'clear',rate:2,language:'de-DE'});
@@ -42,9 +43,26 @@ function ui({ sendError = false } = {}) {
 }
 
 test('voice settings are bounded and speech removes code and link destinations', () => {
-  assert.deepEqual(normalizeVoice({ language: '$(code)', voice: '\nsecret', rate: 20, silenceMs: -1 }), { language: '', voice: '', rate: 5, silenceMs: 1400, previewTone: 'clear' });
+  assert.deepEqual(normalizeVoice({ language: '$(code)', voice: '\nsecret', rate: 20, silenceMs: -1 }), { language: '', voice: '', rate: 5, silenceMs: 1400, previewTone: 'clear', companionMode:'realtime' });
   const text = spokenText('# Hello\n**Alex** [reference](https://example.com)\n```js\nSECRET CODE\n```\n![](https://example.com/image.png)');
   assert.equal(text, 'Hello Alex reference Code example omitted.');
+});
+test('companion prefers AI voice and never silently falls back to an available Windows voice',()=>{
+  const legacy={voice:'Desktop Voice',language:'de-DE',realtimeVoice:'vale'};
+  const action=companionVoiceAction({settings:legacy,canTalk:true});
+  assert.equal(action.mode,'realtime');assert.equal(action.available,false);assert.equal(action.label,'Talk with AI');
+  const connected=companionVoiceAction({settings:legacy,canRealtime:true});assert.equal(connected.available,true);assert.match(connected.description,/Audio goes to OpenAI/);
+  const chosen=patchVoice(legacy,{companionMode:'device'});assert.equal(chosen.voice,'Desktop Voice');assert.equal(chosen.realtimeVoice,'vale');
+  const local=companionVoiceAction({settings:chosen,canTalk:true});assert.equal(local.mode,'conversation');assert.equal(local.label,'Talk on device');assert.equal(local.available,true);
+  assert.equal(patchVoice(chosen,{rate:2}).companionMode,'device');assert.equal(normalizeVoice({companionMode:'anything'}).companionMode,'realtime');
+  const stopped=companionVoiceAction({active:true});assert.equal(stopped.available,true);assert.equal(stopped.label,'Stop voice');
+  assert.equal(companionVoiceAction({unavailableReason:'Finish the current reply.'}).description,'Finish the current reply.');
+});
+test('unsupported device speech does not incorrectly rule out AI voice or launch Windows helpers',async()=>{
+  const voice=new WindowsVoice({platform:'darwin',spawnImpl(){throw Error('Must not launch');}});
+  assert.match((await voice.status()).error,/Device speech requires Windows/);
+  await assert.rejects(voice.start('listen'),/AI voice is a separate option/);
+  await assert.rejects(voice.start('speak',{text:'Hello'}),/AI voice is a separate option/);
 });
 test('Windows speech discovers installed languages without recording and launches a fixed hidden helper', async () => {
   const h = host(); const found = await h.service.status(); assert.equal(found.available, true);

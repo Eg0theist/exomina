@@ -1,0 +1,22 @@
+/* Palimpsest: an erased manuscript in a script that never existed, read by a wandering lantern (src/palimpsest.js).
+   The field sits behind the reading surfaces and is damped under the reading column; nothing here changes layout. */
+html[data-theme="palimpsest"] .main-shell{position:relative;isolation:isolate;overflow:hidden;background:radial-gradient(ellipse 120% 90% at 50% 38%,color-mix(in oklab,var(--t-lilac) 5%,var(--t-ground)),var(--t-ground) 72%)}
+.palimpsest-field{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;user-select:none;-webkit-mask-image:linear-gradient(90deg,#000 0,#000 calc(50% - 660px),rgba(0,0,0,.42) calc(50% - 420px),rgba(0,0,0,.42) calc(50% + 420px),#000 calc(50% + 660px));mask-image:linear-gradient(90deg,#000 0,#000 calc(50% - 660px),rgba(0,0,0,.42) calc(50% - 420px),rgba(0,0,0,.42) calc(50% + 420px),#000 calc(50% + 660px))}
+/* Candle vignette: the page darkens toward its edges as old vellum does. */
+html[data-theme="palimpsest"] .main-shell::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 85% 80% at 50% 45%,transparent 55%,color-mix(in oklab,var(--t-shadow) 55%,transparent))}
+html[data-theme="palimpsest"] .chat-page{background:transparent}
+html[data-theme="palimpsest"] .sidebar{background:linear-gradient(180deg,color-mix(in oklab,var(--t-lilac) 7%,var(--t-ground)),var(--t-ground) 70%);border-right:1px solid transparent;border-image:linear-gradient(180deg,color-mix(in oklab,var(--t-accent) 34%,transparent),color-mix(in oklab,var(--t-lilac) 10%,transparent) 45%,transparent) 1}
+html[data-theme="palimpsest"] :is(.topbar,.window-header){background:color-mix(in oklab,var(--t-ground) 88%,transparent);border-bottom:1px solid color-mix(in oklab,var(--t-accent) 14%,transparent)}
+html[data-theme="palimpsest"][data-glow] .brand-mark{filter:drop-shadow(0 0 7px color-mix(in oklab,var(--t-accent) 34%,transparent))}
+html[data-theme="palimpsest"] :is(.nav-item.active,.chat-item.selected){background:color-mix(in oklab,var(--t-accent) 8%,transparent);box-shadow:inset 2px 0 color-mix(in oklab,var(--t-accent) 75%,transparent)}
+/* Headings are set like a manuscript's rubrics; body text stays in the interface face for long reading. */
+html[data-theme="palimpsest"] .message .markdown :is(h1,h2,h3,h4){font-family:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;font-weight:600;letter-spacing:.01em;color:color-mix(in oklab,var(--t-accent) 30%,var(--t-ink))}
+html[data-theme="palimpsest"] .chat-page .message.assistant .markdown blockquote{border-left-color:color-mix(in oklab,var(--t-accent) 60%,transparent);font-style:italic}
+html[data-theme="palimpsest"] .message a{text-decoration-color:color-mix(in oklab,var(--t-accent) 55%,transparent);text-decoration-thickness:1px;text-underline-offset:3px}
+html[data-theme="palimpsest"] .composer{background:color-mix(in oklab,var(--t-ground) 90%,transparent)}
+html[data-theme="palimpsest"] .composer:focus-within{border-color:color-mix(in oklab,var(--t-accent) 48%,transparent);box-shadow:0 0 0 1px color-mix(in oklab,var(--t-accent) 12%,transparent),0 10px 40px -12px color-mix(in oklab,var(--t-accent) 22%,transparent)}
+html[data-theme="palimpsest"] ::selection{background:color-mix(in oklab,var(--t-accent) 30%,transparent);color:var(--t-ink)}
+html[data-theme="palimpsest"] :is(textarea,input){caret-color:var(--t-accent)}
+
+/* Settings preview: ruled lines of faint script and the lantern, at card scale. */
+.tp-palimpsest .tp-main{background:radial-gradient(circle at 72% 42%,color-mix(in oklab,var(--a) 30%,transparent),transparent 34%),repeating-linear-gradient(0deg,transparent 0 5px,var(--g) 5px 9px),repeating-linear-gradient(90deg,color-mix(in oklab,var(--i) 16%,transparent) 0 1.5px,transparent 1.5px 4px,color-mix(in oklab,var(--i) 10%,transparent) 4px 5px,transparent 5px 9px),var(--g)}

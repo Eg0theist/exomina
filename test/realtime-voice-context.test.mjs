@@ -65,6 +65,8 @@ test('long current-chat snapshot reaches both realtime speech and native delegat
   const ready = await voice.prepare();
   await voice.start({ sessionId: ready.sessionId, conversationId: chat.id, workspace: 'C:/synthetic', context, sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n' });
   const delegated = calls.find(call => call.method === 'thread/start').params;
+  assert.match(delegated.developerInstructions, /preferred register and depth/);
+  assert.doesNotMatch(delegated.developerInstructions, /Speak naturally and briefly/);
   const speech = calls.find(call => call.method === 'thread/realtime/start').params;
   const sourceBlock = text => /<exomina_chat_source>\n([\s\S]*?)\n<\/exomina_chat_source>/.exec(text)?.[1];
   const delegatedSnapshot = JSON.parse(sourceBlock(delegated.developerInstructions));

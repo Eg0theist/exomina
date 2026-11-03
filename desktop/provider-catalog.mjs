@@ -14,18 +14,11 @@ export const PROVIDER_CATALOG = Object.freeze([
     billingNote: 'Your eligible ChatGPT plan and Codex limits apply. Provider-enabled extra usage may cost more; Exomina never switches this connection to an API key.',
     setupUrl: 'https://learn.chatgpt.com/docs/auth',
   },
-  ['beta','public'].includes(DISTRIBUTION_PROFILE) ? {
-    // Shared builds ship nothing from Anthropic. The user turns this on, which
-    // uses (or installs from Anthropic) their own unmodified Claude Code.
+  {
     id: 'claude', name: 'Claude', engine: 'Claude Code', mode: 'subscription',
-    authType: 'official', defaultModel: '', models: [], baseUrl: '', optIn: true,
-    description: 'Use your Claude plan through your own copy of Anthropic’s Claude Code. Off until you turn it on.',
-    billingNote: 'Your Claude plan’s limits apply. Claude Code is installed from Anthropic and signed in through Anthropic’s own page; Exomina never sees your password.',
-    setupUrl: 'https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use',
-  } : {
-    id: 'claude', name: 'Claude', engine: 'Claude Code', mode: 'subscription',
+    optIn: ['beta','public'].includes(DISTRIBUTION_PROFILE),
     authType: 'official', defaultModel: '', models: [], baseUrl: '',
-    description: 'Official Claude account sign-in through the included Claude Code runtime.',
+    description: ['beta','public'].includes(DISTRIBUTION_PROFILE) ? 'Optional Claude connection. Set up downloads a verified official Claude Code runtime, then opens Anthropic’s sign-in.' : 'Official Claude account sign-in through the included Claude Code runtime.',
     billingNote: 'Claude account entitlements, programmatic-use credits and limits apply. Provider-enabled extra usage may cost more; Exomina never switches this connection to an API key.',
     setupUrl: 'https://code.claude.com/docs/en/authentication',
   },
@@ -48,7 +41,7 @@ export const PROVIDER_CATALOG = Object.freeze([
   {
     id: 'muse-code', name: 'Muse Code', engine: 'Muse Code', mode: 'subscription', aliases: ['Meta', 'Muse Wonder', 'Wonder Full'],
     authType: 'official', defaultModel: '', models: [], baseUrl: '', accent: '#77b5ff',
-    description: 'Install Meta’s official Muse Code client separately to use your subscription. Your account’s models and effort settings appear after sign-in.',
+    description: 'Use your Muse Code subscription with Meta’s official client. Your account’s models and effort settings appear after sign-in.',
     billingNote: 'Your Muse Code plan, including Power, and its limits apply. Wonder and Wonder Full depend on your account’s access. Contributor mode is off for Exomina sessions. No API-key fallback.',
     setupUrl: 'https://dev.meta.ai/lp/muse-code',
   },
@@ -87,18 +80,13 @@ export const PROVIDER_CATALOG = Object.freeze([
     description: 'Connect a local model server or a hosted service that supports the OpenAI Chat Completions API.',
     billingNote: 'Local servers use your computer’s resources. Hosted services have their own quotas, billing and privacy rules. Prompts and approved tool results go to the address you choose. No automatic fallback.',
   }),
-].map((entry) => Object.freeze({
+].filter(entry=>DISTRIBUTION_PROFILE!=='beta'||entry.id!=='claude').map((entry) => Object.freeze({
   ...entry,
   models: Object.freeze(entry.models || []),
 })));
 
 export function getProvider(id) {
   return PROVIDER_CATALOG.find((provider) => provider.id === id);
-}
-
-/** Connections that stay off until the user explicitly turns them on. */
-export function isOptInProvider(id) {
-  return getProvider(id)?.optIn === true;
 }
 
 export function isNativeProvider(id) {

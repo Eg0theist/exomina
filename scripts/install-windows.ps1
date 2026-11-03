@@ -114,6 +114,9 @@ function Install-Program([string]$from, [string]$installRoot) {
   $app = Join-Path $installRoot 'App'
   Assert-PlainDirectory $installRoot
   Assert-PlainDirectory $from
+  # Release an inherited App working-directory handle before activation.
+  Set-Location -LiteralPath $installRoot
+  [Environment]::CurrentDirectory = $installRoot
   if ($from -eq $app -or $from.StartsWith($app + '\', [StringComparison]::OrdinalIgnoreCase)) { Fail 'The build must be outside the installed App folder.' }
   foreach ($required in @('Exomina.exe', 'resources\app.asar', 'exomina.build.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $from $required) -PathType Leaf)) { Fail "The build is incomplete: $required is missing." }
@@ -223,17 +226,33 @@ function Install-Program([string]$from, [string]$installRoot) {
   # entries individually, leaving a split installation when a file is locked.
   $moved = $false
   try {
-    if (Test-Path -LiteralPath $app) { [IO.Directory]::Move($app, $previous); $moved = $true }
-    [IO.Directory]::Move($next, $app)
+    if (Test-Path -LiteralPath $app) { Move-ProgramDirectory $app $previous; $moved = $true }
+    Move-ProgramDirectory $next $app
   } catch {
     $activationError = $_.Exception.Message
     if ($moved -and -not (Test-Path -LiteralPath $app)) {
-      try { [IO.Directory]::Move($previous, $app) }
+      try { Move-ProgramDirectory $previous $app }
       catch { Fail "Update activation failed ($activationError). Restore the previous program from $previous. Rollback failed: $($_.Exception.Message)" }
     }
     Fail "Update activation failed; the previous program was kept. $activationError"
   }
   return [ordered]@{ app = (Join-Path $app 'Exomina.exe'); previous = $(if ($moved) { $previous } else { $null }); verifiedFiles = $count }
+}
+
+function Move-ProgramDirectory([string]$from, [string]$to, [int]$TimeoutMilliseconds = 15000) {
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+  while ($true) {
+    try { [IO.Directory]::Move($from, $to); return }
+    catch {
+      $native = $_.Exception
+      while ($native.InnerException) { $native = $native.InnerException }
+      $code = $native.HResult -band 0xffff
+      if ($code -notin @(5,32,33) -or [DateTime]::UtcNow -ge $deadline) {
+        Fail ("Cannot activate program directory '$from' as '$to'. Close programs using this folder and retry. " + $native.Message)
+      }
+      Start-Sleep -Milliseconds 250
+    }
+  }
 }
 
 function Read-CleanupJson([string]$file) {
@@ -474,7 +493,7 @@ try {
   $programs = Join-Path ([Environment]::GetFolderPath('Programs')) 'Exomina.lnk'
   $shell = New-Object -ComObject WScript.Shell
   $link = $shell.CreateShortcut($programs)
-  $link.TargetPath = $summary.app; $link.WorkingDirectory = $app; $link.IconLocation = "$($summary.app),0"; $link.Description = 'Exomina'
+  $link.TargetPath = $summary.app; $link.WorkingDirectory = $InstallHome; $link.IconLocation = "$($summary.app),0"; $link.Description = 'Exomina'
   $link.Save()
   $summary.shortcut = $programs
   $summary.ok = $true

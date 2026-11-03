@@ -184,7 +184,7 @@ export class ApiAgent {
     } finally { clearTimeout(timer); state.controller.signal.removeEventListener('abort', stopped); }
   }
   async openai(connection, messages, tools, state, model) {
-    return this.request(connection, { model, messages, stream: true, ...(new URL(connection.baseUrl).hostname==='openrouter.ai'?{provider:{allow_fallbacks:false,require_parameters:true}}:{}), ...(state.provider==='openai-api'?{max_completion_tokens:MAX_OUTPUT_TOKENS,...(state.noPersistence?{store:false}:{})}:{max_tokens:connection.maxOutputTokens||MAX_OUTPUT_TOKENS}), ...(tools.length ? { tools: tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })) } : {}) }, state, async response => {
+    return this.request(connection, { model, messages, stream: true, ...(state.provider==='openai-api'?{max_completion_tokens:MAX_OUTPUT_TOKENS,...(state.noPersistence?{store:false}:{})}:{max_tokens:connection.maxOutputTokens||MAX_OUTPUT_TOKENS}), ...(tools.length ? { tools: tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })) } : {}) }, state, async response => {
       if (!(response.headers.get('content-type') || '').includes('text/event-stream')) {
         const json = JSON.parse(await boundedText(response, MAX_WIRE));
         if (json.error) throw new Error(json.error.message || 'The API returned an error.');

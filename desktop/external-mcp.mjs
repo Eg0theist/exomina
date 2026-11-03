@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {APP_VERSION} from './app-version.mjs';
+import {validateRemoteServer} from './remote-mcp.mjs';
 
 const resultError = (message) => ({ isError: true, content: [{ type: 'text', text: message }] });
 const allowedVersions = new Set(['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25']);
 
 export function validateServerConfig(server) {
+  if(server?.transport==='http')return validateRemoteServer(server);
   if (!server || typeof server !== 'object' || Array.isArray(server)) throw new Error('MCP server configuration must be an object.');
   if (typeof server.id !== 'string' || !/^[a-zA-Z0-9_-]{1,40}$/.test(server.id)) throw new Error('MCP server id must contain 1–40 letters, numbers, dashes, or underscores.');
   if (typeof server.command !== 'string' || !server.command.trim() || server.command.length > 4096 || /[\r\n\0]/.test(server.command)) throw new Error('MCP command must be a valid executable path or command name.');
@@ -137,33 +139,34 @@ export class StdioMcpClient {
 }
 
 export class ExternalMcpTools {
-  constructor({ approve, getSettings, emit, launchApproved = () => false, rememberLaunch = async () => {}, prepareLaunch = async () => {} }) {
+  constructor({ approve, getSettings, emit, createRemoteClient, launchApproved = () => false, rememberLaunch = async () => {}, prepareLaunch = async () => {} }) {
     this.approve = approve;
     this.getSettings = getSettings;
     this.emit = emit ?? (() => {});
-    Object.assign(this, { launchApproved, rememberLaunch, prepareLaunch });
+    Object.assign(this, { launchApproved, rememberLaunch, prepareLaunch,createRemoteClient });this.connecting=new Map();
     this.clients = new Map();
     this.toolMap = new Map();
     this.queue = Promise.resolve();
     this.status = [];
     this.revision = 0;
+    this.serverRevisions = new Map();
   }
 
   get definitions() { return [...this.toolMap.values()].map(({ definition }) => structuredClone(definition)); }
 
   refresh(conversationId, options = {}) {
-    const revision = this.revision;
-    const result = this.queue.then(() => this.refreshNow(conversationId, options, revision));
+    const revision = this.revision,serverRevisions=new Map(this.serverRevisions);
+    const result = this.queue.then(() => this.refreshNow(conversationId, options, revision,serverRevisions));
     this.queue = result.catch(() => {});
     return result;
   }
 
-  async refreshNow(conversationId, { serverIds, requestApproval = true } = {}, revision = this.revision) {
+  async refreshNow(conversationId, { serverIds, requestApproval = true } = {}, revision = this.revision,serverRevisions=new Map(this.serverRevisions)) {
     if (revision !== this.revision) throw new Error('MCP connections changed before refresh.');
     const settings = await this.getSettings();
     const configured = Array.isArray(settings?.externalMcpServers) ? settings.externalMcpServers.filter((server) => server.enabled).map(server => structuredClone(server)) : [];
-    const ids = new Set();
-    for (const server of configured) { validateServerConfig(server); if (ids.has(server.id)) throw new Error(`Duplicate MCP server id: ${server.id}`); ids.add(server.id); }
+    const ids = new Set(),remoteUrls=new Set();
+    for (const server of configured) { validateServerConfig(server); if (ids.has(server.id)) throw new Error(`Duplicate MCP server id: ${server.id}`); ids.add(server.id);if(server.transport==='http'){const url=new URL(server.url).href;if(remoteUrls.has(url))throw Error('Only one connection per remote MCP address is supported.');remoteUrls.add(url);} }
     for (const [id, entry] of this.clients) {
       const current = configured.find((server) => server.id === id);
       if (!current || JSON.stringify(current) !== entry.signature || entry.client.dead) {
@@ -176,28 +179,32 @@ export class ExternalMcpTools {
     for (const [name, tool] of this.toolMap) if (selectedIds.has(tool.serverId) || !ids.has(tool.serverId)) this.toolMap.delete(name);
     this.status = this.status.filter(server => ids.has(server.id) && !selectedIds.has(server.id)).map(server => this.clients.has(server.id) ? server : { id: server.id, connected: false, error: 'MCP server disconnected. Reconnect it in Settings.' });
     for (const config of selected) {
+      const current=()=>revision===this.revision&&(serverRevisions.get(config.id)||0)===(this.serverRevisions.get(config.id)||0);
+      if(!current())continue;
       try {
         let entry = this.clients.get(config.id);
         if (!entry) {
           const remembered = await this.launchApproved(config);
-          const approved = remembered || (requestApproval && await this.approve({ title: `Start ${config.name || config.id}`, detail: `Launch this local MCP program with your Windows account permissions:\n${config.command}\nArguments: ${JSON.stringify(config.args ?? [])}\nOnly connect a program you trust. ${config.id === 'cua' ? 'Computer use will stay enabled and this driver will reconnect after restarts until you turn it off. ' : ''}Each tool invocation will request separate approval.`, conversationId }));
+          const remote=config.transport==='http';
+          const approved = remembered || (requestApproval && await this.approve({ title: `${remote?'Connect':'Start'} ${config.name || config.id}`, detail: remote?`Connect to this remote MCP service:\n${config.url}\nIts tool descriptions and results are untrusted. Requested arguments and returned data go to this service and the selected assistant. Calls may consume service credits. Each tool invocation requires separate approval.`:`Launch this local MCP program with your Windows account permissions:\n${config.command}\nArguments: ${JSON.stringify(config.args ?? [])}\nOnly connect a program you trust. ${config.id === 'cua' ? 'Computer use will stay enabled and this driver will reconnect after restarts until you turn it off. ' : ''}Each tool invocation will request separate approval.`, conversationId,...(remote?{requireConfirmation:true,action:{kind:'network',tool:'remote_mcp_connect',target:config.url}}:{}) }));
           if (!approved) throw new Error('The user did not approve starting this MCP server.');
           const currentConfig = (await this.getSettings())?.externalMcpServers?.find((server) => server.id === config.id && server.enabled);
-          if (revision !== this.revision || !currentConfig || JSON.stringify(currentConfig) !== JSON.stringify(config)) throw new Error('MCP configuration changed while waiting for approval. Reconnect it in Settings.');
+          if (!current() || !currentConfig || JSON.stringify(currentConfig) !== JSON.stringify(config)) throw new Error('MCP configuration changed while waiting for approval. Reconnect it in Settings.');
           if (!remembered) await this.rememberLaunch(config);
           await this.prepareLaunch(config);
           const preparedConfig = (await this.getSettings())?.externalMcpServers?.find(server => server.id === config.id && server.enabled);
-          if (revision !== this.revision || !preparedConfig || JSON.stringify(preparedConfig) !== JSON.stringify(config)) throw new Error('MCP configuration changed before launch. No server was started.');
-          const client = new StdioMcpClient(config);
-          await client.connect();
+          if (!current() || !preparedConfig || JSON.stringify(preparedConfig) !== JSON.stringify(config)) throw new Error('MCP configuration changed before launch. No server was started.');
+          const client = config.transport==='http'?this.createRemoteClient?.(config):new StdioMcpClient(config);
+          if(!client)throw Error('Remote MCP is unavailable in this build.');this.connecting.set(config.id,client);this.status.push({id:config.id,connected:false,connecting:true});this.emit({type:'state.changed'});
+          try{await client.connect();}catch(error){await client.close();throw error;}finally{this.connecting.delete(config.id);this.status=this.status.filter(server=>server.id!==config.id);}
           const connectedConfig = (await this.getSettings())?.externalMcpServers?.find(server => server.id === config.id && server.enabled);
-          if (revision !== this.revision || !connectedConfig || JSON.stringify(connectedConfig) !== JSON.stringify(config)) { await client.close(); throw new Error('MCP configuration changed during connection. The server was stopped.'); }
+          if (!current() || !connectedConfig || JSON.stringify(connectedConfig) !== JSON.stringify(config)) { await client.close(); throw new Error('MCP configuration changed during connection. The server was stopped.'); }
           entry = { client, signature: JSON.stringify(config), config };
           this.clients.set(config.id, entry);
         }
         const exposed = await entry.client.listTools();
         const listedConfig = (await this.getSettings())?.externalMcpServers?.find(server => server.id === config.id && server.enabled);
-        if (revision !== this.revision || !listedConfig || JSON.stringify(listedConfig) !== entry.signature) throw new Error('MCP configuration changed during discovery. No tools were exposed.');
+        if (!current() || !listedConfig || JSON.stringify(listedConfig) !== entry.signature) throw new Error('MCP configuration changed during discovery. No tools were exposed.');
         const staged = new Map();
         for (const tool of exposed) {
           if (typeof tool.name !== 'string' || !tool.name || tool.name.length > 256 || !tool.inputSchema || typeof tool.inputSchema !== 'object') throw new Error('MCP server returned an invalid tool definition.');
@@ -210,16 +217,17 @@ export class ExternalMcpTools {
       } catch (error) {
         const entry = this.clients.get(config.id);
         if (entry) { await entry.client.close(); this.clients.delete(config.id); }
-        if (revision === this.revision) this.status.push({ id: config.id, connected: false, error: error.message });
+        if (current()) this.status.push({ id: config.id, connected: false, error: error.message });
       }
     }
     this.emit({ type: 'state.changed' });
     return { status: this.status, toolCount: this.toolMap.size };
   }
 
-  call(name, args = {}, conversationId) {
+  call(name, args = {}, conversationId, {signal} = {}) {
     const result = this.queue.then(async () => {
       try {
+        const stopped=()=>{if(signal?.aborted)throw Error('This external tool was cancelled. Its effect is unknown; inspect the target before retrying.');};stopped();
         const tool = this.toolMap.get(name);
         if (!tool) throw new Error('Unknown external MCP tool. Connect the server in Settings first.');
         const settings = await this.getSettings();
@@ -228,10 +236,14 @@ export class ExternalMcpTools {
         if (!config || !entry || JSON.stringify(config) !== entry.signature) throw new Error('This MCP server is disabled or its configuration changed. Reconnect it in Settings.');
         if (entry.client.dead) throw new Error('This MCP server disconnected. Inspect the target before requesting the action again.');
         if (!args || typeof args !== 'object' || Array.isArray(args) || JSON.stringify(args).length > 1000000) throw new Error('MCP tool arguments must be an object smaller than 1 MB.');
-        if (!await this.approve({ title: `${config.name || config.id}: ${tool.originalName}`, detail: `Run this external tool:\n${tool.originalName}\nArguments:\n${JSON.stringify(args, null, 2)}\nThe tool may inspect or change your computer. Any returned screenshots or private data will be sent to the selected assistant.`, conversationId })) throw new Error('The user did not approve this tool invocation.');
+        if(config.transport==='http'&&JSON.stringify(args,null,2).length+config.url.length+tool.originalName.length+600>24000)throw Error('Remote tool arguments exceed the complete approval display limit. Reduce the request before retrying; no tool was called.');
+        stopped();
+        if (!await this.approve({ title: `${config.name || config.id}: ${tool.originalName}`, detail: `Run this external tool:\n${tool.originalName}\nArguments:\n${JSON.stringify(args, null, 2)}\n${config.transport==='http'?`Destination: ${config.url}\nThe remote service may change account data, create content, or consume service credits.`:'The tool may inspect or change your computer.'} Any returned screenshots or private data will be sent to the selected assistant.`, conversationId,...(config.transport==='http'?{requireConfirmation:true,action:{kind:'network',tool:name,target:config.url}}:{}) })) throw new Error('The user did not approve this tool invocation.');
         const currentConfig = (await this.getSettings())?.externalMcpServers?.find((server) => server.id === tool.serverId && server.enabled);
+        stopped();
         if (!currentConfig || JSON.stringify(currentConfig) !== entry.signature) throw new Error('MCP configuration changed while waiting for approval. No tool was called.');
-        const result = await entry.client.request('tools/call', { name: tool.originalName, arguments: args });
+        const result = await entry.client.request('tools/call', { name: tool.originalName, arguments: args }, ...(config.transport==='http'?[{signal}]:[]));
+        stopped();
         if (!result || !Array.isArray(result.content)) throw new Error('External MCP tool returned an invalid response.');
         return result;
       } catch (error) { return resultError(error.message); }
@@ -242,9 +254,10 @@ export class ExternalMcpTools {
 
   async close() {
     this.revision++;
-    await Promise.allSettled([...this.clients.values()].map(({ client }) => client.close()));
+    await Promise.allSettled([...this.clients.values()].map(({ client }) => client.close()).concat([...this.connecting.values()].map(client=>client.close())));this.connecting.clear();
     this.clients.clear();
     this.toolMap.clear();
     this.status = [];
   }
+  async disconnect(id){this.serverRevisions.set(id,(this.serverRevisions.get(id)||0)+1);const entry=this.clients.get(id),pending=this.connecting.get(id);this.clients.delete(id);this.connecting.delete(id);for(const [name,tool]of this.toolMap)if(tool.serverId===id)this.toolMap.delete(name);this.status=this.status.filter(server=>server.id!==id);this.status.push({id,connected:false,connecting:false});await Promise.allSettled([entry?.client,pending].filter(Boolean).map(client=>client.close()));this.emit({type:'state.changed'});}
 }

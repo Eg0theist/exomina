@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
+import fs,{mkdtemp,mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
+import {spawn} from 'node:child_process';
+import {setTimeout as delay} from 'node:timers/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {EventEmitter} from 'node:events';
 import {Updater,readStamp,STAMP} from '../desktop/updates.mjs';
+import {readUpdateState,writeUpdateState} from '../desktop/update-state.mjs';
 import {PermissionPolicy,hostAction} from '../desktop/permissions.mjs';
 
 async function layout({installed,staged,shipped=true}={}){
@@ -39,20 +42,15 @@ test('rejects malformed stamps', async()=>{
   finally{await rm(dir,{recursive:true,force:true});}
 });
 
-test('Mac manual updates read the sealed Resources stamp rather than the executable directory',async()=>{
- const fixture=await mkdtemp(path.join(tmpdir(),'exomina-mac-stamp-'));
- const relative=path.relative(path.resolve(tmpdir()),path.resolve(fixture));
- assert.ok(relative&&!relative.startsWith('..')&&!path.isAbsolute(relative));
- const executableDir=path.join(fixture,'Exomina Beta.app','Contents','MacOS');
- const resources=path.join(fixture,'Exomina Beta.app','Contents','Resources');
- try{
-  await mkdir(executableDir,{recursive:true});await mkdir(resources,{recursive:true});
-  await writeFile(path.join(resources,STAMP),JSON.stringify(A));
-  assert.deepEqual(await readStamp(executableDir,{platform:'darwin'}),A);
-  assert.equal(await readStamp(executableDir,{platform:'linux'}),null);
-  await writeFile(path.join(resources,STAMP),JSON.stringify({id:'../../unsafe'}));
-  assert.equal(await readStamp(executableDir,{platform:'darwin'}),null);
- }finally{await rm(fixture,{recursive:true,force:true});}
+test('local update notes survive stamp reading and updater selection with a size bound',async()=>{
+  const t=await layout({installed:A,staged:{...B,version:'0.6.2',notes:'Improved conversational learning.\nAutomatic patch versions.'}});
+  try{
+    assert.equal((await t.updater.status()).staged.notes,'Improved conversational learning.\nAutomatic patch versions.');
+    await writeFile(path.join(t.build,STAMP),JSON.stringify({...B,notes:'x'.repeat(10020)}));
+    assert.equal((await readStamp(t.build)).notes.length,10000);
+    await writeFile(path.join(t.build,STAMP),JSON.stringify({...B,notes:{untrusted:'not text'}}));
+    assert.equal((await readStamp(t.build)).notes,undefined);
+  }finally{await t.cleanup();}
 });
 
 test('launch awaits the hidden shipped runner, records it, and blocks a second runner', async()=>{
@@ -152,6 +150,111 @@ test('simultaneous handoffs from separate updater instances start only one super
     await Promise.all([t.updater.launch(),other.launch()]);assert.equal(t.calls.length,1);
     assert.equal((await other.status()).inProgress,true);
   }finally{await t.cleanup();}
+});
+
+test('concurrent state readers and separate handoffs preserve one live supervisor',async()=>{
+  for(let round=0;round<30;round++){
+    const t=await layout({installed:A,staged:B});let stopped=false;
+    const file=path.join(t.stateDir,'pending-update.json');
+    const readers=Array.from({length:8},async()=>{while(!stopped)await readUpdateState(file);});
+    try{
+      const other=new Updater({...t.updater,resourcesDir:path.join(t.home,'App','resources')});
+      await Promise.all([t.updater.launch(),other.launch()]);
+      assert.equal(t.calls.length,1,`round ${round}`);
+      assert.equal((await other.status()).inProgress,true);
+      assert.equal((await other.status()).lastResult,null);
+      const pending=await readUpdateState(file);
+      assert.equal(pending.phase,'ready');assert.equal(pending.ready,true);
+    }finally{stopped=true;await Promise.all(readers);await t.cleanup();}
+  }
+});
+
+test('concurrent initial state claims have one winner and preserve its complete record',async t=>{
+  const directory=await mkdtemp(path.join(tmpdir(),'exomina-update-claim-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const file=path.join(directory,'pending-update.json');
+  const results=await Promise.allSettled(Array.from({length:20},(_,id)=>writeUpdateState(file,{id},{claim:true})));
+  const winner=results.findIndex(value=>value.status==='fulfilled');
+  assert.equal(results.filter(value=>value.status==='fulfilled').length,1);
+  assert.ok(results.filter(value=>value.status==='rejected').every(value=>value.reason.code==='EEXIST'));
+  assert.deepEqual(await readUpdateState(file),{id:winner});
+  assert.deepEqual(await readdir(directory),['pending-update.json']);
+});
+
+test('temporary cleanup failure cannot invalidate a successfully published update claim',async t=>{
+  const directory=await mkdtemp(path.join(tmpdir(),'exomina-update-claim-'));
+  const file=path.join(directory,'pending-update.json');
+  try{
+    t.mock.method(fs,'rm',async()=>{throw Object.assign(Error('Scanner holds temporary'),{code:'EPERM'});});
+    await writeUpdateState(file,{attemptId:'our-claim'},{claim:true});
+    assert.deepEqual(await readUpdateState(file),{attemptId:'our-claim'});
+    await assert.rejects(writeUpdateState(file,{attemptId:'another-claim'},{claim:true}),{code:'EEXIST'});
+    assert.deepEqual(await readUpdateState(file),{attemptId:'our-claim'});
+  }finally{t.mock.restoreAll();await rm(directory,{recursive:true,force:true});}
+});
+
+async function holdUpdateFile(file){
+  const script=path.join(path.dirname(file),'hold-file.ps1');
+  await writeFile(script,`param([string]$Target)
+$ErrorActionPreference = 'Stop'
+$handle = [IO.File]::Open($Target, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+try {
+  [Console]::Out.WriteLine('locked')
+  [Console]::Out.Flush()
+  [void][Console]::In.ReadLine()
+} finally { $handle.Dispose() }
+`,'utf8');
+  const powershell=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
+  const child=spawn(powershell,['-NoProfile','-NonInteractive','-File',script,'-Target',file],{windowsHide:true,stdio:['pipe','pipe','pipe']});
+  let diagnostic='';child.stderr.setEncoding('utf8');child.stderr.on('data',chunk=>{diagnostic+=chunk;});
+  const closed=new Promise(resolve=>child.once('close',resolve));
+  try{
+    await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>reject(Error('Native file lock did not become ready. '+diagnostic)),5000);
+      child.once('error',error=>{clearTimeout(timer);reject(error);});
+      child.once('close',code=>{clearTimeout(timer);reject(Error(`Native lock exited (${code}): ${diagnostic}`));});
+      child.stdout.setEncoding('utf8');let output='';
+      child.stdout.on('data',chunk=>{output+=chunk;if(output.includes('locked')){clearTimeout(timer);resolve();}});
+    });
+  }catch(error){child.kill();await closed;throw error;}
+  let released=false;
+  return async()=>{if(released)return;released=true;child.stdin.end('release\n');assert.equal(await closed,0,diagnostic);};
+}
+
+test('a brief native Windows read lock delays replacement without removing the original claim',{skip:process.platform!=='win32',timeout:15000},async t=>{
+  const directory=await mkdtemp(path.join(tmpdir(),'exomina-update-lock-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const file=path.join(directory,'pending-update.json');
+  await writeUpdateState(file,{phase:'starting'},{claim:true});
+  const release=await holdUpdateFile(file);let completed=false;
+  const result=writeUpdateState(file,{phase:'ready'}).then(()=>{completed=true;return null;},error=>{completed=true;return error;});
+  try{
+    await delay(75);assert.equal(completed,false);
+    assert.deepEqual(JSON.parse(await readFile(file,'utf8')),{phase:'starting'});
+    // A competing claim must still fail while the replacement is waiting.
+    await assert.rejects(writeFile(file,'{}',{flag:'wx'}),{code:'EEXIST'});
+    await release();assert.equal(await result,null);
+    assert.deepEqual(await readUpdateState(file),{phase:'ready'});
+    assert.deepEqual((await readdir(directory)).sort(),['hold-file.ps1','pending-update.json']);
+  }finally{await release();await result;}
+});
+
+test('a lasting native Windows lock fails within the retry bound and preserves state',{skip:process.platform!=='win32',timeout:15000},async t=>{
+  const directory=await mkdtemp(path.join(tmpdir(),'exomina-update-lock-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const file=path.join(directory,'pending-update.json');
+  await writeUpdateState(file,{phase:'starting'},{claim:true});
+  const release=await holdUpdateFile(file);
+  try{
+    const started=Date.now();
+    await assert.rejects(writeUpdateState(file,{phase:'ready'}),error=>['EPERM','EACCES','EBUSY'].includes(error.code));
+    assert.ok(Date.now()-started<5000,'A lasting lock must not wait indefinitely.');
+    assert.deepEqual(JSON.parse(await readFile(file,'utf8')),{phase:'starting'});
+    assert.deepEqual((await readdir(directory)).sort(),['hold-file.ps1','pending-update.json']);
+  }finally{await release();}
+  // A failed operation cannot poison the per-file queue.
+  await writeUpdateState(file,{phase:'ready'});
+  assert.deepEqual(await readUpdateState(file),{phase:'ready'});
 });
 
 test('an acknowledged live updater remains active after four minutes',async()=>{

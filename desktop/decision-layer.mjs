@@ -223,15 +223,21 @@ export class DecisionLayer {
     this.loaded = (async () => {
       if (!this.file) return;
       try {
-        const data = JSON.parse(await readFile(this.file, 'utf8'));
+        // Windows editors may prefix an otherwise valid UTF-8 file with a BOM.
+        // Keep the recorded decisions intact and accept that encoding marker.
+        const data = JSON.parse((await readFile(this.file, 'utf8')).replace(/^\uFEFF/, ''));
+        if (!data || typeof data !== 'object' || Array.isArray(data)) throw new SyntaxError('Invalid decision history');
         // Version 1 decisions do not say which chat they came from, so deleting a chat could
         // not remove them. They are dropped once; a few lost labels are worth that guarantee.
         const legacy = (data.version || 1) < FILE_VERSION;
         for (const [name, gate] of Object.entries(data.gates || {}))
           this.gates.set(name, {kind: gate.kind, labels: gate.labels, examples: legacy ? [] : (gate.examples || []), model: null});
         if (legacy) await this.save();
-      } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    })();
+      } catch (error) {
+        if (error instanceof SyntaxError) throw new Error('The saved local decisions could not be read. The original file was kept. Restore a valid copy, then refresh status.', {cause: error});
+        if (error.code !== 'ENOENT') throw error;
+      }
+    })().catch(error => { this.loaded = null; throw error; });
     return this.loaded;
   }
 

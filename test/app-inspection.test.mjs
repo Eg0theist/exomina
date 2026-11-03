@@ -39,6 +39,14 @@ test('app inspection is a closed read-only tool in chat mode and side answers',a
   const f=fixture(),work={item:{}};const receipt=await readFollowupTool(work,'app_inspect',{section:'activity'},{live:()=>true,dispatch:(name,args)=>f.inspector.call(args,'chat')});assert.equal(receipt.isError,undefined);assert.equal(work.readCalls,1);
 });
 
+test('tool discovery returns compact metadata and loads one exact schema only on request',async()=>{
+  const f=fixture(),all=[...APP_INSPECTION_TOOLS,{name:'fixture_search',description:'Search original research evidence',enabled:true,inputSchema:{type:'object',properties:{huge:{description:'x'.repeat(15000)}}}}];f.inspector.getTools=()=>all;
+  const list=await data(f.inspector,{section:'tools'});assert.ok(list.every(item=>!item.inputSchema));assert.deepEqual(list[1].schemaRoute,{section:'tools',id:'fixture_search'});
+  const search=await data(f.inspector,{section:'tools',query:'evidence research'});assert.deepEqual(search.map(item=>item.name),['fixture_search']);
+  const exact=await data(f.inspector,{section:'tools',id:'fixture_search'});assert.equal(exact.length,1);assert.equal(exact[0].inputSchema.properties.huge.description.length,15000);
+  assert.ok(JSON.stringify(list).length<JSON.stringify(all).length/10);assert.deepEqual(await data(f.inspector,{section:'tools',id:'missing'}),[]);
+});
+
 test('coverage routes preserve dedicated note/browser/history controls and reveal no unshared content',async()=>{
   const f=fixture(),view=await data(f.inspector),text=JSON.stringify(view);
   assert.ok(view.sections.settings);assert.ok(view.routes.notebook.tools.includes('notes_overview'));assert.ok(view.routes.browser.tools.includes('browser_inspect'));
@@ -132,6 +140,11 @@ test('diagnostic reads do not recursively copy their own earlier snapshots',asyn
 test('integration projections exclude environment values, CLI secrets and pairing data',async()=>{
   const f=fixture(),view=await data(f.inspector,{section:'integrations'});assert.deepEqual(view.external[0].environmentNames,['API_KEY']);assert.equal(view.external[0].arguments[2],'[excluded]');assert.equal(view.phone.phones[0].name,'My phone');
   assert.doesNotMatch(JSON.stringify(view),/CLI_SECRET_SENTINEL|ENV_SECRET_SENTINEL|PAIR_SECRET_SENTINEL|LOGIN_SECRET_SENTINEL/);
+});
+test('remote integration inspection exposes validated endpoints and connection progress without credentials',async()=>{
+ const f=fixture();f.state.settings.externalMcpServers.push({id:'suno',name:'Suno',transport:'http',url:'https://api.suno.com/mcp',enabled:true,accessToken:'REMOTE_SECRET_SENTINEL'},{id:'bad',name:'Invalid',transport:'http',url:'https://user:REMOTE_SECRET_SENTINEL@example.test/mcp?access_token=REMOTE_SECRET_SENTINEL',enabled:false});
+ f.inspector.getIntegrations=()=>({external:[{id:'suno',connected:false,connecting:true,toolCount:5,clientSecret:'REMOTE_SECRET_SENTINEL'}]});
+ const view=await data(f.inspector,{section:'integrations'});assert.equal(view.external[0].command,'node');assert.equal(view.external[1].endpoint,'https://api.suno.com/mcp');assert.equal(view.external[1].transport,'http');assert.equal(view.external[2].endpoint,undefined);assert.deepEqual(view.status[0],{id:'suno',connected:false,connecting:true,toolCount:5});assert.doesNotMatch(JSON.stringify(view),/REMOTE_SECRET_SENTINEL/);
 });
 
 test('credential redaction covers nested JSON, bearer values, URLs and CLI assignments',()=>{

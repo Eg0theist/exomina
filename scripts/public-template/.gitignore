@@ -19,6 +19,15 @@ __pycache__/
 !server.env.example
 *.sqlite*
 *.db
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.db-wal
+*.db-shm
+*.db-journal
+*.env
+*.env.*
+!*.env.example
 *.pfx
 *.p12
 *.key

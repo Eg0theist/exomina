@@ -7,6 +7,7 @@ import { ChatMemoryTree } from '../desktop/chat-memory-tree.mjs';
 import { ChatMemoryService } from '../desktop/chat-memory-service.mjs';
 import { ChatMemorySearch, runIndexRequest, searchTokens } from '../desktop/chat-memory-search.mjs';
 import { ConversationTools } from '../desktop/conversation-tools.mjs';
+import {fingerprint} from '../desktop/chat-memory-records.mjs';
 
 const parent = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.verification', 'chat-memory-search-tests');
 const unpack = response => JSON.parse(response.content[0].text);
@@ -30,6 +31,35 @@ const event = (key, kind, text, extra = {}) => ({ key, kind, text, createdAt: '2
 test('tokens ignore short words and surrounding punctuation', () => {
   assert.deepEqual(searchTokens('  "Crash" of 14b5bbb, in the  M9?'), ['crash', '14b5bbb', 'the']);
   assert.deepEqual(searchTokens('a b'), []);
+});
+
+test('repair revision rebuilds an already indexed chat after cleanup without a service notification',async t=>{
+  const f=await fixture(t),answer='Traceable canonical answer.',date='2026-10-28T10:00:00Z';
+  for(const text of ['Traceable','Traceable canonical',answer])await f.tree.append('chat',{key:'followup:repair:answer:'+fingerprint(text)+':part:0',kind:'assistant',role:'assistant',text,createdAt:text===answer?date:null,metadata:{followupId:'repair'}});
+  await f.search.sync('chat');assert.equal(f.search.status().documents,3);
+  await f.service.recordFollowup('chat',{id:'repair',answer,status:'answered',finishedAt:date},{repair:false});
+  const repaired=await f.tree.repairFollowupBatch('chat',[{followupId:'repair',parts:[answer],createdAt:date}]);
+  assert.equal(repaired.removed,2);
+  // The process could stop here. No remove/touch call is needed for recovery.
+  await f.search.sync('chat');assert.equal(f.search.status().documents,1);
+  assert.deepEqual(f.search.find('canonical',{chatIds:['chat']}).results.map(row=>row.id),[2]);
+  assert.equal((await f.tree.zoom('chat',0)).retainedId,2);
+});
+
+test('a prior idle deadline cannot stop a long active indexing request',async t=>{
+  const f=await fixture(t);let calls=0,terminated=0;
+  const search=await new ChatMemorySearch(f.directory,{idleMs:40,createWorker:dataDir=>{
+    const listeners=new Map();
+    return {unref(){},on(event,fn){listeners.set(event,fn);},off(event){listeners.delete(event);},terminate(){terminated++;listeners.get('exit')?.(0);},postMessage(request){const delay=++calls===1?0:80;setTimeout(()=>{try{listeners.get('message')?.({ok:true,...runIndexRequest(dataDir,request)});}catch(error){listeners.get('message')?.({error:error.message});}},delay);}};
+  }}).init();
+  try{
+    await f.tree.append('chat',event('first','user','First indexed passage.'));
+    await search.sync('chat');
+    await new Promise(resolve=>setTimeout(resolve,10));
+    await f.tree.append('chat',event('second','user','Second indexed passage.'));
+    await search.sync('chat');
+    assert.equal(terminated,0);assert.equal(search.status().documents,2);assert.equal(search.status().error,null);
+  }finally{await search.close();}
 });
 
 test('ranked search puts conversation text before tool output and keeps hits traceable', async t => {

@@ -1,4 +1,4 @@
-import {mkdir,readFile,writeFile,lstat,unlink} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,access,unlink} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnMspConnection,Session,readSessionDurability} from '@muse-code/sdk';
@@ -9,16 +9,9 @@ import {runtimeError,unpackedPath} from './provider-acp.mjs';
 import {clipToolHistory} from './chat-memory-records.mjs';
 import {durableReplace} from './durable-state.mjs';
 import {museQuota} from './usage.mjs';
-import {DISTRIBUTION_PROFILE} from './distribution.mjs';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const nativeFile=async(file,platform)=>{try{const entry=await lstat(file);return entry.isFile()&&!entry.isSymbolicLink()&&(platform==='win32'||(entry.mode&0o111)!==0);}catch{return false;}};
-export function museRuntimeCandidates({env=process.env,platform=process.platform}={}){
-  const p=platform==='win32'?path.win32:path.posix,filename=platform==='win32'?'muse.exe':'muse';
-  const search=env.PATH??env.Path??'';
-  return [...new Set(search.split(platform==='win32'?';':':').map(dir=>dir.trim()).filter(dir=>p.isAbsolute(dir)).map(dir=>p.join(dir,filename)))];
-}
-const missingRuntime='Install Meta’s official Muse Code client and add its native muse executable to PATH, then refresh Connections.';
+const exists=file=>access(file).then(()=>true,()=>false);
 const optional=value=>typeof value==='string'&&value.trim()&&!['auto','default'].includes(value.trim())?value.trim():undefined;
 const modelLabel=row=>row.displayLabel&&row.displayLabel!==row.modelId?row.displayLabel:({'muse-wonder-1.0':'Muse Wonder','muse-wonder-full-1.0':'Muse Wonder Full','muse-spark-1.3':'Muse Spark 1.3','muse-spark-1.2':'Muse Spark 1.2'}[row.modelId]||row.modelId);
 const safe=value=>runtimeError(value).replace(/\b(?:mapi|meta)_[A-Za-z0-9_-]{16,}\b/g,'[redacted]');
@@ -66,19 +59,18 @@ export function applyMuseEvent(event,state,manager){
  * API-key environment variables are removed; every host disables Contributor
  * mode. Metadata queries never send a model turn or another app's credentials. */
 export class MuseProvider{
-  constructor(manager,{runtimePath,spawnMsp=spawnMspConnection,platform=process.platform,runtimeEnvironment=process.env,distributionProfile=DISTRIBUTION_PROFILE}={}){Object.assign(this,{manager,runtimePath,spawnMsp,platform,runtimeEnvironment,distributionProfile});this.id='muse-code';this.name='Muse Code';this.hosts=new Set();this.clients=new Set();this.usageRequests=new Map();this.usageQueue=Promise.resolve();this.closed=false;}
-  async executable(){
-    if(this.runtimePath)return path.isAbsolute(this.runtimePath)&&await nativeFile(this.runtimePath,this.platform)?this.runtimePath:null;
-    const candidates=museRuntimeCandidates({env:this.runtimeEnvironment,platform:this.platform});
-    if(this.distributionProfile==='personal'&&this.platform==='win32')candidates.unshift(unpackedPath(path.join(ROOT,'vendor','muse','muse.exe')));
-    for(const candidate of candidates)if(await nativeFile(candidate,this.platform))return candidate;
-    return null;
+  constructor(manager,{runtimePath,spawnMsp=spawnMspConnection}={}){Object.assign(this,{manager,runtimePath,spawnMsp});this.id='muse-code';this.name='Muse Code';this.hosts=new Set();this.clients=new Set();this.usageRequests=new Map();this.usageQueue=Promise.resolve();this.closed=false;}
+  async executable(){const file=this.runtimePath||unpackedPath(path.join(ROOT,'vendor','muse','muse.exe'));return await exists(file)?file:null;}
+  // Concurrent recursive mkdir calls sharing a missing parent can leave new
+  // folders without inherited EFS encryption on Windows; create them in order.
+  async profile(){
+    if(!this.profileTask)this.profileTask=(async()=>{await this.manager.prepare();const profile=path.join(this.manager.dataDir,'muse-home');for(const dir of [path.join(profile,'.config','muse'),path.join(profile,'runtime-tmp')])await mkdir(dir,{recursive:true});return profile;})();
+    try{return await this.profileTask;}finally{this.profileTask=null;}
   }
-  async profile(){await this.manager.prepare();const profile=path.join(this.manager.dataDir,'muse-home');await Promise.all([path.join(profile,'.config','muse'),path.join(profile,'runtime-tmp')].map(dir=>mkdir(dir,{recursive:true})));return profile;}
   async accountMarker(){const profile=await this.profile();return path.join(profile,'account-signin.json');}
   async savedLogin(){try{const marker=JSON.parse(await readFile(await this.accountMarker(),'utf8'));return marker.method==='official-account'&&typeof marker.completedAt==='string';}catch{return false;}}
   async open({workspace,readOnly=false,provider='meta'}={}){
-    if(this.closed)throw Error('Muse connection is closed.');const executable=await this.executable();if(!executable)throw Error(missingRuntime);
+    if(this.closed)throw Error('Muse connection is closed.');const executable=await this.executable();if(!executable)throw Error('The Muse runtime is missing. Reinstall Exomina.');
     // Native Windows shell preparation changes ACLs and cannot create files in
     // the EFS workspace. Use the existing, explicitly described Exomina terminal
     // through its permission gateway. Do not disable Muse's remaining sandbox.
@@ -120,7 +112,7 @@ export class MuseProvider{
     const info={usage:quota,fromCache:!live};if(publish)this.manager.emit({type:'usage',provider:this.id,info});return info;
   }
   async status(){const installed=!!await this.executable(),connected=installed&&await this.savedLogin();return{id:this.id,name:this.name,installed,connected,supportsTools:true,supportsToolFree:false,supportsImages:true,
-    detail:!installed?missingRuntime:connected?'Muse account sign-in saved. Commands use Exomina’s terminal and chat permissions. Your Power subscription and model access are checked when you send. No API-key fallback.':'Sign in with your Meta account to use your Muse Code subscription, including eligible Wonder models.',contributorMode:false,shellMode:'exomina-terminal',nativeShell:false};}
+    detail:connected?'Muse account sign-in saved. Commands use Exomina’s terminal and chat permissions. Your Power subscription and model access are checked when you send. No API-key fallback.':'Sign in with your Meta account to use your Muse Code subscription, including eligible Wonder models.',contributorMode:false,shellMode:'exomina-terminal',nativeShell:false};}
   async modelOptions(){if(!await this.savedLogin())return[];const client=await this.open({readOnly:true});try{
     let catalogue=await client.host.connection.request('model/list',{});
     if(!catalogue.models?.length){const result=await client.host.connection.command('session/start',{workspaceRoot:await this.profile(),providerId:'meta',approvalMode:'denyUnmatched'});catalogue=await client.host.connection.request('model/list',{sessionId:result.session.sessionId});}
@@ -128,7 +120,7 @@ export class MuseProvider{
   }finally{await client.close();}}
   async connect(){
     if(this.login)return{message:'Muse sign-in is already open. Finish the code in your browser.'};
-    const profile=await this.profile(),executable=await this.executable();if(!executable)throw Error(missingRuntime);
+    const profile=await this.profile(),executable=await this.executable();if(!executable)throw Error('The Muse runtime is missing. Reinstall Exomina.');
     const child=this.manager.spawnImpl(executable,['login'],{cwd:profile,env:museEnvironment(this.manager.environment(this.id),profile),windowsHide:true,shell:false,stdio:['ignore','pipe','pipe']});this.login=child;
     child.stdout.setEncoding('utf8');child.stderr.setEncoding('utf8');let buffer='',url='',code='',done=false;
     const answer=()=>({message:'Complete Muse Code’s official Meta account sign-in, then refresh connections. Your subscription stays with Muse Code.',...(url?{url}:{}),...(code?{code}:{})});
@@ -156,7 +148,7 @@ export class MuseProvider{
   async run(options,state){
     if(options.noTools)throw Error('Muse Code’s tool-free helper mode is not available in this build. Use it for a normal chat with tools.');
     if(!await this.savedLogin())throw Error('Connect your Muse Code subscription in Connections first.');
-    const workspace=path.resolve(options.workspace||this.manager.workspace),readOnly=this.manager.getPermissionMode(state.conversationId)==='read-only',client=await this.open({workspace,readOnly});
+    const workspace=path.resolve(options.workspace||this.manager.workspace),readOnly=options.noTools||this.manager.getPermissionMode(state.conversationId)==='read-only',client=await this.open({workspace,readOnly});
     state.museLengths=new Map();state.museKinds=new Map();const connection=client.host.connection;state.sessionId=connection.mintCommandId();
     const session=new Session({sessionId:state.sessionId,durability:readSessionDurability(client.host.initializeResult),connection});let turn,protocolFailure;
     session.onApproval(request=>this.approval(request,state,workspace));session.onApprovalError(error=>{protocolFailure=Error(safe(error));client.close().catch(()=>{});});
@@ -173,8 +165,8 @@ export class MuseProvider{
       }
     }catch(error){protocolFailure=error;client.close().catch(()=>{});}});
     state.adapterCancel=()=>{if(turn)connection.command('turn/interrupt',{sessionId:state.sessionId,turnId:turn.turnId}).catch(()=>client.close());else client.close().catch(()=>{});};
-    const mcp=museMcp(this.manager.gateway,state.conversationId);
     try{
+      const mcp=options.noTools?{}:museMcp(this.manager.gatewayFor?this.manager.gatewayFor(state):this.manager.gateway,state.conversationId);
       if(!readOnly&&!Object.keys(mcp).length)throw Error('Exomina’s shared-tool connection is unavailable. Restart Exomina before retrying. No terminal command was started.');
       if(Object.keys(mcp).length&&!client.host.initializeResult.grantedCapabilities.includes('sessionMcp'))throw Error('This Muse runtime did not grant the shared-tool connection.');
       await connection.command('session/start',{sessionId:state.sessionId,workspaceRoot:workspace,providerId:'meta',approvalMode:readOnly?'denyUnmatched':this.manager.getPermissionMode(state.conversationId)==='full'?'onRequest':'promptUnmatched',...(optional(options.model)?{modelId:optional(options.model)}:{}),...(Object.keys(mcp).length?{config:{mcpServers:mcp}}:{})});

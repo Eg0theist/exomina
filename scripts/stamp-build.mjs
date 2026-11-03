@@ -26,6 +26,8 @@ const abandonedBrowserFiles=listPackage(path.join(build,'resources','app.asar'))
 });
 if(abandonedBrowserFiles.length)throw Error('The abandoned browser-launch helper is present in this package. No update was stamped.');
 const stamp={id:randomUUID(),version,builtAt:new Date().toISOString()};
+const notes=await readFile(path.join(root,'build','release-notes.txt'),'utf8').catch(error=>{if(error.code==='ENOENT')return '';throw error;});
+if(notes.trim())stamp.notes=notes.trim().slice(0,10000);
 const snapshot=path.join(build,SOURCE_FOLDER);
 let officialSource=process.env.EXOMINA_OFFICIAL_SOURCE;
 if(!officialSource&&process.env.EXOMINA_PUBLISHER_BUILD!=='1'){

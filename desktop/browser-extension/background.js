@@ -1,5 +1,6 @@
-import { snapshotSource, snapshotOptions, actionSource } from './page-source.js';
+import { snapshotSource, snapshotOptions } from './page-source.js';
 import {inspectPage} from './inspect-source.js';
+import {trustedInput,trustedKey} from './trusted-input.js';
 let connection = null, polling = false, generation = 0;
 const tasks = new Map();
 
@@ -66,13 +67,10 @@ async function execute(command) {
       catch { data.notice = 'Page text was read successfully. A screenshot could not be captured.'; contents[0].text = JSON.stringify({ ...data, untrusted: true, external: true }); }
       return { content: contents, state: await state(tab.id) };
     } else if (action === 'click' || action === 'type') {
-      const point = await evaluate(tab.id, actionSource(command));
-      if (action === 'click') { await send(tab.id, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 }); await send(tab.id, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 }); }
+      const result=await trustedInput((method,params)=>send(tab.id,method,params),command);
+      return {content:[{type:'text',text:JSON.stringify({state:await state(tab.id),input:result})}],state:await state(tab.id)};
     } else if (action === 'key') {
-      const keys = { Enter: 13, Tab: 9, Escape: 27, ArrowDown: 40, ArrowUp: 38, ArrowLeft: 37, ArrowRight: 39, Backspace: 8 };
-      if (!keys[input.key]) throw Error('Unsupported key.');
-      await send(tab.id, 'Input.dispatchKeyEvent', { type: 'keyDown', key: input.key, code: input.key, windowsVirtualKeyCode: keys[input.key], ...(input.key === 'Enter' ? { text: '\r' } : {}) });
-      await send(tab.id, 'Input.dispatchKeyEvent', { type: 'keyUp', key: input.key, code: input.key, windowsVirtualKeyCode: keys[input.key] });
+      await trustedKey((method,params)=>send(tab.id,method,params),command);
     } else if (action === 'back' || action === 'forward') {
       const history = await send(tab.id, 'Page.getNavigationHistory'); const entry = history.entries[history.currentIndex + (action === 'back' ? -1 : 1)];
       if (entry) await send(tab.id, 'Page.navigateToHistoryEntry', { entryId: entry.id });

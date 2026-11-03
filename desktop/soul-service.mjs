@@ -1,4 +1,5 @@
 import {applySoul,normalizePersonalization,soulBudget} from './personalization.mjs';
+import {changeSoulLearning} from './soul-learning-state.mjs';
 
 /** Routine learning is quiet. Only a requested name/core rewrite has an approval step. */
 export async function reflectSoul(args,{isPrivate,getPersonalization,setPersonalization,save,approve,changed,verifyStated}){
@@ -22,7 +23,7 @@ export async function reflectSoul(args,{isPrivate,getPersonalization,setPersonal
   current=normalizePersonalization(getPersonalization());
   if(!current.soul.enabled)throw Error('The soul is switched off in Settings → Personalisation.');
   const result=applySoul(current.soul,args);
-  setPersonalization({...current,soul:result.soul});
+  setPersonalization({...current,soul:{...result.soul,learning:{...result.soul.learning,revision:current.soul.learning.revision+1}}});
   await save();changed?.();
   const budget=soulBudget(result.soul);
   return {content:[{type:'text',text:result.message+' Takes effect from the next message. No need to announce routine learning.'}],budget};
@@ -31,6 +32,10 @@ export async function reflectSoul(args,{isPrivate,getPersonalization,setPersonal
 /** UI operations apply to current host state, never a stale renderer snapshot. */
 export function changeSoulFromSettings(current,args){
   const next=normalizePersonalization(current);
+  if(args.action?.startsWith('learning.')){
+    next.soul.learning=changeSoulLearning(next.soul.learning,args);
+    return next;
+  }
   if(args.action==='patch'){
     const patch=args.patch||{};
     for(const key of Object.keys(patch))if(!['enabled','name','essence','seededAt'].includes(key))throw Error('Invalid soul setting.');
@@ -42,6 +47,7 @@ export function changeSoulFromSettings(current,args){
     if(!['harddelete','retire','restore','revise'].includes(args.action))throw Error('Invalid soul edit.');
     next.soul=applySoul(next.soul,{...args,source:'stated',evidence:args.action==='restore'?'The user rolled back to this version in Settings.':args.action==='harddelete'?'The user permanently deleted this observation in Settings.':'The user edited this observation in Settings.'}).soul;
   }
+  next.soul.learning.revision++;
   return next;
 }
 

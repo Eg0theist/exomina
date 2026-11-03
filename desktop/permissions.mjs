@@ -167,16 +167,17 @@ export function hostAction(name, args = {}) {
   if(tool==='tool_pipeline')return {kind:'read',tool,target:String(args.action||'run')};
   if(tool==='spending_preview')return {kind:'read',tool,target:String(args.merchant||'')};
   if (tool === 'app_inspect') return { kind: 'read', tool, target: String(args.section || 'overview') };
+  if (tool === 'app_control') return { kind: args.action === 'apply' ? 'write' : 'read', tool, target: String(args.operation || args.action || '') };
   if (tool === 'model_available') return { kind: 'read', tool, target: '' };
+  if (tool === 'outcome_verify') return { kind: 'read', tool, target: String(args.path || args.repo || args.buildId || args.pid || args.action || '') }; // Observes state only; a mark is chat bookkeeping.
   if (tool === 'task_refine') return {kind:'read',tool,target:String(args.action||'view')}; // Chat bookkeeping only; probes keep their own permissions.
-  if (tool === 'disk_delete') return {kind:'write',tool,target:String(args.id||'local drives')};
-  if (tool.startsWith('disk_')) return {kind:'read',tool,target:String(args.drive||args.id||'local drives')};
   if (tool === 'model_consult') return { kind: 'other', tool, target: String(args.provider || '') };
   if (tool === 'workspace_list' || tool === 'workspace_read') return { kind: 'read', tool, target: String(args.path || '.') };
+  if (tool === 'audio_inspect') return { kind: 'read', tool, target: String(args.path || '') };
   if (tool.startsWith('ghidra_')) return { kind: tool === 'ghidra_edit' ? 'write' : 'read', tool, target: '' };
   if (tool.startsWith('analysis_')) return { kind: 'read', tool, target: String(args.path || args.id || '') };
   if (tool === 'workspace_write') return { kind: 'write', tool, target: String(args.path || '') };
-  if (tool === 'notes_remove_completed' || tool === 'notes_annotate') return { kind: 'write', tool, target: String(args.id || '') };
+  if (tool === 'notes_remove_completed' || tool === 'notes_resolve' || tool === 'notes_annotate') return { kind: 'write', tool, target: String(args.id || '') };
   if (tool === 'notes_overview_cleanup') return { kind: 'write', tool, target: 'applied notebook overview' };
   if (tool === 'notes_overview') return { kind: 'read', tool, target: 'notebook overview' };
   if (tool === 'notes_list' || tool === 'notes_read') return { kind: 'read', tool, target: String(args.id || '') };

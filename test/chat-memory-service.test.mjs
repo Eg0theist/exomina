@@ -6,9 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { ChatMemoryTree } from '../desktop/chat-memory-tree.mjs';
 import { ChatMemoryCompactor } from '../desktop/chat-memory-compactor.mjs';
 import { ChatMemoryService } from '../desktop/chat-memory-service.mjs';
-import { attachmentReferences, clipToolHistory, historyObject, historyText, recordableTool, splitHistory, toolResultHistory } from '../desktop/chat-memory-records.mjs';
+import { attachmentReferences, clipToolHistory, fingerprint, historyObject, historyText, recordableTool, splitHistory, toolResultHistory } from '../desktop/chat-memory-records.mjs';
 import { chatViewBlocks, formatChatView } from '../desktop/chat-memory-context.mjs';
 import { ConversationTools } from '../desktop/conversation-tools.mjs';
+import {DatabaseSync} from 'node:sqlite';
 
 const parent = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.verification', 'chat-memory-service-tests');
 const unpack = response => JSON.parse(response.content[0].text);
@@ -359,4 +360,121 @@ test('unfinished streamed tool output is stored when the reply finishes', async 
   await f.service.finish({ id: 'chat', messages: [] });
   const rows = await originals(f.tree, 'chat');
   assert.deepEqual(rows.map(row => row.text).slice(1), ['partial 1 and 2']);
+});
+
+test('follow-up streaming records only the settled answer and remains idempotent after restart', async t => {
+  const f = await fixture(t), item = { id: 'stream-card', text: 'Keep the complete answer.', provider: 'codex', status: 'answering', createdAt: '2026-10-28T10:00:00Z' };
+  for (let n = 1; n <= 500; n++) f.service.emitted({ type: 'chat.followup', conversationId: 'chat', followup: { ...item, answer: 'A'.repeat(n) } });
+  await f.service.queue;
+  assert.equal((await f.tree.stats('chat')).total, 1, 'No partial answer becomes an original or summary job.');
+  assert.equal((await f.tree.stats('chat')).pendingJobs, 0);
+  const complete = { ...item, status: 'answered', answer: 'Complete canonical answer.', finishedAt: '2026-10-28T10:01:00Z' };
+  // The answered notification can precede finally/finishedAt in the live path.
+  f.service.emitted({ type: 'chat.followup', conversationId: 'chat', followup: { ...complete, finishedAt: undefined } });
+  await f.service.queue;
+  assert.equal((await f.tree.stats('chat')).total, 1);
+  f.service.emitted({ type: 'chat.followup', conversationId: 'chat', followup: complete });
+  await f.service.queue;
+  const chat = { id: 'chat', messages: [{ id: 'parent', role: 'assistant', content: '', followups: [complete] }] };
+  await f.service.sync(chat);
+  const rows = await originals(f.tree, 'chat');
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1].eventKey, 'followup:stream-card:answer:part:0');
+  assert.equal(rows[1].text, complete.answer);
+  await f.service.close();
+  const restartedTree = new ChatMemoryTree(f.directory), restarted = new ChatMemoryService({ tree: restartedTree, settings: () => f.settings });
+  try {
+    await restarted.sync(chat);
+    assert.deepEqual(await originals(restartedTree, 'chat'), rows);
+    const revised = { ...complete, answer: 'A genuinely revised completion.', finishedAt: '2026-10-28T10:02:00Z' };
+    await restarted.recordFollowup('chat', revised);
+    await restarted.recordFollowup('chat', revised);
+    assert.equal((await restartedTree.stats('chat')).total, 3);
+    assert.equal((await restartedTree.zoom('chat', 2)).text, revised.answer);
+  } finally { await restarted.close(); }
+});
+
+test('legacy follow-up repair removes only proven duplicate text, invalidates dependent summaries and preserves old IDs', async t => {
+  const f = await fixture(t), answer = 'Canonical final answer. '.repeat(40), date = '2026-10-28T10:01:00Z';
+  const legacy = (text, createdAt = null, suffix = '') => ({ key: 'followup:card:answer:' + fingerprint(text) + ':part:0' + suffix, role: 'assistant', kind: 'assistant', text, createdAt, metadata: { followupId: 'card', provider: 'codex' } });
+  const old = [legacy(answer.slice(0, 600)), legacy(answer.slice(0, 700)), legacy('A different answer.'), legacy('Canonical', '2026-10-27T10:00:00Z'), legacy(answer, date)];
+  await f.tree.sync('chat', old);
+  const jobs = await f.tree.readyJobs(16, { chatId: 'chat' });
+  const job = jobs.find(job => job.id === 0 && job.count === 1);
+  assert.ok(job);
+  await f.tree.commitSummary(job, 'STALE_FRAGMENT_SUMMARY.');
+  const stale = jobs.find(job => job.id === 1 && job.count === 1);
+  assert.ok(stale);
+  await f.service.recordFollowup('chat', { id: 'card', status: 'answered', answer, finishedAt: date, provider: 'codex' });
+  assert.equal(f.service.failures, 0);
+  const stats = await f.tree.stats('chat');
+  assert.equal(stats.retiredDuplicates, 2);
+  assert.equal(stats.total, 5, 'Migration keeps completed answers in their original position.');
+  assert.equal(stats.totalMessages, 3);
+  assert.equal(stats.originalBytes, Buffer.byteLength('A different answer.Canonical' + answer));
+  assert.equal((await f.tree.commitSummary(stale, 'Cannot commit a stale fragment.')).stale, true);
+  const redirected = await f.tree.zoom('chat', 0);
+  assert.equal(redirected.text, answer);
+  assert.equal(redirected.redirectedFrom, 0);
+  assert.equal(redirected.retainedId, 4);
+  assert.equal((await f.tree.zoom('chat', 2)).text, 'A different answer.');
+  assert.equal((await f.tree.zoom('chat', 3)).text, 'Canonical');
+  assert.equal((await f.tree.date('chat', 0)).first, null);
+  assert.ok(!(await f.tree.view('chat')).text.includes('STALE_FRAGMENT_SUMMARY'));
+  assert.equal((await f.tree.audit('chat')).valid, true);
+  const again = await f.tree.repairFollowupDuplicates('chat', 'card', [answer], date);
+  assert.equal(again.alreadyRepaired, true);
+  assert.equal(again.removed, 0);
+});
+
+test('multi-part Unicode follow-up repair, rollback and privacy preserve unique history', async t => {
+  const f = await fixture(t), answer = 'A'.repeat(29999) + '😀' + 'B'.repeat(1700), parts = splitHistory(answer), date = '2026-10-28T10:00:00Z';
+  const partial=answer.slice(0,30500);
+  for (const [index, text] of splitHistory(partial).entries()) await f.tree.append('chat', { key: 'followup:multi:answer:' + fingerprint(partial) + ':part:' + index, kind: 'assistant', role: 'assistant', text, metadata: { followupId: 'multi' } });
+  for (const [index, text] of parts.entries()) await f.tree.append('chat', { key: 'followup:multi:answer:' + fingerprint(answer) + ':part:' + index, kind: 'assistant', role: 'assistant', text, createdAt:date, metadata: { followupId: 'multi' } });
+  const item = { id: 'multi', answer, status: 'answered', finishedAt: date };
+  await f.service.recordFollowup('chat', item);
+  assert.equal((await f.tree.stats('chat')).retiredDuplicates, 2);
+  assert.equal((await f.tree.zoom('chat', 0, 1, { limit: 32000 })).text, parts[0]);
+  assert.equal((await f.tree.zoom('chat', 1, 1, { limit: 32000 })).text, parts[1]);
+  assert.equal((await f.tree.audit('chat')).valid, true);
+  await f.service.repairFollowupHistory([{ id: 'private', private: true, messages: [{ followups: [item] }] }]);
+  assert.equal((await f.tree.stats('private')).total, 0);
+  const before = await f.tree.stats('chat');
+  assert.equal((await f.tree.repairFollowupDuplicates('chat', 'multi', ['Wrong completed text'], date)).incomplete, true);
+  assert.deepEqual(await f.tree.stats('chat'), before);
+});
+
+test('repair preserves chronological completed answers with later history, and disabled memory is untouched',async t=>{
+  const f=await fixture(t),answer='A complete old answer.',date='2026-10-01T10:00:00Z';
+  await f.tree.append('chat',{key:'followup:old:answer:'+fingerprint(answer)+':part:0',kind:'assistant',role:'assistant',text:answer,createdAt:date,metadata:{followupId:'old'}});
+  for(let n=0;n<100;n++)await f.tree.append('chat',{key:'later-'+n,kind:'user',role:'user',text:'Later history '+n});
+  const item={id:'old',answer,status:'answered',finishedAt:date};
+  const before=await f.tree.stats('chat');
+  await f.service.repairFollowupHistory([{id:'chat',messages:[{followups:[item]}]}]);
+  assert.equal((await f.tree.stats('chat')).total,before.total);
+  assert.equal((await f.tree.zoom('chat',0)).text,answer);
+  assert.equal((await f.tree.zoom('chat',100)).text,'Later history 99');
+  const after=await f.tree.stats('chat');
+  f.settings.chatMemoryEnabled=false;
+  await f.service.repairFollowupHistory([{id:'chat',messages:[{followups:[{...item,answer:'A replacement.'}]}]}]);
+  assert.deepEqual(await f.tree.stats('chat'),after);
+});
+
+test('worker repair rolls back a failed transaction and leaves unrelated running summary claims valid',async t=>{
+  const f=await fixture(t),answer='A full answer. '.repeat(50),date='2026-10-28T10:00:00Z';
+  for(const text of [answer.slice(0,600),answer])await f.tree.append('chat',{key:'followup:retry:answer:'+fingerprint(text)+':part:0',kind:'assistant',role:'assistant',text,createdAt:text===answer?date:null,metadata:{followupId:'retry'}});
+  await f.tree.append('chat',{key:'unrelated',kind:'user',role:'user',text:'Unique unrelated user evidence. '.repeat(30)});
+  const unrelated=(await f.tree.readyJobs(16,{chatId:'chat'})).find(job=>job.id===2&&job.count===1);assert.ok(unrelated);
+  const item={id:'retry',answer,status:'answered',finishedAt:date};
+  await f.service.recordFollowup('chat',item,{repair:false});
+  const before=await f.tree.stats('chat'),db=new DatabaseSync(path.join(f.directory,'chat-memory/tree.sqlite'));
+  db.exec("CREATE TRIGGER fail_synthetic_cleanup BEFORE DELETE ON tree_originals WHEN OLD.kind='assistant' BEGIN SELECT RAISE(ABORT,'synthetic cleanup failure'); END;");
+  await f.service.repairFollowupHistory([{id:'chat',messages:[{followups:[item]}]}]);
+  assert.equal(f.service.repairFailed,true);assert.match(f.service.lastError,/synthetic cleanup failure/);
+  assert.deepEqual(await f.tree.stats('chat'),before);assert.equal((await f.tree.audit('chat')).valid,true);
+  db.exec('DROP TRIGGER fail_synthetic_cleanup');db.close();
+  await f.service.repairFollowupHistory([{id:'chat',messages:[{followups:[item]}]}]);
+  assert.equal(f.service.repairFailed,false);assert.equal((await f.tree.stats('chat')).retiredDuplicates,1);
+  assert.equal((await f.tree.commitSummary(unrelated,'Unique unrelated user evidence is retained.')).committed,true);
 });

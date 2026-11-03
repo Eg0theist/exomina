@@ -23,7 +23,6 @@ async function fixture(t, overrides = {}) {
   let handler = () => {};
   const manager = new ProviderManager({ dataDir, workspace: path.join(dataDir, 'workspace'),
     isProviderEnabled: () => true,
-    claudeRuntime: 'bundled',
     codexPath: process.execPath, claudePath: process.execPath,
     gateway: { url: 'http://127.0.0.1:1', token: 'synthetic-test-token', script: path.join(dataDir, 'gateway.mjs') },
     emit: event => events.push(event),
@@ -629,7 +628,7 @@ test('Codex cancellation interrupts its active turn and releases the conversatio
   assert.equal(f.manager.active.has('c1'), false);
 });
 
-test('Claude blocks non-subscription authentication without invoking inference', async t => {
+test('Claude blocks non-subscription authentication without invoking inference', {skip:getProvider('claude')?.optIn===true?'Optional official clients retain their own authentication methods.':false}, async t => {
   const f = await fixture(t);
   f.setHandler((child, args) => { child.stdin.on('finish', () => { assert.deepEqual(args, ['auth', 'status']); child.json({ loggedIn: true, authMethod: 'api_key' }); child.finish(); }); });
   await assert.rejects(f.manager.run({ provider: 'claude', conversationId: 'c1', prompt: 'never sent' }), /subscription login/);
@@ -789,11 +788,40 @@ test('provider metadata discovery fails independently and closes on manager shut
   });
   assert.deepEqual(await f.manager.subscriptionModels(), getProvider('claude')?{ codex: [], claude: [] }:{codex:[]});
   assert.equal(f.manager.metadataProcesses.size, 0);
-  f.setHandler(() => {});
+  let spawned;
+  const ready = new Promise(resolve => { spawned = resolve; });
+  f.setHandler(child => spawned(child));
   const pending = f.manager.claudeModels();
-  await new Promise(resolve => setTimeout(resolve, 20));
+  const rejected = assert.rejects(pending, /closed before returning/);
+  const child = await ready;
+  assert.equal(f.manager.metadataProcesses.has(child), true);
   f.manager.close();
-  await assert.rejects(pending, /closed before returning/);
+  await rejected;
+  assert.equal(child.killed, true);
+  assert.equal(f.manager.metadataProcesses.size, 0);
+});
+
+test('Claude metadata discovery cannot spawn after shutdown during preparation', async t => {
+  for (const phase of ['executable discovery', 'auth-turn acquisition']) {
+    const f = await fixture(t);
+    let prepared, resume;
+    const ready = new Promise(resolve => { prepared = resolve; });
+    const paused = new Promise(resolve => { resume = resolve; });
+    if (phase === 'executable discovery') f.manager.executable = async () => { prepared(); await paused; return process.execPath; };
+    else {
+      const authTurn = f.manager.claudeAuthTurn.bind(f.manager);
+      f.manager.claudeAuthTurn = async () => { const turn = await authTurn(); prepared(); await paused; return turn; };
+    }
+    const pending = f.manager.claudeModels();
+    const rejected = assert.rejects(pending, /Provider manager is closed/);
+    await ready;
+    f.manager.close();
+    resume();
+    await rejected;
+    assert.equal(f.calls.length, 0, phase);
+    assert.equal(f.manager.metadataProcesses.size, 0, phase);
+    assert.equal(f.manager.claudeAuthWait, null, phase + ' must release the auth turn');
+  }
 });
 
 const TINY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aKxoAAAAASUVORK5CYII=';
@@ -1046,4 +1074,36 @@ test('chat-mode runs switch off built-in tools and expose only conversation tool
   assert.deepEqual(start.dynamicTools.map(tool => tool.name), ['memory_note', 'archive_search']);
   assert.equal(start.config.features.shell_tool, false);
   assert.equal(start.config.web_search, 'disabled');
+});
+
+test('Claude turns stay open while native background tasks run and finish with the completion reply',async t=>{
+  const f=await fixture(t);f.manager.claudeStatus=async()=>({connected:true});let child,args;
+  f.setHandler((c,received)=>{child=c;args=received;setImmediate(()=>{
+    c.json({type:'system',subtype:'init',session_id:'bg'});
+    c.json({type:'assistant',message:{id:'m1',content:[{type:'text',text:'Started.'}]}});
+    c.json({type:'system',subtype:'background_tasks_changed',tasks:[{task_id:'b1',task_type:'local_bash'}]});
+    c.json({type:'result',subtype:'success',result:'Started.',session_id:'bg'});
+  });});
+  let settled=false;const run=f.manager.run({provider:'claude',conversationId:'bg',prompt:'synthetic',model:'auto'});run.finally(()=>{settled=true;}).catch(()=>{});
+  while(!f.events.some(e=>e.type==='chat.notice'))await new Promise(r=>setTimeout(r,5));
+  assert.equal(child.stdin.writableEnded,false,'stdin must stay open while a background task runs');
+  assert.equal(settled,false);
+  assert.ok(f.events.some(e=>e.type==='chat.notice'&&/background task/.test(e.text)));
+  for(const name of ['ScheduleWakeup','CronCreate','CronDelete','CronList'])assert.ok(args.slice(args.indexOf('--disallowedTools')).includes(name));
+  child.stdin.on('finish',()=>child.finish());
+  child.json({type:'system',subtype:'background_tasks_changed',tasks:[]});
+  child.json({type:'system',subtype:'task_notification',task_id:'b1',status:'completed'});
+  child.json({type:'system',subtype:'init',session_id:'bg'});
+  child.json({type:'assistant',message:{id:'m2',content:[{type:'text',text:'Finished.'}]}});
+  child.json({type:'result',subtype:'success',result:'Finished.',session_id:'bg'});
+  const result=await run;
+  assert.equal(result.text,'Finished.');
+  assert.equal(f.events.filter(e=>e.type==='chat.delta').map(e=>e.text).join(''),'Started.Finished.');
+  assert.equal(child.stdin.writableEnded,true);
+});
+
+test('Claude turns without background tasks end at the first result',async t=>{
+  const f=await fixture(t);f.manager.claudeStatus=async()=>({connected:true});
+  f.setHandler(c=>{c.stdin.on('finish',()=>c.finish());setImmediate(()=>{c.json({type:'system',subtype:'background_tasks_changed',tasks:[]});c.json({type:'result',subtype:'success',result:'Done',session_id:'s'});});});
+  assert.equal((await f.manager.run({provider:'claude',conversationId:'nb',prompt:'synthetic',model:'auto'})).text,'Done');
 });

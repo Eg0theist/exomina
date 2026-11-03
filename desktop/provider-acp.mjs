@@ -129,7 +129,9 @@ export class AcpProvider {
   }
   async finishMedia(state){await Promise.all(state.mediaJobs||[]);if(state.mediaFailure)throw Error(state.mediaFailure);}
   mcp(conversationId) {
-    const gateway = this.manager.gateway;
+    const state=this.manager.active?.get(conversationId);
+    if(state?.noTools)return [];
+    const gateway = state&&this.manager.gatewayFor?this.manager.gatewayFor(state):this.manager.gateway;
     if (!gateway?.script || !gateway?.url || !gateway?.token) return [];
     return [{ name: 'exomina', command: process.execPath, args: [gateway.script], env: [
       { name: 'ELECTRON_RUN_AS_NODE', value: '1' }, { name: 'EXOMINA_TOOL_GATEWAY', value: gateway.url },

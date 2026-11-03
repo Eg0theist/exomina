@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Download, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { api } from './transport.js';
 import useUpdateStatus from './useUpdateStatus.js';
+import {buildIdentity} from './build-label.js';
 import './updates.css';
 
 const when=value=>{const date=new Date(value);return Number.isNaN(date.getTime())?null:date.toLocaleString();};
-const buildLabel=build=>build?`${build.version||'Unknown version'} · ${when(build.builtAt)||'build date unavailable'}`:'Build information unavailable';
+const buildLabel=build=>build?`${buildIdentity(build)} · ${when(build.builtAt)||'build date unavailable'}`:'Build information unavailable';
 const bytes=value=>value>=1024**3?`${(value/1024**3).toFixed(1)} GB`:`${(value/1024**2).toFixed(1)} MB`;
 const OUTCOME={installed:'Installed',declined:'Administrator approval was declined',failed:'Failed'};
 const failureText=failure=>(failure.message||String(failure)).replace(/^Error invoking remote method '[^']+': Error: /,'');

@@ -68,10 +68,10 @@ test('disabled native providers cannot use login, chat, direct runs or helper re
   assert.equal(f.manager.silent.size, 0);
 });
 
-test('the default manager keeps opt-in connections off', async t => {
+test('the default manager honors providers omitted by the current build catalog', async t => {
   const f = await fixture(t);
-  assert.equal(f.manager.isProviderEnabled('claude'), Boolean(getProvider('claude')) && !getProvider('claude').optIn);
-  if (f.manager.isProviderEnabled('claude')) {
+  assert.equal(f.manager.isProviderEnabled('claude'), Boolean(getProvider('claude')));
+  if (getProvider('claude')) {
     assert.doesNotThrow(() => f.manager.requireProvider('claude'));
   } else {
     for (const operation of operations(f.manager, 'claude')) await assert.rejects(operation(), /not available in this build/);

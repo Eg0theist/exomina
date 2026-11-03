@@ -1,8 +1,9 @@
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {mkdir,writeFile,readFile,lstat,copyFile,access,rm,cp,readdir,rename} from 'node:fs/promises';
+import {mkdir,writeFile,readFile,lstat,realpath,copyFile,access,rm,cp,readdir,rename} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {createHash,randomBytes} from 'node:crypto';
+import {removeChatAnalysisData,chatAnalysisFolder} from './app-analysis-cleanup.mjs';
 
 export const GHIDRA_QUERIES=['program_info','functions','classes','namespaces','segments','imports','exports','data','strings','function','decompile','disassemble','xrefs_to','xrefs_from','function_xrefs','function_calls','read_memory'];
 export const GHIDRA_EDITS=['rename_function','rename_data','rename_variable','set_comment','set_prototype','set_variable_type'];
@@ -34,9 +35,9 @@ export function validateGhidraArguments(operation,args={},edit=false){
 async function regular(file){const info=await lstat(file);if(!info.isFile()||info.isSymbolicLink()||info.nlink>1)throw Error('Ghidra setup requires a regular, unlinked file.');return info;}
 
 export class GhidraWorkspaces{
- constructor({dataDir,analysis,approve,getChat,save=async()=>{},emit=()=>{},runtimeRoot=fileURLToPath(new URL('..',import.meta.url)),installedSetup=null,notify=null,limits={}}){Object.assign(this,{dataDir,analysis,approve,getChat,save,emit,runtimeRoot,installedSetup,notify});this.limits={...JOB_LIMITS,...limits};this.jobs=new Map();this.sessions=new Map();this.starting=new Map();this.imports=new Map();this.closed=false;this.generation=new Map();}
+ constructor({dataDir,analysis,approve,getChat,save=async()=>{},emit=()=>{},runtimeRoot=fileURLToPath(new URL('..',import.meta.url)),installedSetup=null,notify=null,limits={}}){Object.assign(this,{dataDir,analysis,approve,getChat,save,emit,runtimeRoot,installedSetup,notify});this.limits={...JOB_LIMITS,...limits};this.jobs=new Map();this.sessions=new Map();this.starting=new Map();this.imports=new Map();this.deleting=new Set();this.adopting=new Map();this.closed=false;this.generation=new Map();}
  get definitions(){return GHIDRA_TOOLS;}
- status(id){const chat=this.getChat(id),session=this.sessions.get(id),saved=chat?.ghidraProject?.selectionId===chat?.analysisTarget?.selectionId?chat?.ghidraProject:null;return {version:'2.0.0',target:chat?.analysisTarget?{name:chat.analysisTarget.name,kind:chat.analysisTarget.kind}:null,editing:!!chat?.ghidraEditing,state:this.starting.has(id)?'starting':session&&!session.dead?'connected':'stopped',program:session?.program||saved?.program||null,sha256:session?.hash||saved?.sha256||null,project:session?.folder||saved?.project||null,job:this.jobView(id),queries:GHIDRA_QUERIES,edits:GHIDRA_EDITS};}
+ status(id){const chat=this.getChat(id),session=this.sessions.get(id),saved=chat?.ghidraProject?.selectionId===chat?.analysisTarget?.selectionId?chat?.ghidraProject:null;return {version:'2.0.0',cleanup:chat?.ghidraCleanup||null,target:chat?.analysisTarget?{name:chat.analysisTarget.name,kind:chat.analysisTarget.kind}:null,editing:!!chat?.ghidraEditing,state:this.starting.has(id)?'starting':session&&!session.dead?'connected':'stopped',program:session?.program||saved?.program||null,sha256:session?.hash||saved?.sha256||null,project:session?.folder||saved?.project||null,job:this.jobView(id),queries:GHIDRA_QUERIES,edits:GHIDRA_EDITS};}
  jobView(id){
   const job=this.jobs.get(id);if(!job)return null;
   const end=job.finishedAt||Date.now();
@@ -80,6 +81,7 @@ export class GhidraWorkspaces{
   }
  }
  start(id,{userAction=false}={}){
+  if(this.deleting.has(id)||this.adopting.has(id)||this.analysis.maintenance?.has(id))return Promise.reject(Error('Saved analysis is being changed in this chat.'));
   if(this.starting.has(id))return this.starting.get(id);
   const generation=this.generation.get(id)||0;
   this.jobs.set(id,{phase:'preparing',startedAt:Date.now(),finishedAt:null,detail:'',error:null,wake:false});
@@ -136,22 +138,35 @@ export class GhidraWorkspaces{
  /** A half-finished import must never be reopened as if it were a complete analysis. */
  async discardProject(folder){for(const name of ['Exomina.gpr','Exomina.rep','Exomina.lock','Exomina.lock~'])await rm(path.join(folder,name),{recursive:true,force:true}).catch(()=>{});}
  /** Reuses a project that was analysed outside Exomina (for example a headless run with no time limit) for the selected EXE. */
- async adopt(id,gprFile){
+ adopt(id,gprFile){
+  if(this.closed||this.deleting.has(id)||this.adopting.has(id)||this.analysis.maintenance?.has(id))return Promise.reject(Error('Saved analysis is being changed in this chat.'));
+  const pending=this.adoptNow(id,gprFile,this.generation.get(id)||0).finally(()=>{this.adopting.delete(id);});this.adopting.set(id,pending);return pending;
+ }
+ async adoptNow(id,gprFile,generation){
+  const live=()=>{if(this.closed||(this.generation.get(id)||0)!==generation)throw Error('Ghidra project adoption cancelled.');};live();
   if(this.starting.has(id)||this.sessions.get(id))throw Error('Stop the Ghidra project before using another one.');
-  const target=await this.analysis.target(id);if(target.kind!=='file'||!target.name.toLowerCase().endsWith('.exe'))throw Error('Choose a single Windows EXE first.');
+  const target=await this.analysis.target(id);live();if(target.kind!=='file'||!target.name.toLowerCase().endsWith('.exe'))throw Error('Choose a single Windows EXE first.');
   if(typeof gprFile!=='string'||!/\.gpr$/i.test(gprFile))throw Error('Choose a Ghidra project file (.gpr).');
   const source=path.dirname(gprFile),name=path.basename(gprFile).slice(0,-4);await regular(gprFile);
-  const entries=await readdir(source);if(entries.some(entry=>entry.toLowerCase()===name.toLowerCase()+'.lock'))throw Error('That project is still open or did not close cleanly. Wait for its Ghidra run to finish first.');
+  const entries=await readdir(source);live();if(entries.some(entry=>[name.toLowerCase()+'.lock',name.toLowerCase()+'.lock~'].includes(entry.toLowerCase())))throw Error('That project is still open or did not close cleanly. Wait for its Ghidra run to finish first.');
   if(!(await lstat(path.join(source,name+'.rep')).catch(()=>null))?.isDirectory())throw Error('The project data folder '+name+'.rep is missing next to the .gpr file.');
-  const bytes=await this.analysis.bytes(target.path,{expected:target.identity,max:256*1024*1024}),hash=createHash('sha256').update(bytes).digest('hex');
-  const folder=path.join(this.dataDir,'ghidra-workspaces',createHash('sha256').update(id).digest('hex'),hash);
-  if(await access(path.join(folder,'Exomina.gpr')).then(()=>true,()=>false)){
-   /* An earlier project (often a partial import from a run that hit the old time limits) is set aside, not deleted, so any edits in it stay recoverable. */
-   const backup=path.join(folder,'replaced-'+new Date().toISOString().replace(/[:.]/g,'-'));await mkdir(backup,{recursive:true});
-   for(const entry of ['Exomina.gpr','Exomina.rep','Exomina.lock','Exomina.lock~'])await rename(path.join(folder,entry),path.join(backup,entry)).catch(error=>{if(error.code!=='ENOENT')throw error;});
+  const bytes=await this.analysis.bytes(target.path,{expected:target.identity,max:256*1024*1024});live();const hash=createHash('sha256').update(bytes).digest('hex');
+  const parent=this.folder(id),folder=path.join(parent,hash),staged=path.join(parent,`.adopting-${hash}-${randomBytes(12).toString('hex')}`);let backup,committed=false,preserveStaged=false;
+  await mkdir(staged,{recursive:true});
+  try{
+   live();await mkdir(path.join(staged,'home'));await mkdir(path.join(staged,'checkpoints'));await writeFile(path.join(staged,'target.exe'),bytes);live();
+   await copyFile(gprFile,path.join(staged,'Exomina.gpr'));live();
+   await cp(path.join(source,name+'.rep'),path.join(staged,'Exomina.rep'),{recursive:true,errorOnExist:true,force:false,filter:async file=>{live();const info=await lstat(file);if(info.isSymbolicLink()||info.isFile()&&info.nlink>1)throw Error('Ghidra adoption cannot copy linked project entries.');return true;}});live();
+   await this.analysis.confirmTarget?.(id,target);live();await writeFile(path.join(staged,'adopted.json'),JSON.stringify({from:gprFile,sha256:hash}));live();
+   if(await access(folder).then(()=>true,()=>false)){
+    const locks=(await readdir(folder)).some(entry=>/^Exomina\.lock~?$/i.test(entry));if(locks)throw Error('Close the saved Ghidra project before replacing it.');
+    backup=path.join(staged,'replaced-'+new Date().toISOString().replace(/[:.]/g,'-'));await rename(folder,backup);
+   }
+   // Complete this bounded two-rename commit before observing another cancellation.
+   try{await rename(staged,folder);committed=true;}catch(error){if(backup)try{await rename(backup,folder);}catch(rollback){preserveStaged=true;throw Error(`Ghidra adoption could not commit or restore the old project. Preserved at ${backup}. ${rollback.message}`);}throw error;}
+  }finally{
+   if(!committed&&!preserveStaged){const info=await lstat(staged).catch(()=>null);if(info){const actual=await realpath(staged),actualParent=await realpath(parent);if(info.isSymbolicLink()||path.dirname(actual)!==actualParent)throw Error('Adoption cleanup path changed; staged files were kept.');await rm(staged,{recursive:true,force:false});}}
   }
-  await mkdir(path.join(folder,'home'),{recursive:true});await mkdir(path.join(folder,'checkpoints'),{recursive:true});await writeFile(path.join(folder,'target.exe'),bytes);
-  try{await copyFile(gprFile,path.join(folder,'Exomina.gpr'));await cp(path.join(source,name+'.rep'),path.join(folder,'Exomina.rep'),{recursive:true,errorOnExist:true,force:false});await writeFile(path.join(folder,'adopted.json'),JSON.stringify({from:gprFile,sha256:hash}));}catch(error){await this.discardProject(folder);throw error;}
   this.emit({type:'ghidra.changed',conversationId:id});return this.status(id);
  }
  fail(session,error){session.dead=true;for(const pending of session.pending.values()){clearTimeout(pending.timer);pending.reject(error);}session.pending.clear();}
@@ -173,6 +188,24 @@ export class GhidraWorkspaces{
   return {state:'starting',message:'Ghidra analysis is still running in the background; it has not hung. Do not retry ghidra_query now. Exomina will send an automatic notice when it finishes or fails. Use ghidra_status to see the phase and elapsed time.',job:this.jobView(id)};
  }
  async stopSession(id){const session=this.sessions.get(id);if(!session)return;this.sessions.delete(id);if(session.dead)return;if(!session.program){session.child.kill();return;}try{await this.request(session,'close');session.child.stdin.end();await new Promise(resolve=>{const timer=setTimeout(()=>{session.child.kill();resolve();},5000);session.child.once('close',()=>{clearTimeout(timer);resolve();});});}catch{session.child.kill();}}
- async stop(id){this.generation.set(id,(this.generation.get(id)||0)+1);const starting=this.starting.get(id);this.imports.get(id)?.kill();await this.stopSession(id);await starting?.catch(()=>{});this.emit({type:'ghidra.changed',conversationId:id});return this.status(id);}
- async close(){this.closed=true;await Promise.all([...new Set([...this.sessions.keys(),...this.starting.keys()])].map(id=>this.stop(id)));}
+ async stop(id){this.generation.set(id,(this.generation.get(id)||0)+1);const starting=this.starting.get(id),adopting=this.adopting.get(id);this.imports.get(id)?.kill();await this.stopSession(id);await Promise.allSettled([starting,adopting].filter(Boolean));this.emit({type:'ghidra.changed',conversationId:id});return this.status(id);}
+ folder(id){return chatAnalysisFolder(this.dataDir,'ghidra-workspaces',id);}
+ assertProjectsDeletable(id){
+  if(this.closed)throw Error('Ghidra workspaces are closed.');
+  const session=this.sessions.get(id),job=this.jobs.get(id);
+  if(this.deleting.has(id)||this.adopting.has(id)||this.analysis.maintenance?.has(id)||this.starting.has(id)||this.imports.has(id)||job&&!job.finishedAt||session&&(!session.dead||session.child?.exitCode===null&&session.child?.signalCode===null))throw Error('Save and stop this chat’s Ghidra project and finish changing its selection before deleting it.');
+  const chat=this.getChat(id);if(!chat)throw Error('Choose a chat.');
+  const saved=chat.ghidraProject?.project,folder=this.folder(id),key=value=>process.platform==='win32'?path.resolve(value).toLowerCase():path.resolve(value);
+  if(saved&&(typeof saved!=='string'||key(path.dirname(saved))!==key(folder)||!/^[a-f0-9]{64}$/i.test(path.basename(saved))))throw Error('The saved Ghidra project is outside this chat’s expected storage layout. Its files and metadata were kept.');
+ }
+ async deleteProjects(id,{confirmed=false}={}){
+  if(confirmed!==true)throw Error('Confirm deletion of this chat’s saved Ghidra projects and checkpoints first.');
+  this.assertProjectsDeletable(id);const chat=this.getChat(id),previous={ghidraProject:chat.ghidraProject,ghidraEditing:chat.ghidraEditing,ghidraCleanup:chat.ghidraCleanup};let detached=false;
+  this.deleting.add(id);
+  try{
+   const pending=removeChatAnalysisData(this.dataDir,'ghidra-workspaces',id,{folder:this.folder(id),requireExisting:!!chat.ghidraProject,onDetached:async({pending})=>{delete chat.ghidraProject;delete chat.ghidraEditing;chat.ghidraCleanup={paths:pending};await this.save();detached=true;}});this.cleanups??=new Map();this.cleanups.set(id,pending);
+   const deletion=await pending;delete chat.ghidraCleanup;this.sessions.delete(id);this.jobs.delete(id);await this.save();this.emit({type:'ghidra.changed',conversationId:id});return {...this.status(id),deletion};
+  }catch(error){if(!detached&&!error.analysisDetached)for(const [key,value] of Object.entries(previous)){if(value===undefined)delete chat[key];else chat[key]=value;}this.emit({type:'ghidra.changed',conversationId:id});throw error;}finally{this.cleanups?.delete(id);this.deleting.delete(id);}
+ }
+ async close(){this.closed=true;await Promise.allSettled([...new Set([...this.sessions.keys(),...this.starting.keys(),...this.adopting.keys()])].map(id=>this.stop(id)).concat([...(this.cleanups?.values()||[])]));}
 }

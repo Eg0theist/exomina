@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import vm from 'node:vm';
 import {approveTerminalCommand} from '../desktop/terminal-approval.mjs';
 import { PermissionPolicy, normalizeRule, suggestRule } from '../desktop/permissions.mjs';
+import {featureDisabled} from '../desktop/features.mjs';
 const base = () => ({conversationId:'chat', request:{conversationId:'chat',detail:'preview',input:{command:'Get-Date'}}, getContext:async()=>({workspace:'C:/work'}), evaluate:()=>({decision:'ask'}), ask:async()=>true});
 
 test('manual terminal obeys a deny without creating an approval and uses exact chat command policy', async()=>{
@@ -33,7 +34,7 @@ async function hostApprovalFixture(t, permissionMode = 'ask') {
   assert.ok(start >= 0 && end > start, 'desktop approval coordinator remains discoverable');
   const settings = { permissionMode, permissionRules: [] }, approvals = new Map();
   const policy = new PermissionPolicy({ getSettings: () => settings });
-  const context = { settings, approvals, policy, normalizeRule, suggestRule, createHash, randomUUID, setTimeout, clearTimeout,
+  const context = { settings, approvals, policy, normalizeRule, suggestRule,featureDisabled, createHash, randomUUID, setTimeout, clearTimeout,
     toolContext: { getStore: () => undefined }, nativeScopeLive: () => true,
     active: new Map([['chat', {}]]), store: { state: { settings, conversations: [{ id: 'chat' }] }, save: async () => {} },
     emit: () => {}, getProvider: () => ({ name: 'Synthetic provider' }), explainAction: () => ({}),
@@ -73,4 +74,9 @@ test('native confirmations still require the explicit answer and honor current d
   fixture.settings.permissionRules = [normalizeRule({ effect: 'deny', tool: 'codex.command' })];
   fixture.approvals.values().next().value.finish({ decision: 'once' });
   assert.equal((await denied).approved, false);
+});
+
+test('pending host approvals cannot reactivate a feature removed while awaiting consent',async t=>{
+ const fixture=await hostApprovalFixture(t),action={kind:'execute',tool:'workspace_shell',target:'synthetic command'};
+ const pending=fixture.ask({title:'Synthetic command',detail:action.target,conversationId:'chat',action});assert.equal(fixture.approvals.size,1);fixture.settings.disabledFeatures=['files'];fixture.approvals.values().next().value.finish({decision:'always'});const answer=await pending;assert.equal(answer.approved,false);assert.match(answer.message,/turned off/);assert.equal(fixture.settings.permissionRules.length,0);
 });

@@ -37,10 +37,11 @@ export class UpdateRestartGuard {
 
 /** Counts only live host state. An interactive shell remains open while idle;
  * terminal output cannot reliably prove whether its child programs are idle. */
-export function updateRestartBlockers({quitting=false,replies=0,queued=0,commands=0,terminals=0,analysis=0,followups=0,voice=false,realtime=false,realtimeClosing=0}={}) {
+export function updateRestartBlockers({quitting=false,replies=0,reflections=0,queued=0,commands=0,terminals=0,analysis=0,followups=0,voice=false,realtime=false,realtimeClosing=0}={}) {
   const result=[],add=(kind,count,message)=>{if(count>0)result.push({kind,count,message});};
   add('closing',quitting?1:0,'Exomina is closing.');
   add('replies',replies,`Finish or stop ${replies} active ${replies===1?'reply':'replies'}.`);
+  add('reflections',reflections,'Wait for automatic Soul reflection to finish, or pause automatic learning in Settings → Personalisation.');
   add('queued',queued,`Send or remove ${queued} queued ${queued===1?'message':'messages'}.`);
   add('commands',commands,`Finish or stop ${commands} terminal ${commands===1?'command':'commands'}.`);
   add('terminals',terminals,`Close ${terminals} open terminal ${terminals===1?'session':'sessions'} in Terminal, including shells waiting at a prompt.`);

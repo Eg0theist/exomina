@@ -9,14 +9,18 @@ export default function ChatStyle({ chat, defaultTone = 'balanced', onChange, on
   const own = chat?.personalization || null;
   const [draft, setDraft] = useState(own?.instructions || '');
   const area = useRef(null);
-  const close = useCallback(() => setOpen(false), []);
+  const trigger = useRef(null);
+  const close = useCallback(event => {
+    setOpen(false);
+    if(event?.key==='Escape' && trigger.current?.isConnected) trigger.current.focus({preventScroll:true});
+  }, []);
   useDismiss(area, open, close);
   useEffect(() => { setDraft(own?.instructions || ''); }, [chat?.id, own?.instructions]);
   const tone = own?.tone || defaultTone;
   const label = TONES.find(item => item.id === tone)?.name || 'Balanced';
   const save = patch => onChange({ ...(own || {}), ...patch });
   return <div className="permission-picker chat-style" ref={area}>
-    <button type="button" className={`composer-chip ${own ? 'is-own' : ''}`} aria-label={`Chat style: ${label}`} disabled={disabled || !chat} onClick={() => setOpen(!open)} aria-expanded={open} title={chat ? `Chat style: ${label}` : 'Send a message first to give this chat its own style'}>
+    <button ref={trigger} type="button" className={`composer-chip ${own ? 'is-own' : ''}`} aria-label={`Chat style: ${label}`} disabled={disabled || !chat} onClick={() => setOpen(!open)} aria-expanded={open} title={chat ? `Chat style: ${label}` : 'Send a message first to give this chat its own style'}>
       <Palette size={14} /><span>{label}</span><ChevronDown size={12} className="chip-caret" />
     </button>
     {open && <div className="popover permission-popover chat-style-popover" role="dialog" aria-label="How this chat responds">

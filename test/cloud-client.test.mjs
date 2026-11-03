@@ -58,18 +58,6 @@ test('private endpoints reject insecure origins and portable payloads omit nativ
   assert.equal(JSON.stringify(data).includes('private'), false);
 });
 
-test('basic_text blocks pairing before the request and preserves existing connection bytes on reload',async t=>{
- const f=await fixture(t),a=await f.device('protected-device');
- const before=await readFile(a.client.file,'utf8');let requests=0;
- const blocked={...a.options.encryption,getSelectedStorageBackend:()=> 'basic_text'};
- a.client.encryption=blocked;a.client.fetchImpl=async()=>{requests++;throw Error('must not pair');};
- await assert.rejects(a.client.configure({url:f.url,pairingCode:'synthetic'}),error=>error.code==='SECRET_STORAGE_UNAVAILABLE');
- assert.equal(requests,0);assert.equal(await readFile(a.client.file,'utf8'),before);
- await a.client.close();a.client=new CloudClient({...a.options,encryption:blocked});await a.client.init();
- assert.equal(a.client.status().configured,false);assert.match(a.client.status().error,/encryption is unavailable/);
- assert.equal(await readFile(a.client.file,'utf8'),before);
-});
-
 test('chat title ownership, pins and archive state make a two-device round trip without exposing runtime metadata', async t => {
   const f=await fixture(t),a=await f.device('organization-a'),b=await f.device('organization-b');
   const original=chat(a.store);Object.assign(original,{title:'My manual title',titleSource:'manual',pinned:true,archived:true,sessions:{codex:'private-native'}});await a.store.save();

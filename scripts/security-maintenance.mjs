@@ -42,7 +42,8 @@ export function verifyNodeCandidate({version:next,archive,checksums,current=ANAL
 }
 async function inspectSignature(exe,folder){
  const script=path.join(folder,'inspect-node-signature.ps1');await writeFile(script,"$ErrorActionPreference='Stop'\n$s=Get-AuthenticodeSignature -LiteralPath $env:EXOMINA_NODE_CANDIDATE\n@{status=[string]$s.Status;thumbprint=[string]$s.SignerCertificate.Thumbprint;productVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:EXOMINA_NODE_CANDIDATE).ProductVersion}|ConvertTo-Json -Compress\n",{flag:'wx'});
- const{stdout}=await promisify(execFile)(path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-WindowStyle','Hidden','-File',script],{windowsHide:true,encoding:'utf8',env:{...process.env,EXOMINA_NODE_CANDIDATE:exe},timeout:30000});return JSON.parse(stdout);
+ const env={...process.env,EXOMINA_NODE_CANDIDATE:exe};delete env.PSModulePath;
+ const{stdout}=await promisify(execFile)(path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-WindowStyle','Hidden','-File',script],{windowsHide:true,encoding:'utf8',env,timeout:30000});return JSON.parse(stdout);
 }
 /** Verifies in a fresh candidate folder before any pin or vendor promotion. */
 export async function stageNodeCandidate({next,root=project,fetchBytes=officialNodeBytes,inspect=inspectSignature}={}){
@@ -90,8 +91,6 @@ export async function maintain({root=project,prepare=false,reportFile=path.join(
  }
  await mkdir(path.dirname(reportFile),{recursive:true});await writeFile(reportFile,JSON.stringify(report,null,2)+'\n','utf8');if(report.npm.blockers.length||report.node.securityUpdateAvailable)throw Error('Unresolved high/critical runtime advisories or an official Node security update block qualification. See the maintenance report.');return report;
 }
-/** Two maintenance reports describe the same candidate when only their check time differs. */
-export function sameMaintenanceReport(previous,current){const strip=text=>{const {checkedAt,...rest}=JSON.parse(String(text).replace(/^\uFEFF/,''));return JSON.stringify(rest);};try{return strip(previous)===strip(current);}catch{return false;}}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- const args=process.argv.slice(2);if(args.includes('--help'))console.log('node scripts/security-maintenance.mjs [--check | --prepare] [--report FILE]\nnode scripts/security-maintenance.mjs --same-report PREVIOUS CURRENT\nCheck npm advisories, compatible direct versions and official Node24. Prepare creates candidates only; signing and publication belong to separately gated trusted-branch CI. --same-report exits 0 when two reports differ only in check time, otherwise 1.');else if(args[0]==='--same-report')Promise.all([readFile(args[1],'utf8'),readFile(args[2],'utf8')]).then(([previous,current])=>{process.exitCode=sameMaintenanceReport(previous,current)?0:1;}).catch(error=>{console.error(error.message);process.exitCode=2;});else{const at=args.indexOf('--report');maintain({prepare:args.includes('--prepare'),reportFile:at<0?undefined:path.resolve(args[at+1])}).then(report=>console.log(JSON.stringify(report,null,2))).catch(error=>{console.error(error.message);process.exitCode=1;});}
+ const args=process.argv.slice(2);if(args.includes('--help'))console.log('node scripts/security-maintenance.mjs [--check | --prepare] [--report FILE]\nCheck npm advisories, compatible direct versions and official Node24. Prepare creates candidates only; signing and publication belong to separately gated trusted-branch CI.');else{const at=args.indexOf('--report');maintain({prepare:args.includes('--prepare'),reportFile:at<0?undefined:path.resolve(args[at+1])}).then(report=>console.log(JSON.stringify(report,null,2))).catch(error=>{console.error(error.message);process.exitCode=1;});}
 }

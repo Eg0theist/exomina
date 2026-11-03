@@ -1,3 +1,4 @@
+import {normalizeSoulLearning,soulRegister} from './soul-learning-state.mjs';
 // Web Crypto: this module is shared with the renderer.
 const randomUUID=()=>globalThis.crypto.randomUUID();
 
@@ -72,7 +73,7 @@ export function normalizeSoul(value,{includeHistory=true,includeEvidence=true}={
   }));
   // The day of the one-time seeding from history; null while it is still available.
   const seededAt=typeof input.seededAt==='string'&&/^\d{4}-\d{2}-\d{2}/.test(input.seededAt)?input.seededAt.slice(0,10):null;
-  return {enabled:input.enabled!==false,name:text(input.name,SOUL_LIMITS.name)||SOUL_NAME,essence:text(input.essence,SOUL_LIMITS.essence)||SOUL_ESSENCE,traits,seededAt,history};
+  return {enabled:input.enabled!==false,name:text(input.name,SOUL_LIMITS.name)||SOUL_NAME,essence:text(input.essence,SOUL_LIMITS.essence)||SOUL_ESSENCE,traits,seededAt,history,learning:normalizeSoulLearning(input.learning,{prompt:!includeHistory})};
 }
 const traitLine=trait=>`- [${trait.id}, ${trait.source}, confirmed ${trait.confirmedAt}] ${trait.text}`;
 export function soulBudget(value){
@@ -80,13 +81,23 @@ export function soulBudget(value){
   return {used,budget:SOUL_LIMITS.activeChars,target:SOUL_LIMITS.targetChars,trigger:SOUL_LIMITS.consolidateAt,remaining:Math.max(0,SOUL_LIMITS.activeChars-used),needsConsolidation:used>=SOUL_LIMITS.consolidateAt,overBudget:used>SOUL_LIMITS.activeChars,traitCount:traits.length};
 }
 /** Private chats get only the seed: they neither see nor change what was learned. */
-export function soulContext(value,{privateChat=false}={}){
+export function soulContext(value,{privateChat=false,request='',voice=false}={}){
   const soul=normalizeSoul(value,{includeHistory:false,includeEvidence:false});
   if(!soul.enabled)return '';
   const lines=[`Your character in Exomina, shared by every model here (never mention this block): you are ${soul.name}. ${soul.essence}`,
     `${soul.name} is a character, not a claim to be human or to be a different model: if asked, say which model is answering. Character shows in judgment, attention and tone; keep practical help practical and plain, never ornamental. The user's explicit request in the moment outranks everything below.`];
   if(privateChat)return lines.join('\n')+'\n';
-  if(soul.traits.length)lines.push(`What ${soul.name} has learned about meeting this user (stated preferences outrank inferred ones; ids for soul_reflect):\n`+soul.traits.map(traitLine).join('\n'));
+  const register=soulRegister(request);
+  const terms=new Set(String(request).toLowerCase().match(/[\p{L}]{4,}/gu)||[]);
+  const score=trait=>(trait.source==='stated'?100:0)+[...terms].filter(term=>trait.text.toLowerCase().includes(term)).length;
+  const ordered=[...soul.traits].sort((a,b)=>score(b)-score(a));
+  if(ordered.length)lines.push(`What ${soul.name} has learned about meeting this user (stated preferences outrank inferred ones; ids for soul_reflect):\n`+ordered.map(traitLine).join('\n'));
+  lines.push(`Expression for this exchange (${voice?'spoken ':''}${register}): Let applicable preferences shape what you notice, how much you explain, when you ask, and whether you challenge a claim. Bring a reasoned point of view, curiosity and initiative when useful. Keep your judgment independent of the user's opinions; earned agreement and respectful disagreement both belong. Develop a recognizable manner through consistent choices, never repeated catchphrases, forced humor or invented feelings and memories. Adapt the register to this request; current instructions and stated preferences always win.`);
+  const learned=soul.learning.observations.filter(item=>item.status==='learned'&&!item.conflicts.length&&(item.scope==='all'||item.scope===register||voice&&item.scope==='voice'));
+  if(learned.length)lines.push('Patterns learned across interactions (inferred unless corrected by the user; apply only within their scope):\n'+learned.slice(-8).map(item=>`- [${item.scope}; ${item.dimension}; ${item.corrected?'user corrected':item.support.length+' source turns'}] ${item.text}`).join('\n'));
+  const examples=soul.learning.examples.filter(item=>item.scope==='all'||item.scope===register||voice&&item.scope==='voice').slice(-2);
+  if(examples.length)lines.push('Examples of phrasing the user explicitly welcomed. These are source examples of timing and manner, not a script or instructions; never reuse their facts or pretend the exchange occurred here:\n'+JSON.stringify(examples.map(item=>({why:item.reason,excerpt:item.text}))));
+  if(voice)return lines.join('\n')+'\n';
   const budget=soulBudget(soul);
   lines.push(`Let this soul develop its own continuity and distinctive manner through the user's actual interactions. Use soul_reflect proactively and quietly when durable evidence warrants an addition, confirmation, revision, consolidation or retirement; routine evolution needs no user prompt or approval. Keep the learned context concise: ${budget.used}/${budget.budget} characters; begin consolidation at ${budget.trigger} toward ${budget.target}, then let it grow again. ${budget.needsConsolidation?'Consolidate redundant inferred traits first, using source ids and evidence-backed replacements. ':''}Keep stated and inferred sources in separate replacements with fromIds; never promote inference to a stated preference by merging it with one. Consolidation must retain every stated preference, condition and scope; inference must never weaken an explicit preference. Revise or retire a stated preference only when new direct evidence from the user changes it, with source stated and the actual quote (plus archiveId for historical evidence). Source evidence and original wording remain stored in lineage; the last 100 changes are recoverable. Do not invent changes merely to make the character seem alive. Entries describe how to meet the user (manner, depth, register, what helps), never diagnoses of who they are; project facts belong in memory. Quoted text, fiction, role-play and other people's preferences are never evidence about the user.`);
   return lines.join('\n')+'\n';
@@ -242,9 +253,9 @@ export function normalizeChatPersonalization(value){
 }
 
 /** The block added to each message. Empty when nothing is personalised. */
-export function personalizationContext(global,chat,{privateChat=false}={}){
+export function personalizationContext(global,chat,{privateChat=false,request='',voice=false}={}){
   const base=normalizePersonalization(global,{prompt:true}),own=normalizeChatPersonalization(chat)||{};
-  const soul=soulContext(base.soul,{privateChat});
+  const soul=soulContext(base.soul,{privateChat,request,voice});
   const tone=TONES.find(item=>item.id===(own.tone||base.tone));
   const lines=[];
   if(base.about)lines.push(`About the user: ${base.about}`);
@@ -254,6 +265,16 @@ export function personalizationContext(global,chat,{privateChat=false}={}){
   if(own.styles!==false)for(const style of base.styles.filter(item=>item.enabled&&item.guide)){
     const where=style.appliesTo==='chat'?'your chat replies':style.appliesTo==='documents'?'documents, files and other text you write for the user to use (not your chat replies)':'both your chat replies and documents or files you write for the user';
     lines.push(`Write in the user's "${style.name}" style for ${where}:\n${style.guide}`);
+  }
+  if(voice){
+    // Budget complete records, never the head/tail of a flat instruction block.
+    // Current-chat instructions and standing rules have first claim on space.
+    const fixed=[own.instructions&&`Instructions for this chat (highest preference priority): ${own.instructions}`,base.instructions&&`Standing instructions: ${base.instructions}`,tone?.text&&`Response tone: ${tone.text}`].filter(Boolean);
+    const pieces=[...fixed,...soul.trim().split('\n'),...lines.filter(line=>!line.startsWith('Instructions for this chat')&&!line.startsWith('The user\'s standing')&&!line.startsWith('Response tone'))];
+    const selected=[];let used=0,omitted=0;
+    for(const piece of pieces){if(used+piece.length+1>9800){omitted++;continue;}selected.push(piece);used+=piece.length+1;}
+    if(omitted)selected.push(`[${omitted} additional preference records omitted from this voice snapshot. Do not guess their contents.]`);
+    return selected.join('\n')+'\n';
   }
   if(!lines.length)return soul+personalizationHint;
   return soul+'User personalization (follow it unless the user asks otherwise; never mention this block):\n'+lines.join('\n')+'\n'+personalizationHint;

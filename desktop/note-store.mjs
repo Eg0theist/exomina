@@ -4,6 +4,7 @@ import {randomUUID, createHash} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 import {memoryQuery,rankMemories} from './memory-relevance.mjs';
 import {memoryConflicts} from './memory-evidence.mjs';
+import {localDay} from './time-context.mjs';
 const schema=(properties={},required=[])=>({type:'object',properties,required,additionalProperties:false});
 const text={type:'string'};
 const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -107,7 +108,7 @@ export class MemoryStore {
     const now=this.meta();if(!version||!Number.isSafeInteger(version.snapshot)||!Number.isSafeInteger(version.revision))return null;
     const added=now.snapshot-version.snapshot;
     if(added<0||now.revision-version.revision!==added||added>limit)return null;
-    return this.db.prepare("SELECT seq,id,text FROM notes WHERE deleted=0 AND seq>? ORDER BY seq").all(version.snapshot);
+    return this.db.prepare("SELECT seq,id,text,created_at FROM notes WHERE deleted=0 AND seq>? ORDER BY seq").all(version.snapshot).map(({created_at,...note})=>({...note,date:localDay(created_at)}));
   }
   meta(){return this.db.prepare('SELECT revision,live_count AS total,max_seq AS snapshot FROM memory_meta WHERE id=1').get();}
   async getNote(id){await this.ready();return provenance(this.db.prepare("SELECT id,text,created_at AS createdAt,chat_owned AS chatOwned,source_recorded AS sourceRecorded,(SELECT json_group_array(chat_id) FROM (SELECT chat_id FROM note_chats WHERE note_id=notes.id ORDER BY chat_id)) AS sourceChatIds FROM notes WHERE id=? AND deleted=0").get(id));}
@@ -251,8 +252,10 @@ export class MemoryStore {
   }
   wakePage(snapshot,before,recentFloor){
     const notes=[];let cursor=before,bytes=0;
-    while(notes.length<40){const source=this.db.prepare('SELECT seq,id,text FROM notes WHERE deleted=0 AND seq<=? AND seq<? ORDER BY seq DESC LIMIT 1').get(snapshot,cursor);if(!source)break;let entry={...source},next=source.seq;
-      if(source.seq<recentFloor)for(let width=8;width<=snapshot;width*=8){const first=Math.floor((source.seq-1)/width)*width+1,last=first+width-1;if(last>=recentFloor||last>=cursor||last>snapshot)break;const cached=this.db.prepare('SELECT text FROM summaries WHERE first_seq=? AND last_seq=?').get(first,last);if(cached){entry={range:`${first}-${last}`,summary:cached.text};next=first;}}
+    // Dates are local days, so ages need no lookup (see time-context.mjs).
+    const span=(first,last)=>{const row=this.db.prepare('SELECT MIN(created_at) AS a,MAX(created_at) AS b FROM notes WHERE deleted=0 AND seq BETWEEN ? AND ?').get(first,last),a=localDay(row?.a),b=localDay(row?.b);return a&&b?(a===b?a:`${a}..${b}`):null;};
+    while(notes.length<40){const source=this.db.prepare('SELECT seq,id,created_at,text FROM notes WHERE deleted=0 AND seq<=? AND seq<? ORDER BY seq DESC LIMIT 1').get(snapshot,cursor);if(!source)break;const date=localDay(source.created_at);let entry={seq:source.seq,id:source.id,...(date?{date}:{}),text:source.text},next=source.seq;
+      if(source.seq<recentFloor)for(let width=8;width<=snapshot;width*=8){const first=Math.floor((source.seq-1)/width)*width+1,last=first+width-1;if(last>=recentFloor||last>=cursor||last>snapshot)break;const cached=this.db.prepare('SELECT text FROM summaries WHERE first_seq=? AND last_seq=?').get(first,last);if(cached){const dates=span(first,last);entry={range:`${first}-${last}`,...(dates?{dates}:{}),summary:cached.text};next=first;}}
       const size=Buffer.byteLength(JSON.stringify(entry));if(notes.length&&bytes+size>11000)break;notes.push(entry);bytes+=size;cursor=next;
     }
     const more=!!this.db.prepare('SELECT 1 FROM notes WHERE deleted=0 AND seq<=? AND seq<? LIMIT 1').get(snapshot,cursor);return {notes,cursor,more};

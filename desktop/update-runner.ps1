@@ -41,6 +41,8 @@ function Watch-Installer($installerProcess) {
 }
 
 try {
+  Set-Location -LiteralPath $InstallHome
+  [Environment]::CurrentDirectory = $InstallHome
   # The app remains open until it receives this acknowledgement. If PowerShell
   # cannot start, the app keeps its window and records a recoverable failure.
   $readyPid = if ($BootstrapPid -gt 0) { $BootstrapPid } else { $LauncherPid }
@@ -62,7 +64,7 @@ try {
   $arguments = '-NoProfile -File {0} -InstallHome {1} -Build {2} -Owner {3} -Report {4} -UpdateLauncherPid {5} -BuildId {6} -AttemptId {7}' -f (Quote $Installer), (Quote $InstallHome), (Quote $Build), $owner, (Quote $report), $LauncherPid, (Quote $BuildId), (Quote $AttemptId)
   if ($ExpectedManifest) { $arguments += ' -ExpectedManifest {0} -ExpectedManifestHash {1}' -f (Quote $ExpectedManifest), (Quote $ExpectedManifestHash) }
   try {
-    $process = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -PassThru
+    $process = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $arguments -WorkingDirectory $InstallHome -Verb RunAs -WindowStyle Hidden -PassThru
   } catch {
     $exception = $_.Exception
     while ($exception.InnerException) { $exception = $exception.InnerException }
@@ -75,7 +77,8 @@ try {
     Watch-Installer $process
     $installed = $null
     if (Test-Path -LiteralPath $report) { $installed = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json }
-    $stamp = Get-Content -LiteralPath (Join-Path $InstallHome 'App\exomina.build.json') -Raw | ConvertFrom-Json
+    $stamp = $null
+    try { $stamp = Get-Content -LiteralPath (Join-Path $InstallHome 'App\exomina.build.json') -Raw -Encoding utf8 | ConvertFrom-Json } catch {}
     if ($installed.attemptId -ne $AttemptId -or $installed.buildId -ne $BuildId -or $installed.installerPid -ne $process.Id) { throw 'The installer did not return a report for this update attempt.' }
     if ($process.ExitCode -eq 0 -and $installed.ok -and $stamp.id -eq $BuildId) { $result.status = 'installed' }
     else { $result.message = if ($installed.error) { [string]$installed.error } elseif ($stamp.id -ne $BuildId) { 'The installer finished without activating the requested build.' } else { "The installer exited with code $($process.ExitCode)." } }
@@ -105,7 +108,7 @@ $reopenExe = if ($result.status -eq 'installed') { Join-Path $InstallHome 'App\E
 function Open-UpdatedProgram([string]$target) {
   if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw 'The executable to reopen is missing.' }
   # Not hidden: Windows applies a hidden start state to the first window the program shows, which would leave it in the tray.
-  Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target)
+  Start-Process -FilePath $target -WorkingDirectory $InstallHome
 }
 # The supervisor uses Electron's Node mode; the reopened app must not inherit it.
 Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue

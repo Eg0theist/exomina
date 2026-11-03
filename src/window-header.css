@@ -27,3 +27,4 @@
 .window-style-notice{color:var(--t-accent)!important}
 @media(max-width:1100px){.window-header .browser-toggle span,.window-header .app-update-button span{display:none}.window-header-lead{flex-basis:auto}}
 @media(max-width:860px){.window-header .sidebar-toggle{display:none}.window-header .mobile-menu{display:grid}.window-header .chat-jump-buttons{display:none}}
+@media(max-width:640px){.window-header{gap:4px}.window-header .window-header-brand,.window-header .topbar-heading,.window-header .topbar-provider{display:none}.window-header .topbar-title{flex:0 0 auto;min-width:44px}.window-header .topbar-actions{flex:1}.window-header .topbar-actions>:not(.question-popup-trigger):not(.app-update-button){display:none}.window-header .topbar-actions .question-popup-trigger{max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}

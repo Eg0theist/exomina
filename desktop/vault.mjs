@@ -29,7 +29,7 @@ export class WindowsVault {
       // machine's policy; PowerShell still honors higher-priority Group Policy.
       const child = this.spawnImpl(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', this.scriptPath], { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
       const finish = (failure, value) => { if (settled) return; settled = true; clearTimeout(timer); this.children.delete(child); if (failure) reject(failure); else resolve(value); };
-      const timer = setTimeout(() => { child.kill(); finish(error('Private storage verification timed out. Keep the app closed and retry; protection has not been confirmed.')); }, ['protect', 'fingerprint', 'prepare'].includes(action) ? 10 * 60000 : 60000);
+      const timer = setTimeout(() => { child.kill(); finish(error('Vault verification timed out. Keep the app closed and retry; protection has not been confirmed.')); }, ['protect', 'fingerprint'].includes(action) ? 10 * 60000 : 60000);
       this.children.set(child, () => { child.kill(); finish(error('The vault helper was closed before verification completed.')); });
       child.stdout.on('data', chunk => { bytes += chunk.length; if (bytes > 2 * 1024 * 1024) { child.kill(); finish(error('The vault helper returned an invalid response.')); } else output += chunk.toString('utf8'); });
       child.stderr.resume(); // Never surface native certificate, account, path, or password diagnostics.

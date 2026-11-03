@@ -9,6 +9,7 @@ const command = value => Array.isArray(value) ? value.join(' ') : String(value |
 
 /** kind groups steps visually: read, write, execute, search, web, browser, desktop, memory, image, agent, app, tool. */
 const HOST = {
+  audio_inspect: ['read','Measuring an audio file','Measured an audio file',input=>input.path],
   ghidra_status: ['read', 'Checking the Ghidra project', 'Checked the Ghidra project'],
   ghidra_query: ['read', 'Reading the Ghidra project', 'Read the Ghidra project', input => input.operation],
   ghidra_edit: ['write', 'Updating the Ghidra project', 'Updated the Ghidra project', input => input.operation],
@@ -18,6 +19,7 @@ const HOST = {
   analysis_report: ['read', 'Reading analysis evidence', 'Read analysis evidence'],
   analysis_read: ['read', 'Reading selected app code', 'Read selected app code', input => input.path],
   analysis_search: ['search', 'Searching selected app code', 'Searched selected app code', input => input.query],
+  outcome_verify: ['read', 'Checking an outcome', 'Checked an outcome', input => input.action === 'view' ? 'verified outcomes' : input.claim || input.kind],
   model_available: ['agent', 'Checking available helpers', 'Checked available helpers'],
   github_search: ['search', 'Searching GitHub', 'Searched GitHub', input => input.query],
   github_repo: ['read', 'Reading a GitHub repository', 'Read a GitHub repository', input => [input.repo, input.path].filter(Boolean).join('/')],
@@ -43,6 +45,7 @@ const HOST = {
   notes_list: ['read', 'Listing approved notes', 'Listed approved notes'],
   notes_read: ['read', 'Reading an approved note', 'Read an approved note'],
   notes_remove_completed: ['write', 'Removing completed note items', 'Removed completed note items'],
+  notes_resolve: ['write', 'Resolving reviewed note items', 'Resolved reviewed note items', input=>input.id],
   notes_annotate: ['write', 'Annotating a note', 'Annotated a note', input=>input.id],
   notes_overview_cleanup: ['write', 'Cleaning overview and source notes', 'Cleaned overview and source notes'],
   browser_open: ['browser', 'Opening a page in the browser', 'Opened a page in the browser', input => input.url],

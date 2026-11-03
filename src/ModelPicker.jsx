@@ -43,6 +43,7 @@ export default function ModelPicker({ native, models = [], model, effort, onMode
       </div>}
       {!models.length && <p className="standard-model-summary">Loading the options for this AI…</p>}
       {speedOption && <p className="standard-model-summary"><strong>{speedOption.label}{speedOption.paid ? ' · costs extra' : ''}</strong> {speedOption.description || ''}</p>}
+      {onRouting&&routing!=='auto'&&<p className="standard-model-summary" role="note"><strong>{routing==='chat'?'Conversation mode is selected.':'Full tools are selected.'}</strong> {ROUTES.find(route=>route.id===routing)?.note} You can change this under More options.</p>}
       <button type="button" className="menu-footer" onClick={onAdvanced}>More options in Advanced view</button>
     </div>;
   }

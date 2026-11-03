@@ -1,6 +1,7 @@
 import {phoneApproval,checkPhoneApproval} from './remote-bridge.mjs';
+import {DesktopInbox} from './desktop-inbox.mjs';
 
-export const DISCORD_CONTROLS=/^\/(?:help|start|approve|deny|approvals|answer|questions|status|stop|permissions|project|new)(?:\s|$)/;
+export const DISCORD_CONTROLS=/^\/(?:help|start|approve|deny|approvals|answer|questions|status|stop|permissions|project|new|desktop)(?:\s|$)/;
 export const DISCORD_TASK_HELP='\n\nLocal work (your PC must stay awake):\n/permissions shows your access level\n/permissions full gives this paired account broad access, without routine approval prompts\n/permissions auto-edit allows edits; commands still ask\n/permissions ask asks before actions\n/permissions read-only allows reading only\n/project lists projects; /project ID selects one; /project default selects your workspace\n/status shows progress and queued messages\n/stop stops work and clears queued messages\n/new starts a fresh chat\n/approvals resends outstanding approvals; /approve ID or /deny ID answers one\n/questions resends questions; /answer ID your answer responds (use a JSON object for several questions)\n\nTips: Send follow-up directions while work is running; they queue for the task. Choose Full access only for an account you trust with your computer. Access is saved separately for each paired account and also editable in desktop Settings → Messaging. Changing access stops current work. Deny rules and required account/security confirmations still apply. /help is available while the AI is busy.';
 const literal=value=>String(value).replace(/[\\`*_~|>#\[\](){}+\-.!]/g,'\\$&');
 // Escape after partitioning so a message boundary cannot split a Markdown escape.
@@ -10,11 +11,12 @@ const literalParts=value=>{const parts=[];for(let i=0;i<value.length;i+=800)part
  * and tool output never enter command(). Approval tickets are bound to the
  * complete delivered operation, originating account, DM, connection and turn. */
 export class DiscordTasks {
-  constructor({getChat,getApproval,listApprovals,respondApproval,answerQuestion,getRun,projects,workspace,save,setMode,stop,now=()=>Date.now()}) {
-    Object.assign(this,{getChat,getApproval,listApprovals,respondApproval,answerQuestion,getRun,projects,workspace,save,setMode,stop,now});
+  constructor({getChat,listChats=()=>[],getApproval,listApprovals,respondApproval,answerQuestion,getRun,projects,workspace,save,setMode,stop,now=()=>Date.now()}) {
+    Object.assign(this,{getChat,listChats,getApproval,listApprovals,respondApproval,answerQuestion,getRun,projects,workspace,save,setMode,stop,now});
     this.tickets=new Map();this.progress=new Map();this.deliveries=new Map();
+    this.desktopInbox=new DesktopInbox(this);
   }
-  attach(hub){this.hub=hub;}
+  attach(hub){this.hub=hub;this.desktopInbox.attach(hub);}
   chatFor(identity,id){const chat=id&&this.getChat(id);return chat&&chat.channel?.type==='discord'&&chat.channel.chatKey===identity.chatKey&&chat.channel.userId===identity.userId?chat:null;}
   async send(identity,text){if(!this.hub.currentIdentity(identity))throw Error('Discord access was revoked.');return this.hub.sendTask(identity,text);}
   route(chat){return chat?.channel?.type==='discord'?this.hub.taskIdentity(chat.channel):null;}
@@ -37,6 +39,7 @@ export class DiscordTasks {
     await this.send(identity,`Question ${group.id}\n${lines.join('\n\n')}\n\n/answer ${group.id} ${group.questions.length===1?'your answer':'{"question-id":"answer",...}'}\nAnswers do not approve actions.`);
   }
   event(event){
+    this.desktopInbox.event(event);
     if(event.type==='approval.resolved'){this.tickets.delete(event.id);return;}
     const chat=event.conversationId&&this.getChat(event.conversationId),identity=this.route(chat);if(!identity)return;
     let work;
@@ -56,6 +59,7 @@ export class DiscordTasks {
   async command(identity,body,conversationId){
     if(!this.hub.currentIdentity(identity))throw Error('Discord access was revoked.');
     const match=/^\/(\S+)(?:\s+([\s\S]*))?$/.exec(body),command=match?.[1],arg=match?.[2]?.trim()||'';
+    if(command==='desktop')return this.desktopInbox.command(identity,body);
     const chat=this.chatFor(identity,conversationId);
     if(command==='help'||command==='start')return 'Exomina Discord commands\n/ai claude (or chatgpt, gemini, …) switches the AI\n/usage shows subscription usage'+DISCORD_TASK_HELP;
     if(command==='approve'||command==='deny'){

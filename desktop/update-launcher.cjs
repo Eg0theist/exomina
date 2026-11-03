@@ -33,7 +33,7 @@ async function stopped(message){
   const reopen={attemptId,buildId,requested:exe,opened:null,status:'failed',error:'',fallbackError:''};
   async function open(target){
     // Never hide the reopened program: Windows applies a hidden start state to the first window it shows, so the app would stay in the tray.
-    const child=spawn(target,[],{detached:true,windowsHide:false,stdio:'ignore',cwd:path.dirname(target),env});
+    const child=spawn(target,[],{detached:true,windowsHide:false,stdio:'ignore',cwd:argument('-InstallHome'),env});
     await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});
     child.unref();reopen.opened=target;
   }
