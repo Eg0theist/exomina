@@ -16,7 +16,7 @@ on:
         default: all
         options: [all, linux, linux-x64, macos]
 concurrency:
-  group: native-beta-${{ github.ref }}
+  group: native-beta-${{ github.ref }}-${{ inputs.native_family || github.event.inputs.native_family || 'all' }}
   cancel-in-progress: true
 permissions:
   contents: read

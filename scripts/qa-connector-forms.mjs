@@ -8,7 +8,9 @@ import {extractFile} from '@electron/asar';
 import http from 'node:http';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import {prepareWindowsQaOwner} from './native-qa-windows-owner.mjs';
 
+await prepareWindowsQaOwner();
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),runtimeRoot=path.resolve(process.env.EXOMINA_QA_RUNTIME_ROOT||root);
 const fixture=await createProtectedQaProfile('connector-forms'),{profile,output}=fixture,workspace=path.join(output,'workspace');await mkdir(workspace);
 const server=http.createServer((_request,response)=>{response.setHeader('Content-Type','text/html');response.end('<title>Synthetic connection page</title><input id="field" value="Unchanged">');});
@@ -20,7 +22,7 @@ const input={mode:'form',serverName:'Synthetic connector',threadId:'synthetic-ro
 const confirmationCases=[false,true].flatMap(hudHidden=>['accept','decline','cancel'].map(action=>({hudHidden,action})));
 const launcher=path.join(output,'launcher.cjs');await writeFile(launcher,`const {app,BrowserWindow,session,dialog}=require('electron');
 const fs=require('node:fs');for(const name of ['stdout','stderr']){const stream=process[name],write=stream.write.bind(stream);let bytes=0;stream.write=function(chunk,...args){const text=String(chunk).slice(0,Math.max(0,32000-bytes));if(text){bytes+=text.length;fs.appendFileSync(${JSON.stringify(output)}+'/'+name+'.log',text,{encoding:'utf8'});}return write(chunk,...args);};}
-app.setPath('userData',${JSON.stringify(profile)});app.setPath('sessionData',${JSON.stringify(path.join(profile,'browser-data'))});BrowserWindow.prototype.show=function(){};app.commandLine.appendSwitch('mute-audio');app.getVersion=()=>${JSON.stringify(version)};dialog.showErrorBox=(title,message)=>{console.error(title,message);app.exit(1)};
+app.setAppPath(${JSON.stringify(runtimeRoot)});app.setPath('userData',${JSON.stringify(profile)});app.setPath('sessionData',${JSON.stringify(path.join(profile,'browser-data'))});BrowserWindow.prototype.show=function(){};app.commandLine.appendSwitch('mute-audio');app.getVersion=()=>${JSON.stringify(version)};dialog.showErrorBox=(title,message)=>{console.error(title,message);app.exit(1)};
 globalThis.qaConnector={pages:new Set(),results:[],live:true};
 (async()=>{await app.whenReady();for(const partition of [session.defaultSession,session.fromPartition('persist:exomina-browser')])partition.webRequest.onBeforeRequest((details,callback)=>callback({cancel:/^https?:/.test(details.url)&&!details.url.startsWith(${JSON.stringify(new URL('/',url).href)})}));
 const {BrowserPage}=await import(${moduleUrl('desktop/browser.mjs')});const show=BrowserPage.prototype.show;BrowserPage.prototype.show=function(visible){globalThis.qaConnector.pages.add(this);return show.call(this,visible)};
