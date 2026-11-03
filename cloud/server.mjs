@@ -84,6 +84,7 @@ export function createCloudServer({ service, auth, devices, distDir }) {
     let file;
     try { file = await realpath(requested); } catch { throw fail(404, 'Not found.'); }
     if (!within(root, file)) throw fail(404, 'Not found.');
+    if (!file.startsWith(root + path.sep)) throw fail(404, 'Not found.');
     const info = await stat(file);
     if (!info.isFile() || info.size > 8 * 1024 * 1024) throw fail(404, 'Not found.');
     res.setHeader('Content-Type', MIME[path.extname(relative)]); res.setHeader('Content-Length', info.size);

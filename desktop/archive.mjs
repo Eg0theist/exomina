@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { readExportFile } from './export-files.mjs';
 import { historyObject, historyText } from './chat-memory-records.mjs';
+import { Parser } from 'htmlparser2';
 
 const PREVIEW_LIFETIME = 20 * 60 * 1000;
 const kinds = new Set(['memory', 'conversation', 'instructions', 'project', 'artifact']);
@@ -92,10 +93,15 @@ function parseGrok(row, defaults) {
 }
 
 const geminiEntry = row => row && typeof row === 'object' && [row.header, ...(Array.isArray(row.products) ? row.products : [])].some(value => /gemini|bard/i.test(String(value || '')));
-const entities = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 export function htmlText(html = '') {
-  return String(html).replace(/<(script|style)[\s\S]*?<\/\1>/gi, '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h[1-6]|tr|pre)>/gi, '\n').replace(/<li[^>]*>/gi, '• ').replace(/<[^>]+>/g, '')
-    .replace(/&(#x?[0-9a-f]+|\w+);/gi, (match, code) => code[0] === '#' ? String.fromCodePoint(parseInt(code.slice(1).replace(/^x/i, ''), code[1].toLowerCase() === 'x' ? 16 : 10) || 32) : entities[code.toLowerCase()] ?? match)
+  const parts=[];let hidden=0;
+  const parser=new Parser({
+    onopentag(name){if(name==='script'||name==='style')hidden++;if(!hidden){if(name==='br')parts.push('\n');if(name==='li')parts.push('• ');}},
+    ontext(text){if(!hidden)parts.push(text);},
+    onclosetag(name){if(name==='script'||name==='style'){hidden=Math.max(0,hidden-1);return;}if(!hidden&&/^(?:p|div|li|h[1-6]|tr|pre)$/.test(name))parts.push('\n');},
+  },{decodeEntities:true});
+  parser.end(String(html));
+  return parts.join('')
     .replace(/[ \t ]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 const geminiPrompt = title => String(title || '').replace(/^(Prompted|Prompt eingegeben:?|Gave feedback:?|Asked)\s*/i, '').trim();

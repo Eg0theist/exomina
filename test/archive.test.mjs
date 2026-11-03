@@ -5,9 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { ArchiveStore } from '../desktop/archive.mjs';
+import { ArchiveStore, htmlText } from '../desktop/archive.mjs';
 import { createDataExport } from '../desktop/data-export.mjs';
 import { ChatMemoryTree } from '../desktop/chat-memory-tree.mjs';
+
+test('HTML imports extract inert text from malformed markup and numeric entities',()=>{
+  assert.equal(htmlText('<p>Hello &amp; world</p><script>NEVER_INCLUDE</script><style>NEVER_STYLE</style><ul><li>One</li><li>Two</li></ul>'),'Hello & world\n• One\n• Two');
+  assert.equal(htmlText('<p>&lt;script&gt;literal text&lt;/script&gt; &#x1F319; &#99999999;</p>'),'<script>literal text</script> 🌙 �');
+  assert.equal(htmlText('<script>unfinished attacker text'),'');
+  assert.equal(htmlText('<p title="<script>attribute">Visible</p>'),'Visible');
+});
 
 async function setup(t) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'exomina-archive-test-'));

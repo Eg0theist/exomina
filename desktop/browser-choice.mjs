@@ -40,7 +40,7 @@ export class ConnectedBrowser {
 export class BrowserChoice {
   constructor({ embedded, connected, getSource }) { Object.assign(this, { embedded, connected, getSource }); this.selectedId = null; }
   get current() { return this.getSource() === 'connected' ? this.connected : this.embedded; }
-  get definitions() { return this.embedded.definitions.map(tool => ({ ...tool, description: tool.description.replaceAll('embedded browser', 'selected browser').replace('Each chat keeps its own page and history.', 'Each chat keeps its own page or connected browser tab.').replace('Requires browser tools enabled', 'Requires browser tools enabled') })); }
+  get definitions() { return this.embedded.definitions.map(tool => ({ ...tool, description: tool.description.replaceAll('embedded browser', 'selected browser').replace('Each chat keeps its own page and history.', 'Each chat keeps its own page or connected browser tab.') })); }
   select(id) { this.selectedId = id || null; return this.current.select(this.selectedId); }
   show(visible, id = this.selectedId) { this.selectedId = id || null; if (this.current === this.connected) this.embedded.show(false, this.selectedId); return this.current.show(visible, this.selectedId); }
   state(id = this.selectedId) { return this.current.state(id); }

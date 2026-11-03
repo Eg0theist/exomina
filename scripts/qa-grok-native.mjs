@@ -44,7 +44,7 @@ try {
     report.nativePromptCapabilities = initialized.agentCapabilities?.promptCapabilities ?? {};
     report.defaultAuthMethod = initialized._meta?.defaultAuthMethodId ?? null;
     report.nativeModels = adapter.readModels(initialized);
-    assert.ok(report.nativeAuthMethods.includes('grok.com')); assert.equal(report.defaultAuthMethod, null);
+    assert.ok(report.nativeAuthMethods.some(method=>method==='grok.com')); assert.equal(report.defaultAuthMethod, null);
     await assert.rejects(rpc.request('session/new', { cwd: adapter.runtimeCwd, mcpServers: [], _meta: { yoloMode: false, autoMode: false, agentProfile: { name: 'exomina-native-qa', tools: [] } } }, 15000), /Authentication required/);
     report.checks.push('actualNativeAuthAndModelMetadata', 'actualNativeSessionRejectsUnsignedIn');
   } finally { rpc.close(); }

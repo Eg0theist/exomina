@@ -53,10 +53,11 @@ test('loopback callback enforces exact state, Host, path and single code, then c
  const timed=await oauthLoopback({state:'another',timeoutMs:10});await assert.rejects(timed.result,/sign-in expired.*Connect again/);assert.equal(timed.cancelled,true);assert.equal(timed.timedOut,true);
 });
 test('deferred callback expiry starts when authorization opens and refuses callbacks before consent',async()=>{
- const loop=await oauthLoopback({state:'deferred-fixture',timeoutMs:30,deferTimeout:true});try{
-  await new Promise(resolve=>setTimeout(resolve,60));assert.equal(loop.timedOut,false);
+ let expire,started=0,cleared=0;
+ const loop=await oauthLoopback({state:'deferred-fixture',timeoutMs:30,deferTimeout:true,setTimer:fn=>{expire=fn;started++;return Symbol('fixture-timer');},clearTimer:()=>{cleared++;}});try{
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(started,0);assert.equal(loop.timedOut,false);
   assert.equal((await fetch(loop.redirectUrl+'?state=deferred-fixture&code=too-early')).status,400);
-  loop.startTimeout();assert.equal((await fetch(loop.redirectUrl+'?state=deferred-fixture&code=approved')).status,200);assert.equal((await loop.result).get('code'),'approved');assert.equal(loop.timedOut,false);
+  loop.startTimeout();assert.equal(started,1);assert.equal(typeof expire,'function');assert.equal((await fetch(loop.redirectUrl+'?state=deferred-fixture&code=approved')).status,200);assert.equal((await loop.result).get('code'),'approved');assert.equal(loop.timedOut,false);assert.equal(cleared,1);
  }finally{loop.close();}
 });
 function fixtureRemote({s256=true,resource=config.url,onOpen=()=>{},allow=true,scope='music:read',callbackIssuer}={}){
