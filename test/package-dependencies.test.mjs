@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,rm,symlink,readFile,unlink} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,rm,symlink,readFile,unlink,chmod} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {createPackageWithOptions} from '@electron/asar';
@@ -30,6 +30,12 @@ async function fixture(t){
 test('a complete archive verifies production dependencies, entries and native bytes',async t=>{
  const f=await fixture(t);await f.pack();
  assert.deepEqual(await verifyPackageDependencies(f.root,f.archive),{passed:true,packages:2,entrypoints:2,nativeFiles:1});
+});
+
+test('an upstream executable manifest permits builder metadata pruning',{skip:process.platform==='win32'},async t=>{
+ const f=await fixture(t),original=path.join(f.root,'node_modules/provider/package.json'),packed=path.join(f.packed,'node_modules/provider/package.json');
+ const metadata=JSON.parse(await readFile(original,'utf8'));await writeFile(original,JSON.stringify({...metadata,scripts:{test:'synthetic only'}}));await chmod(original,0o755);await f.pack();
+ assert.equal((await verifyPackageDependencies(f.root,f.archive)).packages,2);
 });
 test('the linked node_modules regression is rejected without changing its target',async t=>{
  const f=await fixture(t),linked=path.join(f.home,'linked');await mkdir(linked);
