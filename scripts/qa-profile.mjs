@@ -6,6 +6,15 @@ import { WindowsVault } from '../desktop/vault.mjs';
 
 const work = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../Workspace');
 
+/** Current-platform synthetic profile. Unix exercises normal private storage;
+ * Windows also exercises preservation of an existing encrypted profile. */
+export async function createPlatformQaProfile(label){
+ if(process.platform==='win32')return createProtectedQaProfile(label);
+ assert.match(label,/^[a-z][a-z0-9-]{0,40}$/);await mkdir(work,{recursive:true,mode:0o700});
+ const output=await mkdtemp(path.join(work,`qa-${label}-`)),profile=path.join(output,'data');await mkdir(profile,{mode:0o700});
+ await writeFile(path.join(profile,'synthetic-profile.txt'),'Synthetic Exomina QA profile. Contains no personal data.',{mode:0o600});return {profile,output};
+}
+
 /** Prepare fresh synthetic data for source-app QA with real Windows encryption.
  * This test helper never opens or exports a personal PFX or profile. Its recovery
  * acknowledgement is deliberately simulated and proves nothing about recovery.

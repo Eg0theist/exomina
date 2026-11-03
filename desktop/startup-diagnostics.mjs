@@ -17,3 +17,10 @@ export function startupDiagnostics({enabled=false,write=line=>process.stderr.wri
    return output('[exomina-startup] failure phase='+stage+' errorClass='+name);},
  };
 }
+
+/** Startup protection failures never proceed to stores or become Electron's
+ * uncaught-exception dialog. The message contains no paths or account data. */
+export function stopUnsafeStartup({app,dialog}){
+ try{dialog.showErrorBox('Exomina could not start safely','Exomina could not confirm access to its private app folders. The library has not been opened.\n\nClose other Exomina test windows and open Exomina again. If this continues, check folder permissions or restore the previous app version. Existing protection has not been disabled.');}
+ finally{app.exit(1);}
+}

@@ -26,6 +26,8 @@ import {ClaudeStreamInput} from './claude-stream-input.mjs';
 import {ClaudeUsageActivity} from './claude-usage-activity.mjs';
 import {ClaudeHelperActivity, nativeHelperFields} from './native-helper-activity.mjs';
 import {nativeHelperStep} from './helper-step.mjs';
+import {loginOutput,loginCode} from './provider-auth.mjs';
+import {spawnLogin} from './provider-login.mjs';
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_LINE = 32 * 1024 * 1024;
@@ -260,7 +262,7 @@ export class JsonRpcProcess {
 
 export class ProviderManager {
   constructor({ dataDir, workspace, emit = () => {}, approve = async () => false, approveDetailed, getPermissionMode = () => DEFAULT_PERMISSION_MODE,
-    toolDefinitions = [], callTool, requestUserInput, requestElicitation, cancelElicitation, gateway, codexPath, claudePath, grokPath, getRuntimePath = async () => null, spawnImpl = spawn, beforePrepare = async () => {}, beforeRequest = () => {}, isProviderEnabled = id => Boolean(getProvider(id)) }) {
+    toolDefinitions = [], callTool, requestUserInput, requestElicitation, cancelElicitation, gateway, codexPath, claudePath, grokPath, getRuntimePath = async () => null, spawnImpl = spawn, loginSpawnImpl, beforePrepare = async () => {}, beforeRequest = () => {}, isProviderEnabled = id => Boolean(getProvider(id)) }) {
     // Background requests (chat titles) run as silent states: nothing they
     // produce may stream into a chat or reach the renderer.
     this.silent = new Set();
@@ -277,6 +279,9 @@ export class ProviderManager {
     this.realtimeListeners = new Set();
     this.claudeFreshAt = 0; this.claudeAuthWait = null; this.retryCancelled = new Set();
     this.loginProcesses = new Map();
+    this.loginSessions = new Map();this.connectRequests=new Map();this.logoutRequests=new Map();this.authClosing=new Set();
+    this.loginSpawnImpl = loginSpawnImpl || (spawnImpl===spawn ? spawnLogin : null);
+    this.connectionStatus = new Map();this.statusRequests=new Map();this.authRevision=0;
     this.rpc = null;
     this.rpcPromise = null;
     this.modelCache = new Map();
@@ -293,13 +298,13 @@ export class ProviderManager {
     ]);
   }
 
-  async prepare() {
+  async prepare({metadata=false}={}) {
     if (this.closed) throw new Error('Provider manager is closed.');
     if (this.runtimeTransition) throw new Error('A connection update is being activated. Try again in a moment.');
-    await this.beforePrepare();
+    await this.beforePrepare({metadata});
     if (this.closed) throw new Error('Provider manager is closed.');
     if (this.runtimeTransition) throw new Error('A connection update is being activated. Try again in a moment.');
-    await Promise.all([this.dataDir, this.workspace, path.join(this.dataDir, 'codex-home'), path.join(this.dataDir, 'claude-home'), path.join(this.dataDir, 'runtime-tmp')].map(p => mkdir(p, { recursive: true })));
+    await Promise.all([this.dataDir,...(metadata?[]:[this.workspace]),path.join(this.dataDir, 'codex-home'), path.join(this.dataDir, 'claude-home'), path.join(this.dataDir, 'runtime-tmp')].map(p => mkdir(p, { recursive: true })));
   }
   requireProvider(provider) {
     if ((!['codex', 'claude'].includes(provider) && !this.adapters.has(provider)) || !this.isProviderEnabled(provider)) {
@@ -318,7 +323,7 @@ export class ProviderManager {
     } finally { this.runtimeLookups--; }
   }
   runtimeChangeBusy() {
-    return this.closed || this.runtimeLookups > 0 || this.active.size > 0 || this.loginProcesses.size > 0 || this.metadataProcesses.size > 0 || !!this.rpcPromise || this.modelRequests.size > 0 || [...this.runtimeChildren].some(child => child !== this.rpc?.child && child.exitCode == null && child.signalCode == null);
+    return this.closed || this.runtimeLookups > 0 || this.active.size > 0 || this.connectRequests.size > 0 || this.loginProcesses.size > 0 || this.metadataProcesses.size > 0 || !!this.rpcPromise || this.modelRequests.size > 0 || [...this.runtimeChildren].some(child => child !== this.rpc?.child && child.exitCode == null && child.signalCode == null);
   }
   async withRuntimeChange(provider, change) {
     if (!['codex', 'claude'].includes(provider) || this.runtimeTransition || this.runtimeChangeBusy()) throw Object.assign(new Error('Connection updates wait until active requests and sign-in finish.'), {deferred: true});
@@ -346,7 +351,7 @@ export class ProviderManager {
   }
 
   async getCodex() {
-    await this.prepare();
+    await this.prepare({metadata:true});
     if (this.rpcPromise) return this.rpcPromise;
     if (this.rpc && !this.rpc.closed) return this.rpc;
     this.rpcPromise = (async () => {
@@ -356,7 +361,7 @@ export class ProviderManager {
       // New isolated Windows homes otherwise downgrade workspace-write to
       // read-only. The restricted-token sandbox requires no elevation/setup.
       if (process.platform === 'win32') args.push('-c', 'windows.sandbox="unelevated"');
-      const child = this.spawn(executable, args, 'codex');
+      const child = this.spawn(executable, args, 'codex',path.join(this.dataDir,'runtime-tmp'));
       const rpc = new JsonRpcProcess(child, {
         request: (method, params) => this.codexRequest(method, params),
         notification: (method, params) => this.codexNotification(method, params),
@@ -374,9 +379,9 @@ export class ProviderManager {
   }
 
   async capture(executable, args, provider, timeout = 20000) {
-    await this.prepare();
+    await this.prepare({metadata:true});
     return new Promise((resolve, reject) => {
-      const child = this.spawn(executable, args, provider);
+      const child = this.spawn(executable, args, provider,path.join(this.dataDir,'runtime-tmp'));
       let stdout = '', stderr = '', settled = false;
       const finish = (error, code) => {
         if (settled) return; settled = true; clearTimeout(timer);
@@ -410,7 +415,7 @@ export class ProviderManager {
 
   /** Official structured /usage: no model turn, transcript scan or credential extraction. */
   async claudeUsage({ publish = true } = {}) {
-    await this.prepare();
+    await this.prepare({metadata:true});
     const executable = await this.executable('claude');
     if (!executable) throw new Error('The Claude Code runtime is unavailable.');
     const authTurn = await this.claudeAuthTurn();
@@ -431,7 +436,8 @@ export class ProviderManager {
     if (!executable) return { installed: false, connected: false, detail: 'Install the official Claude Code runtime.' };
     const result = await this.capture(executable, ['auth', 'status'], 'claude');
     let auth;
-    try { auth = JSON.parse(result.stdout); } catch { throw new Error(`Claude status could not be read. ${safeError(result.stderr)}`); }
+    try { auth = JSON.parse(result.stdout); } catch { throw new Error('Claude status could not be read. Refresh to check again.'); }
+    if(!auth||typeof auth!=='object'||(auth.loggedIn!==false&&!(result.code===0&&typeof auth.authMethod==='string'&&auth.authMethod)))throw Error('Claude could not confirm its sign-in status. Try refreshing the connection.');
     const connected = result.code === 0 && auth.loggedIn !== false && !!auth.authMethod && auth.authMethod !== 'none' && (auth.authMethod === 'claude.ai'||getProvider('claude')?.optIn===true);
     return { installed: true, connected, detail: connected ? (auth.authMethod==='claude.ai'?'Claude subscription connected.':'Claude Console connected. Usage is billed separately by Anthropic.') : auth.authMethod && auth.authMethod !== 'none' ? 'This app requires a Claude subscription login. API billing is not enabled.' : 'Sign in with your Claude subscription.' };
   }
@@ -562,23 +568,36 @@ export class ProviderManager {
   }
 
   async status({ onStatus } = {}) {
-    await this.prepare();
+    await this.prepare({metadata:true});
     return Promise.all(['codex', 'claude', ...this.adapters.keys()].filter(id=>getProvider(id)).map(async id => {
       if (this.adapters.has(id)) return this.adapters.get(id).status();
       const name = id === 'codex' ? 'ChatGPT · Codex' : 'Claude · Claude Code';
       if(!this.isProviderEnabled(id))return {id,name,installed:false,connected:false,optIn:!!getProvider(id)?.optIn,enabled:false,detail:'Off. Set up this connection to download the official runtime and sign in.'};
-      let installed = false;
+      const existing=this.statusRequests.get(id);if(existing?.revision===this.authRevision)return existing.pending;
+      const pending=this.readConnectionStatus(id,name),entry={revision:this.authRevision,pending};this.statusRequests.set(id,entry);
+      try{return await pending;}finally{if(this.statusRequests.get(id)===entry)this.statusRequests.delete(id);}
+    }).map(pending => pending.then(row => { onStatus?.({ ...row, checking: false }); return row; })));
+  }
+
+  async readConnectionStatus(id,name){
+      const revision=this.authRevision;
+      let installed = this.connectionStatus.get(id)?.installed===true;
       try {
         installed = Boolean(await this.executable(id));
-        if (!installed) return { id, name, installed, connected: false, detail: `Install the official ${id === 'codex' ? 'Codex' : 'Claude Code'} runtime.` };
-        if (id === 'claude') return { id, name, ...await this.claudeStatus(), imageGeneration: { supported: false, enabled: false, available: false, detail: 'Claude needs an explicitly configured image-generation tool.' } };
+        let row;
+        if (!installed) row={ id, name, installed, connected: false, detail: `Install the official ${id === 'codex' ? 'Codex' : 'Claude Code'} runtime.` };
+        else if (id === 'claude') row={ id, name, ...await this.claudeStatus(), imageGeneration: { supported: false, enabled: false, available: false, detail: 'Claude needs an explicitly configured image-generation tool.' } };
+        else{
         const account = await (await this.getCodex()).request('account/read', { refreshToken: false });
+        if(!account||!Object.hasOwn(account,'account'))throw Error('ChatGPT could not confirm its sign-in status. Try refreshing the connection.');
         const connected = account.account?.type === 'chatgpt';
         if (connected) this.codexUsage().catch(() => {});
         const imageGeneration = await this.codexImageCapabilities(account.account).catch(() => ({ supported: false, enabled: false, available: false, detail: 'Native image-generation availability could not be verified.' }));
-        return { id, name, installed, connected, imageGeneration, detail: connected ? `ChatGPT ${account.account.planType || 'subscription'} connected.` : 'Sign in with ChatGPT. API billing is not enabled.' };
-      } catch (error) { return { id, name, installed, connected: false, detail: safeError(error) }; }
-    }).map(pending => pending.then(row => { onStatus?.({ ...row, checking: false }); return row; })));
+        row={ id, name, installed, connected, imageGeneration, detail: connected ? `ChatGPT ${account.account.planType || 'subscription'} connected.` : 'Sign in with ChatGPT. API billing is not enabled.' };
+        }
+        if(revision!==this.authRevision)return {...this.connectionStatus.get(id),id,name,installed,connected:this.connectionStatus.get(id)?.connected===true,statusUnknown:true,detail:'The connection changed while its status was being checked. Refresh to check again.'};
+        this.connectionStatus.set(id,row);return row;
+      } catch (error) { return {...this.connectionStatus.get(id),id,name,installed,statusUnknown:true,connected:this.connectionStatus.get(id)?.connected===true,detail:'Connection check unavailable. '+safeError(error)+' Your saved sign-in was not removed. Refresh to check again.'}; }
   }
 
   async codexImageCapabilities(account) {
@@ -599,10 +618,17 @@ export class ProviderManager {
   }
 
   async connect(provider) {
+    if(this.authClosing.has(provider))throw Error('This connection is signing out. Wait for it to finish before connecting again.');
+    if(this.connectRequests.has(provider))return this.connectRequests.get(provider);
+    const pending=this.connectOnce(provider);this.connectRequests.set(provider,pending);
+    try{return await pending;}finally{if(this.connectRequests.get(provider)===pending)this.connectRequests.delete(provider);}
+  }
+
+  async connectOnce(provider) {
     this.requireProvider(provider);
     this.modelCache.delete(provider);
     if (provider === 'claude') this.claudeFreshAt = 0;
-    await this.prepare();
+    await this.prepare({metadata:true});
     if (this.adapters.has(provider)) return this.adapters.get(provider).connect();
     if (provider === 'codex') {
       const result = await (await this.getCodex()).request('account/login/start', { type: 'chatgpt' });
@@ -611,10 +637,17 @@ export class ProviderManager {
       return { message: 'Complete the official ChatGPT sign-in in your browser, then refresh connections.', url: result.authUrl };
     }
     if (provider !== 'claude') throw new Error('Unknown provider.');
-    if (this.loginProcesses.has(provider)) return { message: 'Claude sign-in is already open. Complete it in your browser, then refresh connections.' };
+    const existing=this.loginSessions.get(provider);
+    if(existing?.cancelled)await this.closeLogin(existing);
+    else if(existing)return {message:'Claude sign-in is already open. Complete it in your browser.',url:existing.url,loginId:existing.id,codeRequested:existing.codeRequested&&!existing.codeSubmitted};
     const executable = await this.executable(provider);
     if (!executable) throw new Error('Install the official Claude Code runtime first.');
-    const child = this.spawn(executable, ['auth', 'login'], provider);
+    if(this.authClosing.has(provider))throw Error('This connection is signing out. Wait for it to finish.');
+    const loginDirectory=path.join(this.dataDir,'runtime-tmp');
+    const child = this.loginSpawnImpl ? await this.loginSpawnImpl(executable,['auth','login'],{cwd:loginDirectory,env:this.environment(provider)}) : this.spawn(executable, ['auth', 'login'], provider,loginDirectory);
+    if(this.closed||this.authClosing.has(provider)){await this.closeLogin({child,cancelled:true});throw Error('Sign-in was cancelled before it started.');}
+    this.runtimeChildren.add(child);child.once('close',()=>this.runtimeChildren.delete(child));
+    const session={id:randomUUID(),child,codeRequested:false,codeSubmitted:false};this.loginSessions.set(provider,session);
     this.loginProcesses.set(provider, child);
     return new Promise((resolve, reject) => {
       let settled = false, urlEmitted = false, output = '';
@@ -622,35 +655,68 @@ export class ProviderManager {
       const ready = setTimeout(() => finish(null, { message: 'Complete Claude Code’s official sign-in in your browser, then refresh connections.' }), 1500);
       const timeout = setTimeout(() => stopProcess(child), 10 * 60 * 1000);
       const read = chunk => {
+        if(session.cancelled||this.closed)return;
         output = (output + chunk).slice(-16000);
-        const match = output.match(/https:\/\/(?:claude\.ai|console\.anthropic\.com|platform\.claude\.com)\/[^\s\x1b]+/);
-        if (match && !urlEmitted) {
+        const parsed=loginOutput(output,provider);
+        if (parsed.url && !urlEmitted) {
           // Native startup can outlast the initial UI response. Keep forwarding
           // the browser fallback while the official login process is running.
           urlEmitted = true;
-          this.emit({ type: 'auth.url', provider, url: match[0] });
-          finish(null, { message: 'Complete the official Claude sign-in, then refresh connections.', url: match[0] });
+          session.url=parsed.url;
+          this.emit({ type: 'auth.url', provider, url: parsed.url,loginId:session.id });
+          finish(null, { message: 'Complete the official Claude sign-in in your browser.', url: parsed.url,loginId:session.id });
         }
+        if(parsed.codeRequested&&!session.codeRequested&&!session.codeSubmitted){session.codeRequested=true;this.emit({type:'auth.codeRequested',provider,loginId:session.id});}
       };
       child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
       child.stdout.on('data', read); child.stderr.on('data', read);
       child.stdin.on('error', () => {});
-      child.on('error', error => { finish(error); clearTimeout(timeout); this.loginProcesses.delete(provider); });
+      child.on('error', () => {const error=Error('Claude sign-in could not start. Try connecting again.');finish(session.cancelled?null:error,{message:'Sign-in cancelled.'});clearTimeout(timeout);clearTimeout(session.confirmationTimer);if(this.loginProcesses.get(provider)===child)this.loginProcesses.delete(provider);if(this.loginSessions.get(provider)===session)this.loginSessions.delete(provider);if(!session.cancelled)this.emit({type:'auth.error',provider,loginId:session.id,message:error.message});});
       child.on('close', code => {
-        clearTimeout(timeout); this.loginProcesses.delete(provider);
-        if (code === 0) finish(null, { message: 'Claude sign-in completed. Refresh connections to confirm.' });
+        clearTimeout(timeout);clearTimeout(session.confirmationTimer); if(this.loginProcesses.get(provider)===child)this.loginProcesses.delete(provider);if(this.loginSessions.get(provider)===session)this.loginSessions.delete(provider);
+        if(session.cancelled){finish(null,{message:'Sign-in cancelled. Your previous sign-in was not removed.'});return;}
+        if (code === 0) {this.authRevision++;this.modelCache.delete(provider);this.claudeFreshAt=0;finish(null, { message: 'Claude sign-in completed. Refresh connections to confirm.' });this.emit({type:'auth.completed',provider,loginId:session.id,success:true});}
         else {
-          const error = new Error(`Claude sign-in exited (${code}). ${safeError(output)}`);
-          finish(error); this.emit({ type: 'auth.error', provider, message: safeError(error) });
+          const error = new Error(`Claude sign-in did not complete (${code??'stopped'}). Your previous sign-in was not removed. Try connecting again.`);
+          finish(error); this.emit({ type: 'auth.error', provider,loginId:session.id, message: safeError(error) });
         }
       });
     });
   }
 
+  async submitLoginCode(provider,id,value){
+    const session=this.loginSessions.get(provider);
+    if(provider!=='claude'||!session||session.id!==id||!session.codeRequested||session.codeSubmitted||session.cancelled||this.authClosing.has(provider)||this.loginProcesses.get(provider)!==session.child||session.child.exitCode!=null||session.child.signalCode!=null)throw Error('This sign-in is no longer waiting for a code. Connect again.');
+    const code=loginCode(value);session.codeRequested=false;session.codeSubmitted=true;
+    const write=text=>new Promise((resolve,reject)=>session.child.stdin.write(text,error=>error?reject(Error('The sign-in process closed before accepting the code. Connect again.')):resolve()));
+    await write(code);await new Promise(resolve=>setTimeout(resolve,30));
+    if(session.cancelled||this.authClosing.has(provider)||this.loginProcesses.get(provider)!==session.child)throw Error('This sign-in was cancelled. Connect again.');
+    await write('\r');
+    session.confirmationTimer=setTimeout(()=>stopProcess(session.child),60000);session.confirmationTimer.unref?.();
+    return {message:'Code sent to the official sign-in process. Waiting for confirmation.'};
+  }
+
+  async closeLogin(session){
+    if(session.closing)return session.closing;
+    session.cancelled=true;
+    const child=session.child;if(child.exitCode!=null||child.signalCode!=null)return;
+    session.closing=new Promise((resolve,reject)=>{let timer;const finish=()=>{clearTimeout(timer);child.removeListener('close',finish);resolve();};child.once('close',finish);timer=setTimeout(()=>{child.removeListener('close',finish);reject(Error('The previous sign-in process has not stopped. Close it before changing this connection.'));},5000);stopProcess(child);});
+    return session.closing;
+  }
+  async cancelLogin(provider,id){const session=this.loginSessions.get(provider);if(!session||session.id!==id)return {cancelled:false};await this.closeLogin(session);return {cancelled:true};}
+
   /** Signs out through the provider's own official client, then forgets what Exomina cached about the account. */
   async logout(provider) {
+    if(this.logoutRequests.has(provider))return this.logoutRequests.get(provider);
+    this.authClosing.add(provider);const pending=this.logoutOnce(provider);this.logoutRequests.set(provider,pending);
+    try{return await pending;}finally{if(this.logoutRequests.get(provider)===pending){this.logoutRequests.delete(provider);this.authClosing.delete(provider);}}
+  }
+
+  async logoutOnce(provider) {
     this.requireProvider(provider);
-    await this.prepare();
+    await this.prepare({metadata:true});
+    await this.connectRequests.get(provider)?.catch(()=>{});
+    const session=this.loginSessions.get(provider);if(session)await this.closeLogin(session);
     const adapter = this.adapters.get(provider);
     if (adapter) {
       if (typeof adapter.disconnect !== 'function') throw new Error('Signing out is not available for this connection.');
@@ -659,11 +725,11 @@ export class ProviderManager {
       this.loginProcesses.get(provider) && this.stopChild(this.loginProcesses.get(provider));
       await (await this.getCodex()).request('account/logout', {}, 30000);
     } else if (provider === 'claude') {
-      const login = this.loginProcesses.get(provider); if (login) this.stopChild(login);
+      const login = this.loginProcesses.get(provider); if (login) {const session=this.loginSessions.get(provider);if(session)session.cancelled=true;this.stopChild(login);}
       const executable = await this.executable(provider);
       if (!executable) throw new Error('The Claude Code runtime is missing. Reinstall Exomina.');
       await new Promise((resolve, reject) => {
-        const child = this.spawn(executable, ['auth', 'logout'], provider);
+        const child = this.spawn(executable, ['auth', 'logout'], provider,path.join(this.dataDir,'runtime-tmp'));
         const timer = setTimeout(() => { stopProcess(child); reject(new Error('Claude did not finish signing out in time.')); }, 30000);
         child.on('error', error => { clearTimeout(timer); reject(error); });
         child.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(`Claude could not sign out (${code}).`)); });
@@ -672,6 +738,7 @@ export class ProviderManager {
       this.claudeFreshAt = 0;
     } else throw new Error('Unknown provider.');
     this.modelCache.delete(provider);
+    this.authRevision++;this.connectionStatus.set(provider,{id:provider,name:getProvider(provider)?.name||provider,installed:true,connected:false,detail:'Signed out.'});
     this.emit({ type: 'auth.signedOut', provider });
     return { message: 'Signed out.' };
   }
@@ -950,7 +1017,7 @@ export class ProviderManager {
     if(method.startsWith('thread/realtime/')) {for(const listener of this.realtimeListeners)listener(method,params);return;}
     // Voice previews trace their own handoff turn; chat state lookup below ignores that thread.
     if(method==='turn/started'||method==='turn/completed')for(const listener of this.realtimeListeners)listener(method,params);
-    if (method === 'account/login/completed') { this.modelCache.delete('codex'); this.emit({ type: 'auth.completed', provider: 'codex', success: params.success }); return; }
+    if (method === 'account/login/completed') { this.modelCache.delete('codex');if(params.success===true)this.authRevision++; this.emit({ type: 'auth.completed', provider: 'codex', success: params.success }); return; }
     if (method === 'account/rateLimits/updated') { this.emit({ type: 'usage', provider: 'codex', info: params }); return; }
     if (['warning', 'configWarning', 'deprecationNotice'].includes(method)) { this.codexWarning(method, params); return; }
     if (method === 'thread/started') { this.codexChildren.observeThread(params.thread); return; }
@@ -1398,8 +1465,10 @@ export class ProviderManager {
     this.closed = true;
     for (const adapter of this.adapters.values()) adapter.close();
     for (const id of this.active.keys()) this.cancel(id);
+    for(const session of this.loginSessions.values())session.cancelled=true;
     for (const child of this.loginProcesses.values()) stopProcess(child);
     this.loginProcesses.clear();
+    this.loginSessions.clear();
     for (const child of this.metadataProcesses) stopProcess(child);
     this.metadataProcesses.clear();
     for (const child of this.runtimeChildren) stopProcess(child);

@@ -29,6 +29,12 @@ async function desktop(executable,kind){
  const result=await run(process.execPath,[path.join(root,'scripts','qa-native-desktop.mjs'),'--executable',executable,'--output',destination],{timeout:180000,maxBuffer:65536});
  const summary=JSON.parse(await readFile(path.join(destination,'native-desktop-report.json'),'utf8'));
  assert.equal(summary.passed,true);report.checks[kind]={startupPassed:true,mode:summary.checks.standardFirstRun.mode,version:summary.version,buildId:summary.buildId};
+ const runtimeRoot=process.platform==='darwin'?path.resolve(path.dirname(executable),'../Resources/app.asar'):path.join(path.dirname(executable),'resources','app.asar');
+ for(const [name,script]of [['signIn','qa-connection-signin.mjs'],['protectionRefusal','qa-startup-protection-failure.mjs']]){
+  const checked=await run(process.execPath,[path.join(root,'scripts',script)],{env:{...process.env,EXOMINA_QA_RUNTIME_ROOT:runtimeRoot},timeout:180000,maxBuffer:65536});
+  const receipt=JSON.parse(checked.stdout.trim().split(/\r?\n/).at(-1));assert.equal(receipt.passed,true);
+  report.checks[kind][name]=true;
+ }
  // The report and app-only screenshot are the only outputs selected for upload.
  return result;
 }

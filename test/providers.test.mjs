@@ -643,11 +643,77 @@ test('Claude sign-in forwards a delayed official URL once after the initial conn
   const url = 'https://claude.ai/oauth/authorize?synthetic=1';
   f.children[0].stdout.write(`Open this URL: ${url}\n`);
   f.children[0].stderr.write(`Browser fallback: ${url}\n`);
-  assert.deepEqual(f.events.filter(event => event.type === 'auth.url'), [{ type: 'auth.url', provider: 'claude', url }]);
+  const links=f.events.filter(event=>event.type==='auth.url');assert.equal(links.length,1);assert.equal(links[0].url,url);assert.equal(typeof links[0].loginId,'string');
   const closed = new Promise(resolve => f.children[0].once('close', resolve));
   f.children[0].finish();
   await closed;
   assert.equal(f.manager.loginProcesses.has('claude'), false);
+});
+
+test('Claude terminal fallback accepts one code for its exact waiting login and never publishes the code',async t=>{
+ const f=await fixture(t);let input='';
+ f.setHandler(child=>{child.stdin.on('data',value=>input+=value);setImmediate(()=>child.stdout.write('https://claude.com/cai/oauth/authorize?state=synthetic\r\nPaste code here if prompted >'));});
+ const [result,duplicate]=await Promise.all([f.manager.connect('claude'),f.manager.connect('claude')]);assert.deepEqual(duplicate,result);assert.equal(f.children.length,1);
+ const prompt=f.events.find(event=>event.type==='auth.codeRequested');assert.equal(prompt.loginId,result.loginId);
+ await assert.rejects(f.manager.submitLoginCode('claude','old-login','synthetic-code'),/no longer waiting/);
+ await assert.rejects(f.manager.submitLoginCode('claude',result.loginId,'synthetic-code\nlogout'),/authorization code/);
+ await f.manager.submitLoginCode('claude',result.loginId,'synthetic-code#synthetic-state');assert.equal(input,'synthetic-code#synthetic-state\r');
+ f.children[0].stdout.write('Paste code here if prompted >');
+ await assert.rejects(f.manager.submitLoginCode('claude',result.loginId,'synthetic-code'),/no longer waiting/);
+ f.children[0].stdout.write('\r\nSYNTHETIC-PRIVATE-CODE-ECHO');const closed=new Promise(resolve=>f.children[0].once('close',resolve));f.children[0].finish(1);await closed;
+ assert.equal(f.manager.loginSessions.size,0);assert.equal(JSON.stringify(f.events).includes('SYNTHETIC-PRIVATE-CODE-ECHO'),false);assert.equal(JSON.stringify(f.events).includes('synthetic-code#synthetic-state'),false);
+ await assert.rejects(f.manager.submitLoginCode('claude',result.loginId,'synthetic-code'),/no longer waiting/);
+});
+
+test('existing login state can be reopened, cancelled quietly and immediately replaced',async t=>{
+ const f=await fixture(t);f.setHandler(child=>setImmediate(()=>child.stdout.write('https://claude.com/cai/oauth/authorize?state=synthetic\nPaste code here if prompted >')));
+ const first=await f.manager.connect('claude'),reopened=await f.manager.connect('claude');assert.equal(reopened.loginId,first.loginId);assert.equal(reopened.url,first.url);assert.equal(reopened.codeRequested,true);
+ await f.manager.cancelLogin('claude',first.loginId);const next=await f.manager.connect('claude');assert.notEqual(next.loginId,first.loginId);assert.equal(f.events.some(event=>event.type==='auth.error'),false);
+});
+
+test('logout waits for pending login to stop and excludes new login/code submissions',async t=>{
+ const f=await fixture(t);let create,entered;const gate=new Promise(resolve=>create=resolve),spawning=new Promise(resolve=>entered=resolve);let loginChild;
+ f.manager.loginSpawnImpl=async()=>{entered();await gate;loginChild=new Child();return loginChild;};
+ f.setHandler((child,args)=>{if(args.includes('logout'))setImmediate(()=>child.finish());});
+ const connecting=f.manager.connect('claude');await spawning;const leaving=f.manager.logout('claude');
+ await assert.rejects(f.manager.connect('claude'),/signing out/);create();await assert.rejects(connecting,/cancelled/);await leaving;
+ assert.equal(loginChild.killed,true);assert.equal(f.manager.connectionStatus.get('claude').connected,false);assert.equal(f.events.some(event=>event.type==='auth.completed'),false);
+});
+
+test('temporary native status errors preserve last confirmed sign-in; explicit signed-out responses clear it',async t=>{
+ const f=await fixture(t);let codex={account:{type:'chatgpt',planType:'free'}},claude={connected:true,installed:true},failed=false;
+ f.manager.getCodex=async()=>({request:async method=>{if(method==='account/read'){if(failed)throw Error('Synthetic network timeout');return codex;}return {};}});
+ f.manager.codexUsage=async()=>({});f.manager.codexImageCapabilities=async()=>({available:false});f.manager.claudeStatus=async()=>{if(failed)throw Error('Synthetic status unavailable');return claude;};
+ let rows=await f.manager.status();assert.ok(rows.every(row=>row.connected));
+ failed=true;rows=await f.manager.status();assert.ok(rows.every(row=>row.connected&&row.statusUnknown));assert.ok(rows.every(row=>/not removed/.test(row.detail)));
+ failed=false;codex={account:null};claude={connected:false,installed:true};rows=await f.manager.status();assert.ok(rows.every(row=>row.connected===false&&!row.statusUnknown));
+ failed=true;rows=await f.manager.status();assert.ok(rows.every(row=>row.connected===false&&row.statusUnknown));
+ assert.equal(f.calls.length,0);
+});
+
+test('unknown first status never asserts sign-out, and overlapping checks coalesce without starting login',async t=>{
+ const f=await fixture(t);let checks=0,release;const gate=new Promise(resolve=>release=resolve);
+ f.manager.getCodex=async()=>({request:async()=>{checks++;await gate;throw Error('Synthetic timeout');}});f.manager.claudeStatus=async()=>{await gate;throw Error('Synthetic timeout');};
+ const first=f.manager.status(),second=f.manager.status();await new Promise(resolve=>setTimeout(resolve,10));release();const [a,b]=await Promise.all([first,second]);
+ assert.equal(checks,1);assert.deepEqual(a,b);assert.ok(a.every(row=>!row.connected&&row.statusUnknown));assert.equal(f.manager.loginProcesses.size,0);assert.equal(f.calls.length,0);
+});
+
+test('a status request begun before explicit logout cannot restore a stale connected result',async t=>{
+ const f=await fixture(t);let release;const gate=new Promise(resolve=>release=resolve);f.manager.codexUsage=async()=>({});f.manager.codexImageCapabilities=async()=>({});
+ f.manager.claudeStatus=async()=>({installed:true,connected:false});f.manager.getCodex=async()=>({request:async method=>{if(method==='account/read'){await gate;return {account:{type:'chatgpt'}};}return {};}});
+ const pending=f.manager.status();await new Promise(resolve=>setTimeout(resolve,10));await f.manager.logout('codex');release();const row=(await pending).find(row=>row.id==='codex');assert.equal(row.connected,false);
+});
+
+test('Claude nonzero or malformed auth metadata is unknown unless the official runtime explicitly confirms sign-out',async t=>{
+ const f=await fixture(t);for(const result of [{code:1,stdout:'{"loggedIn":true,"authMethod":"claude.ai"}'},{code:0,stdout:'{}'},{code:1,stdout:'bad',stderr:'SYNTHETIC-PRIVATE-OUTPUT'}]){f.manager.capture=async()=>result;await assert.rejects(f.manager.claudeStatus(),error=>!error.message.includes('SYNTHETIC-PRIVATE-OUTPUT'));}
+ f.manager.capture=async()=>({code:1,stdout:'{"loggedIn":false,"authMethod":"none"}'});assert.equal((await f.manager.claudeStatus()).connected,false);
+});
+
+test('account metadata stays in the protected runtime directory while chat startup still requires workspace checks',async t=>{
+ const checks=[],f=await fixture(t,{beforePrepare:async options=>{checks.push(options);if(!options.metadata)throw Error('Synthetic workspace unavailable');}});
+ f.setHandler((child,args)=>{if(args[0]==='auth'){child.json({loggedIn:true,authMethod:'claude.ai'});child.finish();}});
+ assert.equal((await f.manager.claudeStatus()).connected,true);assert.equal(f.calls[0].options.cwd,path.join(f.dataDir,'runtime-tmp'));assert.equal(f.calls[0].options.env.CLAUDE_CONFIG_DIR,path.join(f.dataDir,'claude-home'));assert.ok(checks.every(value=>value.metadata));
+ await assert.rejects(f.manager.runOnce({provider:'claude',conversationId:'blocked-project',prompt:'Synthetic'}),/workspace unavailable/);assert.equal(checks.at(-1).metadata,false);assert.equal(f.calls.length,1);
 });
 
 test('Claude uses isolated subscription auth, an app MCP gateway, streams without duplicate text, and returns result session', async t => {

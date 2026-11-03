@@ -109,6 +109,7 @@ import {resolveAppLocations,appPaths,samePath,installHome,installDistribution} f
 import {DISTRIBUTION_PROFILE,DISTRIBUTION_REPOSITORY} from './distribution.mjs';
 import {privateGate} from './private-gate.mjs';
 import {officialLoginUrl} from './provider-auth.mjs';
+import {stopUnsafeStartup} from './startup-diagnostics.mjs';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {PermissionPolicy,PERMISSION_MODES,isPermissionMode,normalizeRules,normalizeRule,suggestRule,hostAction,claudeAction} from './permissions.mjs';
 import {TitleService,canGenerateTitle} from './chat-titles.mjs';
@@ -201,6 +202,7 @@ function recordChatScrollIncident(payload){
 await mkdir(dataDir,{recursive:true});app.setPath('userData',dataDir);app.setPath('sessionData',path.join(dataDir,'browser-data'));nativeTheme.themeSource='dark';
 app.setName('Exomina');
 if(!app.requestSingleInstanceLock()){app.quit();}else{
+try{
 let quickWindow,quickStatus={registered:false},workbench,workPlans,toolUpdates,assist,soulLearning,liveFollowups,usageHandoffs,userQuestions,connectorForms,codexCloud,discoveries,scratchpad,workspaceWindows;
 app.on('before-quit',()=>soulLearning?.close());
 const DISCOVERY_SCOPE=Symbol('personal discovery research');
@@ -700,9 +702,11 @@ function providerEmit(event){
   if(assist?.parent(event.conversationId)){if(event.type==='usage')usage?.update(event.provider,event.info);else assist.observe?.(event);return;}
   if(imageSupport?.handle(event))return;
   if(event.type==='auth.url'){
-    try{const url=officialLoginUrl(event.url,event.provider);if(!url)throw Error('Unexpected sign-in address');emit({...event,url});if(!event.browserOpened)shell.openExternal(url).catch(()=>{});}catch(e){emit({type:'auth.error',provider:event.provider,message:e.message})}return;
+    try{const url=officialLoginUrl(event.url,event.provider);if(!url)throw Error('Unexpected sign-in address');if(window&&!window.isDestroyed())window.webContents.send('studio:event',{...event,url});if(!event.browserOpened)shell.openExternal(url).catch(()=>{});}catch(e){if(window&&!window.isDestroyed())window.webContents.send('studio:event',{type:'auth.error',provider:event.provider,message:e.message})}return;
   }
-  if(event.type==='auth.completed'){emit(event);refresh().catch(()=>{});return}
+  // OAuth links and in-progress session identifiers belong only to the desktop
+  // sign-in interface, never chat memory, relay clients, or integration events.
+  if(event.type?.startsWith('auth.')){if(window&&!window.isDestroyed())window.webContents.send('studio:event',event);if(event.type==='auth.completed')refresh().catch(()=>{});return;}
   // Subscription limits: kept with the settings so the last known numbers survive a restart.
   if(event.type==='usage'){usage?.update(event.provider,event.info);return}
   const running=active.get(event.conversationId);
@@ -1840,7 +1844,7 @@ try{
   connectorForms=new ConnectorForms({getRun:id=>active.get(id),getChat:id=>store.conversation(id),emit:providerEmit});
   github=await new GithubConnection({dataDir,encryption:safeStorage,approve:request=>requestApproval(request),emit}).init();
   requestGuard=await new RequestGuard({file:path.join(dataDir,'request-guard.json'),getLimits:()=>store.state.settings.requestLimits,getCatchUpLimit:()=>backfillHourlyCap(store.state.settings),emit,nameOf:id=>getProvider(id)?.name||id}).init();
-  providers=new ProviderManager({dataDir:accountsDir,getRuntimePath:id=>toolUpdates?.runtimeExecutable(id),beforeRequest:request=>requestGuard.checkAndPersist(request),beforePrepare:()=>Promise.all([accountsReady(),...(samePath(store.state.settings.workspace,defaultWorkspace)?[workspaceReady()]:[])]),workspace:store.state.settings.workspace,emit:providerEmit,approve,approveDetailed:requestApproval,
+  providers=new ProviderManager({dataDir:accountsDir,getRuntimePath:id=>toolUpdates?.runtimeExecutable(id),beforeRequest:request=>requestGuard.checkAndPersist(request),beforePrepare:({metadata=false}={})=>Promise.all([accountsReady(),...(!metadata&&samePath(store.state.settings.workspace,defaultWorkspace)?[workspaceReady()]:[])]),workspace:store.state.settings.workspace,emit:providerEmit,approve,approveDetailed:requestApproval,
     requestUserInput:(id,args,options)=>{if(liveFollowups?.readScope(id))throw Error('Follow-up answers cannot ask interactive questions.');if(active.get(id)?.noteWork)throw Error('This unattended note task cannot wait for questions. Report an essential blocker with notes_work_update.');return userQuestions.ask(id,args,options);},requestElicitation:(id,args,options)=>{if(liveFollowups?.readScope(id))throw Error('Follow-up answers cannot request connector forms.');return connectorForms.request(id,args,options);},cancelElicitation:({threadId})=>connectorForms.cancelThread(threadId),getPermissionMode:id=>id?.startsWith('memory-compaction-')||id?.startsWith('soul-reflection-')||assist?.parent(id)||liveFollowups?.readScope(id)?'read-only':policy.modeFor(id),toolDefinitions:definitions(),callTool,gateway,isProviderEnabled:id=>Boolean(getProvider(id))&&(!getProvider(id)?.optIn||store.state.settings.optInProviders?.[id]===true)});
   toolUpdates=await new ToolUpdates({root:path.join(dataDir,'managed-tools'),runtimeRoot,packagePath:path.join(app.getAppPath(),'package.json'),getSettings:()=>store.state.settings,saveSettings:async patch=>{Object.assign(store.state.settings,patch);await store.save();},external,providers,idle:()=>!quitting&&!active.size&&!providers.runtimeChangeBusy()&&!approvals.size&&!external.connecting.has('cua')&&!libraryBackupActive&&!restartRequested&&!terminalSessions?.busy&&!terminalPty?.openIds().length&&!voice.active&&!realtimeVoice?.active&&!appAnalysis?.runs.size&&!ghidraWorkspaces?.job,changed:()=>{if(providers)providers.toolDefinitions=definitions();emit({type:'state.changed'});}}).init();
   computerConnection=new ComputerConnection({external,getSettings:()=>store.state.settings,changed:()=>{providers.toolDefinitions=definitions();emit({type:'state.changed'});}});
@@ -1976,7 +1980,7 @@ try{
   window.on('focus',()=>cloudClient.sync().catch(()=>{}));
   const indexUrl=pathToFileURL(path.join(root,'dist','index.html')).href;
   workspaceWindows=new WorkspaceWindows({window,indexUrl,emit,setBrowserOwner:owner=>browser.setWindow(owner),openExternal:url=>shell.openExternal(url),getDisplays:()=>screen.getAllDisplays(),displaySource:screen,backgroundColor:()=>applyNativeAppearance(),onCreate:child=>attachContextMenu(child.webContents,{Menu,clipboard,getSpellcheck:()=>spellcheckState(),setSpellcheckEnabled:async enabled=>{store.state.settings.spellcheck={...spellcheckSettings(store.state.settings.spellcheck),enabled};applyWindowSpellcheck();await store.save();emit({type:'state.changed'});}})});
-  ipcMain.handle('studio:invoke',(event,method,payload)=>{const main=event.sender===window.webContents&&event.senderFrame?.url===indexUrl;const quick=event.sender===quickWindow?.webContents&&event.senderFrame?.url===indexUrl+'#quick'&&['quick.state','quick.submit','quick.dismiss'].includes(method);if(!main&&!quick)throw Error('Untrusted app frame');if(main&&method==='workspace.window.prepare')return workspaceWindows.prepare(payload);if(main&&method==='workspace.window.close')return workspaceWindows.close(payload?.id);if(main&&method==='workspace.window.list')return workspaceWindows.list();if(main&&method==='workspace.browser.owner')return workspaceWindows.owner(payload?.id);return invoke(method,payload)});
+  ipcMain.handle('studio:invoke',(event,method,payload)=>{const main=event.sender===window.webContents&&event.senderFrame?.url===indexUrl;const quick=event.sender===quickWindow?.webContents&&event.senderFrame?.url===indexUrl+'#quick'&&['quick.state','quick.submit','quick.dismiss'].includes(method);if(!main&&!quick)throw Error('Untrusted app frame');if(main&&method==='provider.authCode')return providers.submitLoginCode(payload?.provider,payload?.loginId,payload?.code);if(main&&method==='provider.authCancel')return providers.cancelLogin(payload?.provider,payload?.loginId);if(main&&method==='workspace.window.prepare')return workspaceWindows.prepare(payload);if(main&&method==='workspace.window.close')return workspaceWindows.close(payload?.id);if(main&&method==='workspace.window.list')return workspaceWindows.list();if(main&&method==='workspace.browser.owner')return workspaceWindows.owner(payload?.id);return invoke(method,payload)});
   window.webContents.on('will-navigate',(e,url)=>{if(url!==indexUrl)e.preventDefault()});
   const mediaPermission=(webContents,permission,details,request)=>audioPermission({webContents,mainContents:window.webContents,permission,details,request,visible:!voiceLocked&&window.isVisible()&&!window.isMinimized(),armed:realtimeVoice?.mediaAllowed()});
   window.webContents.session.setPermissionCheckHandler((webContents,permission,_origin,details)=>mediaPermission(webContents,permission,details,false));
@@ -2021,4 +2025,5 @@ let shutdownStarted=false,shutdownComplete=false;
     await store?.queue;await chatMemory?.close();await requestGuard?.close();await external?.close();browser?.close();await browserBridge?.close();gateway?.close();memory?.close();archive?.close();assets?.close();
   })().catch(()=>{}).finally(()=>{shutdownComplete=true;if(startupExitCode)app.exit(startupExitCode);else app.quit()});
 });
+}catch{stopUnsafeStartup({app,dialog});}
 }
