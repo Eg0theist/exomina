@@ -95,3 +95,15 @@ test('builder target architecture is used even when it differs from the host',as
  await writeFile(file,JSON.stringify(metadata),'utf8');
  await beforePack({arch:3,electronPlatformName:'win32',packager:{projectDir:path.join(f.home,'unused'),appDir:f.root}});
 });
+
+test('native ONNX qualification checks target binaries and permits foreign binaries to be pruned',async t=>{
+ const f=await fixture(t);
+ for(const folder of [f.root,f.packed]){
+  await f.module(folder,'provider',{main:'index.js',dependencies:{'onnxruntime-node':'1.0.0'}},{'index.js':'module.exports=true;'});
+  await f.module(folder,'onnxruntime-node',{main:'index.js'},{'index.js':'module.exports=true;','bin/napi-v6/linux/arm64/runtime.node':'target bytes'});
+ }
+ await f.module(f.root,'onnxruntime-node',{main:'index.js'},{'index.js':'module.exports=true;','bin/napi-v6/linux/arm64/runtime.node':'target bytes','bin/napi-v6/win32/arm64/DirectML.dll':'foreign bytes','bin/napi-v6/darwin/x64/runtime.node':'foreign bytes'});
+ await f.pack();assert.equal((await verifyPackageDependencies(f.root,f.archive,{platform:'linux',arch:'arm64'})).nativeFiles,1);
+ await unlink(path.join(f.packed,'node_modules/onnxruntime-node/bin/napi-v6/linux/arm64/runtime.node'));await f.pack();
+ await assert.rejects(verifyPackageDependencies(f.root,f.archive,{platform:'linux',arch:'arm64'}),/missing:.*linux\/arm64\/runtime.node/);
+});
