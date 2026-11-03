@@ -28,6 +28,9 @@ test('manual PR qualification remains read-only and cannot publish',async()=>{
  assert.equal(manual.permissions.contents,'read');assert.equal(native.permissions.contents,'read');
  assert.match(manual.jobs.publish.if,/github\.event_name == 'workflow_dispatch'/);
  assert.match(manual.jobs.publish.if,/github\.ref_name == github\.event\.repository\.default_branch/);
+ assert.equal(manual.on.workflow_dispatch.inputs.windows_only.type,'boolean');
+ assert.match(manual.jobs.publish.if,/!inputs\.windows_only/,'A partial qualification cannot publish.');
+ assert.match(manual.jobs.native.if,/!inputs\.windows_only/);
  assert.equal(manual.jobs.native.secrets,undefined);
  for(const name of ['manual-beta-release','native-packages']){
   const contents=await readFile(new URL(`.github/workflows/${name}.yml`,root),'utf8');
