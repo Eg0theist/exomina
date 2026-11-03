@@ -119,6 +119,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'Packaged protection refusal did not exit safely.' }
           node scripts/qa-connection-signin.mjs
           if ($LASTEXITCODE) { throw 'Packaged sign-in and status qualification failed.' }
+          node scripts/qa-update-candidate.mjs release/win-unpacked
+          if ($LASTEXITCODE) { throw 'The exact package could not reopen retained encrypted data.' }
           # Recorded in the release receipt; a failure is published as a known issue.
           node scripts/qa-connector-forms.mjs
           $connectorExit = $LASTEXITCODE

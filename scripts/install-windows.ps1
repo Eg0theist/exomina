@@ -27,6 +27,7 @@ param(
   [string]$AttemptId = '',
   [string]$BuildId = '',
   [switch]$CleanupAfterLaunch,
+  [switch]$RollbackOnStartupFailure,
   [string]$CleanupState = '',
   [string]$CleanupToken = '',
   [string]$KeepPrevious = '',
@@ -108,6 +109,17 @@ function Assert-PlainDirectory([string]$directory) {
   }
 }
 
+function New-ProgramRecoveryShortcut([string]$installRoot, [string]$previous, [string]$programs = [Environment]::GetFolderPath('Programs')) {
+  $recoveryLink=Join-Path $programs 'Exomina Recovery.lnk'
+  $recoveryShell=New-Object -ComObject WScript.Shell
+  $recoveryShortcut=$recoveryShell.CreateShortcut($recoveryLink)
+  $recoveryShortcut.TargetPath=Join-Path $previous 'Exomina.exe'
+  $recoveryShortcut.WorkingDirectory=$installRoot
+  $recoveryShortcut.Description='Open the previous Exomina program after a failed update'
+  $recoveryShortcut.Save()
+  return $recoveryLink
+}
+
 function Install-Program([string]$from, [string]$installRoot) {
   $installRoot = [IO.Path]::GetFullPath($installRoot).TrimEnd('\')
   $from = [IO.Path]::GetFullPath($from).TrimEnd('\')
@@ -147,6 +159,11 @@ function Install-Program([string]$from, [string]$installRoot) {
     if ($expectedFiles.Count -ne $programFiles.Count) { Fail 'The approved package inventory changed.' }
   }
   Assert-ExpectedBuild $from
+  # An in-app update must have a complete, verified rollback copy before the
+  # working program is moved. A fresh-profile smoke test cannot prove that the
+  # new build can open an existing profile.
+  if ($UpdateLauncherPid -gt 0 -and (Test-Path -LiteralPath $app) -and -not (Test-ProgramInventory $app)) { Fail 'The current program could not be verified for automatic recovery. The update was not activated.' }
+  if ($UpdateLauncherPid -gt 0 -and -not (Test-Path -LiteralPath (Join-Path $from 'resources\app.asar.unpacked\scripts\install-windows.ps1') -PathType Leaf)) { Fail 'The new program is missing its startup recovery helper.' }
   $tag = [Guid]::NewGuid().ToString('N')
   $next = Join-Path $installRoot "App.next-$tag"
   $previous = Join-Path $installRoot "App.previous-$tag"
@@ -155,6 +172,11 @@ function Install-Program([string]$from, [string]$installRoot) {
   foreach ($target in @($app, $next, $previous)) {
     if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($target)) -ne $installRoot) { Fail 'The program destination escaped the installation folder.' }
     Assert-PlainDirectory $target
+  }
+  if ($UpdateLauncherPid -gt 0 -and (Test-Path -LiteralPath $app)) {
+    # Created before the swap. Even an interrupted helper leaves a normal Start
+    # menu route to the verified old program without an external repair tool.
+    $null=New-ProgramRecoveryShortcut $installRoot $previous
   }
   $null = New-Item -ItemType Directory -Path $next
   if (Test-Path -LiteralPath $app) { Set-Acl -LiteralPath $next -AclObject (Get-Acl -LiteralPath $app) }
@@ -394,13 +416,54 @@ function Start-ProgramCleanup([string]$installRoot, [string]$previous, [string]$
   $stamp = Read-CleanupJson (Join-Path $installRoot 'App\exomina.build.json')
   if ($stamp.id -notmatch '^[\w-]{8,64}$') { throw 'The installed build identity is invalid.' }
   $token = [Guid]::NewGuid().ToString('N'); $created = [DateTime]::UtcNow
-  Write-CleanupJson (Join-Path $state 'program-cleanup-pending.json') @{schema=1;token=$token;buildId=$stamp.id;createdAt=$created.ToString('o');expiresAt=$created.AddSeconds($CleanupTimeoutSeconds).ToString('o')}
+  Write-CleanupJson (Join-Path $state 'program-cleanup-pending.json') @{schema=1;token=$token;buildId=$stamp.id;attemptId=$AttemptId;createdAt=$created.ToString('o');expiresAt=$created.AddSeconds($CleanupTimeoutSeconds).ToString('o')}
   $helper = Join-Path $installRoot 'App\resources\app.asar.unpacked\scripts\install-windows.ps1'
   if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) { throw 'The installed program cleanup helper is missing.' }
   $arguments = @('-NoProfile','-NonInteractive','-WindowStyle','Hidden','-File',('"'+$helper+'"'),'-CleanupAfterLaunch','-InstallHome',('"'+$installRoot+'"'),'-Build',('"'+$protectedBuild+'"'),'-BuildId',$stamp.id,'-CleanupState',('"'+$state+'"'),'-CleanupToken',$token,'-CleanupTimeoutSeconds',$CleanupTimeoutSeconds)
   if ($previous) { $arguments += @('-KeepPrevious',('"'+$previous+'"')) }
+  $monitored = $UpdateLauncherPid -gt 0 -and [bool]$previous
+  if ($monitored) { $arguments += @('-RollbackOnStartupFailure','-AttemptId',$AttemptId) }
   $helperProcess = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $arguments -WindowStyle Hidden -PassThru
-  return @{status='awaiting-startup';pid=$helperProcess.Id;buildId=$stamp.id}
+  return @{status='awaiting-startup';pid=$helperProcess.Id;buildId=$stamp.id;token=$token;attemptId=$AttemptId;monitored=$monitored;previous=$previous;createdAt=$created.ToString('o')}
+}
+
+function Restore-PreviousProgram([string]$installRoot, [string]$previous, [string]$expectedBuild, [DateTime]$created) {
+  $installRoot=[IO.Path]::GetFullPath($installRoot).TrimEnd('\')
+  $previous=[IO.Path]::GetFullPath($previous).TrimEnd('\')
+  $app=Join-Path $installRoot 'App'
+  # Never move profile directories, arbitrary recovery paths, or another build.
+  if ([IO.Path]::GetDirectoryName($previous) -ne $installRoot -or [IO.Path]::GetFileName($previous) -notmatch '^App\.previous-[a-f0-9]{32}$') { Fail 'Invalid automatic recovery program path.' }
+  Assert-PlainDirectory $installRoot; Assert-PlainDirectory $previous; Assert-PlainDirectory $app
+  if ((Read-CleanupJson (Join-Path $app 'exomina.build.json')).id -ne $expectedBuild) { Fail 'The active program changed; automatic recovery was stopped.' }
+  if (-not (Test-ProgramInventory $previous)) { Fail 'The previous program inventory changed; both program copies were preserved.' }
+  $previousStamp=Read-CleanupJson (Join-Path $previous 'exomina.build.json')
+  if ([IO.File]::ReadAllText((Join-Path $previous 'exomina.paths.json')) -cne [IO.File]::ReadAllText((Join-Path $app 'exomina.paths.json'))) { Fail 'The profile binding changed; automatic recovery was stopped.' }
+  # Only stop this attempt's new program, including its renderer. Never kill by
+  # executable name, by a user-supplied PID, or by command-line substring.
+  $targetPrefix=$app+'\'
+  $processes=@(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {$_.ExecutablePath -and $_.ExecutablePath.StartsWith($targetPrefix,[StringComparison]::OrdinalIgnoreCase)})
+  foreach ($entry in $processes) {
+    $process=Get-Process -Id $entry.ProcessId -ErrorAction SilentlyContinue
+    if (-not $process) { continue }
+    try { $image=$process.Path; $started=$process.StartTime.ToUniversalTime() }
+    catch { if (-not (Get-Process -Id $entry.ProcessId -ErrorAction SilentlyContinue)) { continue }; throw }
+    if (-not [string]::Equals($image,$entry.ExecutablePath,[StringComparison]::OrdinalIgnoreCase) -or $started -lt $created.AddSeconds(-2)) { Fail 'A different application instance is using the program; both copies were preserved.' }
+    Stop-Process -InputObject $process -Force -ErrorAction Stop
+    if (-not $process.WaitForExit(10000)) { Fail 'The failed program did not stop; both copies were preserved.' }
+  }
+  if (Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {$_.ExecutablePath -and $_.ExecutablePath.StartsWith($targetPrefix,[StringComparison]::OrdinalIgnoreCase)}) { Fail 'A program is still using the new installation; both copies were preserved.' }
+  # Move the failed program aside for diagnosis, and atomically restore the
+  # previous program at the normal shortcut. There is no recursive deletion.
+  $failed=Join-Path $installRoot ('App.failed-'+[Guid]::NewGuid().ToString('N'))
+  Assert-PlainDirectory $failed
+  Move-ProgramDirectory $app $failed
+  try { Move-ProgramDirectory $previous $app }
+  catch { $failure=$_.Exception.Message; Move-ProgramDirectory $failed $app; Fail ('Automatic recovery could not activate the previous program. '+$failure) }
+  return @{status='rolled-back';restoredBuildId=$previousStamp.id;failedProgram=$failed}
+}
+
+function Write-ActivationResult([string]$state, [string]$token, [string]$status, [string]$message = '', $recovery = $null) {
+  Write-CleanupJson (Join-Path $state 'update-activation.json') @{schema=1;attemptId=$AttemptId;buildId=$BuildId;token=$token;status=$status;message=$message;recovery=$recovery;finishedAt=[DateTime]::UtcNow.ToString('o')}
 }
 function Invoke-ProgramCleanupAfterLaunch {
   $installRoot = [IO.Path]::GetFullPath($InstallHome).TrimEnd('\'); $state = [IO.Path]::GetFullPath($CleanupState).TrimEnd('\')
@@ -410,16 +473,20 @@ function Invoke-ProgramCleanupAfterLaunch {
     $KeepPrevious = [IO.Path]::GetFullPath($KeepPrevious).TrimEnd('\')
     if ([IO.Path]::GetDirectoryName($KeepPrevious) -ne $installRoot -or [IO.Path]::GetFileName($KeepPrevious) -notmatch '^App\.previous-[a-f0-9]{32}$') { throw 'Invalid protected rollback path.' }
   }
+  if ($RollbackOnStartupFailure -and (-not $KeepPrevious -or $AttemptId -notmatch '^[a-f0-9-]{36}$')) { throw 'Invalid automatic startup recovery handoff.' }
   $protectedBuild = [IO.Path]::GetFullPath($Build).TrimEnd('\')
   $outcome = [ordered]@{buildId=$BuildId;status='skipped';reason='The updated app did not confirm a successful startup.';finishedAt=$null;cleanup=$null}
   $deadline = [DateTime]::UtcNow.AddSeconds($CleanupTimeoutSeconds)
   while ([DateTime]::UtcNow -lt $deadline) {
     $pending = Read-CleanupJson (Join-Path $state 'program-cleanup-pending.json')
-    if ($pending.token -ne $CleanupToken) { $outcome.reason='A newer cleanup handoff replaced this one.'; break }
-    if (Test-CleanupHealth $installRoot $state $CleanupToken $BuildId) {
+    if ($pending.token -ne $CleanupToken -or ($RollbackOnStartupFailure -and ($pending.attemptId -ne $AttemptId -or $pending.buildId -ne $BuildId))) { $outcome.reason='A newer cleanup handoff replaced this one.'; break }
+    $healthy=$false;try { $healthy=Test-CleanupHealth $installRoot $state $CleanupToken $BuildId } catch {}
+    if ($healthy) {
       # A short healthy interval catches an immediate process exit after the page loads.
       Start-Sleep -Seconds 3
-      if (Test-CleanupHealth $installRoot $state $CleanupToken $BuildId) {
+      $healthy=$false;try { $healthy=Test-CleanupHealth $installRoot $state $CleanupToken $BuildId } catch {}
+      if ($healthy) {
+        if ($RollbackOnStartupFailure) { Write-ActivationResult $state $CleanupToken 'healthy' }
         $healthCheck = { Test-CleanupHealth $installRoot $state $CleanupToken $BuildId }
         $outcome.cleanup = Remove-ObsoleteProgramCopies $installRoot $KeepPrevious $protectedBuild $BuildId $healthCheck
         $outcome.status=$(if ($outcome.cleanup.errors.Count) { 'partial' } else { 'complete' }); $outcome.reason='Updated app initialized and its main window loaded.'; break
@@ -427,8 +494,21 @@ function Invoke-ProgramCleanupAfterLaunch {
     }
     Start-Sleep -Milliseconds 500
   }
+  $currentChallenge=Read-CleanupJson (Join-Path $state 'program-cleanup-pending.json')
+  $ownsChallenge=$currentChallenge.token -eq $CleanupToken -and (-not $RollbackOnStartupFailure -or ($currentChallenge.attemptId -eq $AttemptId -and $currentChallenge.buildId -eq $BuildId))
+  if ($RollbackOnStartupFailure -and $outcome.status -eq 'skipped' -and $ownsChallenge) {
+    try {
+      $challenge=Read-CleanupJson (Join-Path $state 'program-cleanup-pending.json')
+      $recovery=Restore-PreviousProgram $installRoot $KeepPrevious $BuildId ([DateTime]::Parse($challenge.createdAt).ToUniversalTime())
+      Write-ActivationResult $state $CleanupToken 'rolled-back' 'The update could not open the workspace. The previous program was restored; your library and sign-ins were not replaced.' $recovery
+      $outcome.status='rolled-back'; $outcome.reason='The previous program was restored after startup failed.'
+    } catch {
+      Write-ActivationResult $state $CleanupToken 'recovery-failed' ('Startup failed and automatic recovery could not finish. Both program copies were preserved. '+$_.Exception.Message)
+      $outcome.status='recovery-failed'; $outcome.reason=$_.Exception.Message
+    }
+  }
   $outcome.finishedAt=[DateTime]::UtcNow.ToString('o')
-  if ((Read-CleanupJson (Join-Path $state 'program-cleanup-pending.json')).token -eq $CleanupToken) {
+  if ($ownsChallenge) {
     Write-CleanupJson (Join-Path $state 'program-cleanup-result.json') $outcome
     Remove-Item -LiteralPath (Join-Path $state 'program-cleanup-pending.json') -Force
   }
@@ -501,9 +581,18 @@ try {
   # Keep existing runner/UAC behavior: the installer exits, the app reopens without
   # elevation, and this bounded helper only prunes after the app confirms startup.
   try { $summary.programCleanup = Start-ProgramCleanup $InstallHome $program.previous $Build }
-  catch { $summary.programCleanup = @{status='deferred';reason=$_.Exception.Message} }
+  catch {
+    if ($UpdateLauncherPid -gt 0 -and $program.previous) { $null=Restore-PreviousProgram $InstallHome $program.previous $BuildId ([DateTime]::UtcNow); throw }
+    $summary.programCleanup = @{status='deferred';reason=$_.Exception.Message}
+  }
 } catch {
   $summary.ok = $false; $summary.error = $_.Exception.Message
+  # Failures after activation (including shortcut or helper launch failures)
+  # must restore the working program too, not just directory-swap failures.
+  if ($UpdateLauncherPid -gt 0 -and $program.previous -and (Test-Path -LiteralPath $program.previous) -and (Read-CleanupJson (Join-Path $InstallHome 'App\exomina.build.json')).id -eq $BuildId) {
+    try { $summary.recovery=Restore-PreviousProgram $InstallHome $program.previous $BuildId ([DateTime]::UtcNow) }
+    catch { $summary.recoveryError=$_.Exception.Message }
+  }
   Write-InstallProgress 'failed' -Force
 }
 $json = $summary | ConvertTo-Json -Depth 4

@@ -16,6 +16,10 @@ export async function packageLocal({root=path.resolve(import.meta.dirname,'..'),
     for(const script of ['prepare-taskbar-icon.mjs','prepare-windows-interop.mjs','prepare-grok-runtime.mjs','prepare-analysis-node.mjs','prepare-muse-runtime.mjs'])await run(root,['scripts/'+script]);
     await run(root,['node_modules/electron-builder/cli.js','--win','dir','--config.directories.output='+path.dirname(p.candidate)]);
     await run(root,['scripts/stamp-build.mjs','--build-dir',p.candidate]);
+    // Never replace the last good stage with a build tested only on a fresh
+    // profile. This check launches the exact candidate with retained encrypted
+    // data and legacy runtime entries; failures leave that candidate withheld.
+    await run(root,['scripts/qa-update-candidate.mjs',p.candidate]);
     const result=await stage({root,candidate:p.candidate,locked:true});
     await record(root,result.build);
     return result;

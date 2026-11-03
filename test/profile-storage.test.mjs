@@ -125,3 +125,27 @@ test('native Unix Chromium lock links are owner-checked and never followed or ch
  assert.equal((await prepareUnixProfile(data,{allowedLinks:[lock]})).restrictedAccess,true);
  assert.equal(await readlink(lock),outside);assert.equal((await lstat(outside)).mode&0o777,0o644);assert.equal(await readFile(outside,'utf8'),'synthetic outside file');
 });
+
+
+test('recovery-backed EFS startup uses its EFS verifier despite legacy runtime entries rejected by the standard-profile walker',async t=>{
+ const f=await fixture(t,{encrypted:true,efsAvailable:true}),record=await f.recovery();
+ const inspect=f.options.access.inspect;
+ f.options.access.inspect=async directory=>{if([f.options.dataDir,f.options.accountsDir].includes(directory))throw Error('Synthetic legacy runtime cache has another owner or a link.');return inspect(directory);};
+ const status=await f.profile.initialize();
+ assert.equal(status.ready,true);assert.equal(status.mode,'efs');assert.equal(status.protected,true);
+ assert.deepEqual(f.calls.filter(([action])=>action==='startup').map(([,directory])=>directory),[f.options.dataDir,f.options.accountsDir]);
+ assert.equal(f.accessCalls.some(([action])=>action==='prepare'),false);
+ assert.equal(await readFile(f.profile.recoveryFile,'utf8'),record);assert.equal(await readFile(f.state,'utf8'),f.stateBytes);
+ await assert.rejects(f.profile.selectStandard(),/cannot be downgraded/);
+});
+
+test('the EFS compatibility route still rejects a failed account vault and the standard route still rejects unsafe entries',async t=>{
+ const f=await fixture(t,{encrypted:true}),record=await f.recovery();const verify=f.options.vault.verifyStartup;
+ f.options.vault.verifyStartup=async(directory,input)=>directory===f.options.accountsDir?{encrypted:true,restrictedAccess:false}:verify(directory,input);
+ assert.equal((await f.profile.initialize()).ready,false);assert.equal(f.profile.status.mode,'efs');
+ await assert.rejects(f.profile.verifyPrivate(f.options.accountsDir));await assert.rejects(f.profile.selectStandard(),/cannot be downgraded/);
+ assert.equal(await readFile(f.profile.recoveryFile,'utf8'),record);assert.equal(await readFile(f.state,'utf8'),f.stateBytes);
+ const standard=await fixture(t);standard.options.access.inspect=async directory=>{if(directory===standard.options.dataDir)throw Error('Synthetic unsafe standard entry.');return {anyEncrypted:false,restrictedAccess:true};};
+ assert.equal((await standard.profile.initialize()).ready,false);assert.match(standard.profile.status.message,/unsafe standard entry/);
+ assert.deepEqual(standard.calls,[]);await assert.rejects(readFile(standard.profile.policyFile),{code:'ENOENT'});assert.equal(await readFile(standard.state,'utf8'),standard.stateBytes);
+});

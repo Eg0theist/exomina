@@ -80,7 +80,7 @@ try {
     $stamp = $null
     try { $stamp = Get-Content -LiteralPath (Join-Path $InstallHome 'App\exomina.build.json') -Raw -Encoding utf8 | ConvertFrom-Json } catch {}
     if ($installed.attemptId -ne $AttemptId -or $installed.buildId -ne $BuildId -or $installed.installerPid -ne $process.Id) { throw 'The installer did not return a report for this update attempt.' }
-    if ($process.ExitCode -eq 0 -and $installed.ok -and $stamp.id -eq $BuildId) { $result.status = 'installed' }
+    if ($process.ExitCode -eq 0 -and $installed.ok -and $stamp.id -eq $BuildId) { $result.status = 'verifying-startup' }
     else { $result.message = if ($installed.error) { [string]$installed.error } elseif ($stamp.id -ne $BuildId) { 'The installer finished without activating the requested build.' } else { "The installer exited with code $($process.ExitCode)." } }
   }
 } catch {
@@ -97,13 +97,13 @@ try {
   $pendingFile = Join-Path $State 'pending-update.json'
   if (Test-Path -LiteralPath $pendingFile) {
     $pending = Get-Content -LiteralPath $pendingFile -Raw | ConvertFrom-Json
-    if ($pending.attemptId -eq $AttemptId) { Remove-Item -LiteralPath $pendingFile -Force }
+    if ($pending.attemptId -eq $AttemptId -and $result.status -ne 'verifying-startup') { Remove-Item -LiteralPath $pendingFile -Force }
   }
 } catch {}
 # A successful installation always activates canonical App. In particular, an
 # update started from a side-by-side recovery must not reopen that older copy.
 # Failed or declined installations reopen the caller's previous working copy.
-$reopenExe = if ($result.status -eq 'installed') { Join-Path $InstallHome 'App\Exomina.exe' } else { $Exe }
+$reopenExe = if ($result.status -eq 'verifying-startup') { Join-Path $InstallHome 'App\Exomina.exe' } else { $Exe }
 # Reopen unelevated: this runner never had administrator rights.
 function Open-UpdatedProgram([string]$target) {
   if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw 'The executable to reopen is missing.' }
@@ -113,12 +113,13 @@ function Open-UpdatedProgram([string]$target) {
 # The supervisor uses Electron's Node mode; the reopened app must not inherit it.
 Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 Remove-Item Env:\EXOMINA_UPDATER_BOOTSTRAP_PID -ErrorAction SilentlyContinue
+Remove-Item Env:\EXOMINA_WINDOWS_INDEPENDENT -ErrorAction SilentlyContinue
 $reopen = [ordered]@{attemptId=$AttemptId;buildId=$BuildId;requested=$reopenExe;opened=$null;status='failed';error='';fallbackError=''}
 try { Open-UpdatedProgram $reopenExe; $reopen.opened=$reopenExe; $reopen.status='launched' }
 catch {
   $reopen.error=$_.Exception.Message
   # Only try the previous recovery copy once, and only if it is a different path.
-  if ($result.status -eq 'installed' -and -not [string]::Equals([IO.Path]::GetFullPath($reopenExe),[IO.Path]::GetFullPath($Exe),[StringComparison]::OrdinalIgnoreCase)) {
+  if ($result.status -ne 'verifying-startup' -and -not [string]::Equals([IO.Path]::GetFullPath($reopenExe),[IO.Path]::GetFullPath($Exe),[StringComparison]::OrdinalIgnoreCase)) {
     try { Open-UpdatedProgram $Exe; $reopen.opened=$Exe; $reopen.status='fallback' }
     catch { $reopen.fallbackError=$_.Exception.Message }
   }

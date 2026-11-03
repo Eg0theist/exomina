@@ -1,0 +1,10 @@
+Exomina 0.7 makes everyday work clearer and expands what can change without restarting.
+
+- Redesigned navigation, settings and first-run walkthroughs.
+- Live tool controls, extension removal and verified connection updates with rollback.
+- Explicit AI voice-sharing consent, connected services and local WAV inspection.
+- More precise conversation recall and revision-checked notebook cleanup.
+- Updated dependencies and stronger conversation-bound tool permissions.
+- Encrypted-profile upgrade compatibility and responsive-workspace confirmation for in-app Windows updates, with recovery of the previous program after failed startup.
+
+Public beta updates remain manual. See BETA.md and the release qualification record for supported platforms and remaining checks.

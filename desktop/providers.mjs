@@ -568,7 +568,11 @@ export class ProviderManager {
   }
 
   async status({ onStatus } = {}) {
-    await this.prepare({metadata:true});
+    // Coalesce before filesystem preparation too. Under load, independent
+    // preparations could finish on either side of a completed status request,
+    // causing overlapping callers to launch a second metadata check.
+    const preparation=this.statusPreparation||(this.statusPreparation=this.prepare({metadata:true}));
+    try{await preparation;}finally{if(this.statusPreparation===preparation)this.statusPreparation=null;}
     return Promise.all(['codex', 'claude', ...this.adapters.keys()].filter(id=>getProvider(id)).map(async id => {
       if (this.adapters.has(id)) return this.adapters.get(id).status();
       const name = id === 'codex' ? 'ChatGPT · Codex' : 'Claude · Claude Code';

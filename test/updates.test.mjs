@@ -374,6 +374,15 @@ test('stale pending state preserves the concrete outcome for the same attempt',a
   }finally{await t.cleanup();}
 });
 
+test('provisional startup is not a user-facing success and an orphaned verification fails honestly',async()=>{
+  const t=await layout({installed:A,staged:B});try{
+    await t.updater.launch();const pending=JSON.parse(await readFile(path.join(t.stateDir,'pending-update.json'),'utf8'));
+    await writeFile(path.join(t.stateDir,'last-update.json'),JSON.stringify({buildId:B.id,attemptId:pending.attemptId,status:'verifying-startup'}));
+    assert.equal(await t.updater.takeResult(),null);
+    t.updater.isProcessAlive=()=>false;const status=await t.updater.status();assert.equal(status.lastResult.status,'failed');assert.equal(status.autoBlocked,true);
+  }finally{await t.cleanup();}
+});
+
 test('a completed handoff whose runner disappeared allows an explicit retry',async()=>{
   const t=await layout({installed:A,staged:B});
   try{
