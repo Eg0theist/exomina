@@ -13,6 +13,7 @@ const work = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../W
  */
 export async function createProtectedQaProfile(label) {
   assert.match(label, /^[a-z][a-z0-9-]{0,40}$/);
+  await mkdir(work, { recursive: true });
   const output = await mkdtemp(path.join(work, `qa-${label}-`));
   assert.equal(path.dirname(output), work);
   const profile = path.join(output, 'data'), setup = profile + '.setup';

@@ -32,10 +32,14 @@ test('a complete archive verifies production dependencies, entries and native by
  assert.deepEqual(await verifyPackageDependencies(f.root,f.archive),{passed:true,packages:2,entrypoints:2,nativeFiles:1});
 });
 
-test('an upstream executable manifest permits builder metadata pruning',{skip:process.platform==='win32'},async t=>{
+test('upstream executable documentation permits builder metadata pruning',{skip:process.platform==='win32'},async t=>{
  const f=await fixture(t),original=path.join(f.root,'node_modules/provider/package.json'),packed=path.join(f.packed,'node_modules/provider/package.json');
- const metadata=JSON.parse(await readFile(original,'utf8'));await writeFile(original,JSON.stringify({...metadata,scripts:{test:'synthetic only'}}));await chmod(original,0o755);await f.pack();
+ const metadata=JSON.parse(await readFile(original,'utf8'));await writeFile(original,JSON.stringify({...metadata,scripts:{test:'synthetic only'}}));await chmod(original,0o755);const doc=path.join(f.root,'node_modules/provider/readme.md');await writeFile(doc,'Synthetic documentation only');await chmod(doc,0o755);await f.pack();
  assert.equal((await verifyPackageDependencies(f.root,f.archive)).packages,2);
+});
+
+test('an extensionless native program cannot disappear',{skip:process.platform==='win32'},async t=>{
+ const f=await fixture(t),binary=path.join(f.root,'node_modules/provider/program');await writeFile(binary,Buffer.from([0x7f,0x45,0x4c,0x46,0,0]));await chmod(binary,0o755);await f.pack();await assert.rejects(verifyPackageDependencies(f.root,f.archive),/missing:.*provider\/program/);
 });
 test('the linked node_modules regression is rejected without changing its target',async t=>{
  const f=await fixture(t),linked=path.join(f.home,'linked');await mkdir(linked);

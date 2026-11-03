@@ -1,6 +1,6 @@
 // Check inputs independently of electron-builder's dependency collector. A linked
 // node_modules previously let the collector silently omit production packages.
-import {lstat,realpath,readFile,readdir} from 'node:fs/promises';
+import {lstat,realpath,readFile,readdir,open} from 'node:fs/promises';
 import path from 'node:path';
 import {listPackage,extractFile,uncache} from '@electron/asar';
 
@@ -8,6 +8,9 @@ const inside=(root,file)=>{const relative=path.relative(root,file);return relati
 const excluded=(name,patterns)=>patterns.some(pattern=>pattern.endsWith('/*')?name.startsWith(pattern.slice(0,-1)):name===pattern);
 const compatible=(values,target)=>{if(!values)return true;values=Array.isArray(values)?values:[values];return !values.includes('!'+target)&&(values.every(value=>value.startsWith('!'))||values.includes(target));};
 const parse=bytes=>JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/,''));
+async function nativeExecutable(file){
+ const handle=await open(file,'r');try{const bytes=Buffer.alloc(4),{bytesRead}=await handle.read(bytes,0,4,0);if(bytesRead<4)return false;const magic=bytes.readUInt32BE(0);return bytes.subarray(0,2).equals(Buffer.from('MZ'))||magic===0x7f454c46||[0xfeedface,0xcefaedfe,0xfeedfacf,0xcffaedfe,0xcafebabe,0xbebafeca,0xcafebabf,0xbfbafeca].includes(magic);}finally{await handle.close();}
+}
 
 export async function runtimeDependencies(root,{exclude=[],platform=process.platform,arch=process.arch}={}){
  root=await realpath(root);
@@ -124,7 +127,7 @@ export async function verifyPackageDependencies(root,archive,options={}){
     }
     if(file.isSymbolicLink())continue;
     if(file.isDirectory())await binaries(path.join(directory,file.name),name);
-    else if(/\.(?:exe|dll|node|pyd|wasm|dylib|so(?:\.\d+)*)$/i.test(file.name)||(process.platform!=='win32'&&((await lstat(path.join(directory,file.name))).mode&0o111))){await checkFile(entry,name,location);nativeFiles++;}
+    else if(/\.(?:exe|dll|node|pyd|wasm|dylib|so(?:\.\d+)*)$/i.test(file.name)||(process.platform!=='win32'&&((await lstat(path.join(directory,file.name))).mode&0o111)&&await nativeExecutable(path.join(directory,file.name)))){await checkFile(entry,name,location);nativeFiles++;}
    }
   }
   await binaries(entry.directory);
