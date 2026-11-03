@@ -8,7 +8,9 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {ANALYSIS_NODE_RUNTIME,analysisNodeArchiveMembers} from './prepare-analysis-node.mjs';
 
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),digest=bytes=>createHash('sha256').update(bytes).digest('hex');
-export const NODE_MAINTENANCE_POLICY=Object.freeze({major:24,signerThumbprints:['6018A47185244F3B175DAFC18D0D8EB47E3F84CF'],origin:'https://nodejs.org'});
+// Reviewed against the official 24.22.2 ZIP/checksums and its valid, timestamped
+// OpenJS Foundation Authenticode signature on 2026-11-03. Unknown keys still fail.
+export const NODE_MAINTENANCE_POLICY=Object.freeze({major:24,signerThumbprints:['6018A47185244F3B175DAFC18D0D8EB47E3F84CF','F026E9D2F6BF94760DD86FFEECD888F28842DE73'],origin:'https://nodejs.org'});
 const providerBinary=name=>/@(?:anthropic-ai|xai-official)\/.*win32/.test(name);
 function version(value){const match=/^(\d+)\.(\d+)\.(\d+)$/.exec(String(value).replace(/^[~^]/,''));return match?match.slice(1).map(Number):null;}
 const compare=(a,b)=>{const x=version(a),y=version(b);if(!x||!y)throw Error('Choose stable semantic versions.');for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]-y[i];return 0;};
