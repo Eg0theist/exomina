@@ -5,7 +5,12 @@ on:
       version:
         description: Exact package version to release as a manual beta
         required: true
-        default: '0.6.0'
+        default: '0.7.0'
+      windows_only:
+        description: Recheck Windows only without publishing a release
+        type: boolean
+        required: true
+        default: false
   # Changes to packaging, release QA or the app run full qualification before
   # merging. Pull requests never publish.
   pull_request:
@@ -119,11 +124,12 @@ jobs:
           $qaRoot = Join-Path (Split-Path $PWD -Parent) '.exomina-qa-temp'
           $install = @(Get-ChildItem -LiteralPath $qaRoot -Filter report.json -File -Recurse)
           $startup = @(Get-ChildItem -LiteralPath $qaRoot -Filter installed-startup-report.json -File -Recurse)
-          $forms = @(Get-ChildItem -Path '.verification/qa-connector-forms-*/result.json' -File)
+          $formsRoot = Join-Path (Split-Path $PWD -Parent) 'Workspace'
+          $forms = @(Get-ChildItem -Path (Join-Path $formsRoot 'qa-connector-forms-*/result.json') -File)
           if ($connectorExit -and $forms.Count -eq 0) {
-            $missing = New-Item -ItemType Directory -Path '.verification/qa-connector-forms-missing' -Force
+            $missing = New-Item -ItemType Directory -Path (Join-Path $formsRoot 'qa-connector-forms-missing') -Force
             @{ passed = $false; error = 'The connector check ended before writing its report.' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $missing 'result.json') -Encoding utf8
-            $forms = @(Get-ChildItem -Path '.verification/qa-connector-forms-*/result.json' -File)
+            $forms = @(Get-ChildItem -Path (Join-Path $formsRoot 'qa-connector-forms-*/result.json') -File)
           }
           if ($install.Count -ne 1 -or $startup.Count -ne 1 -or $forms.Count -ne 1) { throw 'Exact Windows qualification reports are ambiguous.' }
           Copy-Item -LiteralPath $install[0].FullName -Destination (Join-Path $destination 'windows-install.json')
@@ -158,13 +164,14 @@ jobs:
           path: release/qualification/*.json
           if-no-files-found: error
   native:
+    if: github.event_name != 'workflow_dispatch' || !inputs.windows_only
     needs: source
     uses: ./.github/workflows/native-packages.yml
     with:
       native_family: all
   publish:
     needs: [source, windows, native]
-    if: github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch
+    if: github.event_name == 'workflow_dispatch' && !inputs.windows_only && github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-24.04
     permissions:
       contents: write
