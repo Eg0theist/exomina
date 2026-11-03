@@ -56,6 +56,11 @@ test('an omitted native binary fails even when every package manifest remains',a
  const f=await fixture(t);await unlink(path.join(f.packed,'node_modules','transitive','native','addon.node'));await f.pack();
  await assert.rejects(verifyPackageDependencies(f.root,f.archive),/missing:.*addon.node/);
 });
+
+test('development native fixtures may be pruned while runtime binaries remain required',async t=>{
+ const f=await fixture(t);await mkdir(path.join(f.root,'node_modules/provider/test/data'),{recursive:true});await writeFile(path.join(f.root,'node_modules/provider/test/data/foreign.node'),'synthetic development binary');await f.pack();assert.equal((await verifyPackageDependencies(f.root,f.archive)).nativeFiles,1);
+ await unlink(path.join(f.packed,'node_modules/transitive/native/addon.node'));await f.pack();await assert.rejects(verifyPackageDependencies(f.root,f.archive),/missing:.*addon.node/);
+});
 test('a missing unpacked file is caught even when its ASAR header is present',async t=>{
  const f=await fixture(t);await f.pack();
  await unlink(path.join(f.archive+'.unpacked','node_modules','provider','index.js'));

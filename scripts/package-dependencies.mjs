@@ -115,6 +115,9 @@ export async function verifyPackageDependencies(root,archive,options={}){
   async function binaries(directory,relative=''){
    for(const file of await readdir(directory,{withFileTypes:true})){
     if(file.name==='node_modules')continue;
+    // Builder omits development fixtures. Declared main/bin/exports are still
+    // checked above even when an upstream package places one in such a folder.
+    if(!relative&&file.isDirectory()&&/^(?:tests?|__tests__|examples?|docs?|benchmarks?)$/i.test(file.name))continue;
     const name=path.posix.join(relative,file.name);
     // The root manifest is verified above by package identity. Builder rewrites
     // its development fields even when an upstream tarball marks it executable.

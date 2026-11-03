@@ -51,7 +51,7 @@ jobs:
       - name: Install the pinned native Electron program
         run: node node_modules/electron/install.js
       - name: Check source and permissions
-        run: node --test test/portability.test.mjs test/portability-native.test.mjs test/native-runtime-preparation.test.mjs test/native-qa-paths.test.mjs test/native-qa-cdp.test.mjs test/permissions.test.mjs test/profile-storage.test.mjs test/secret-storage.test.mjs test/credential-startup.test.mjs test/app-paths.test.mjs test/updates.test.mjs test/startup-diagnostics.test.mjs
+        run: node --test test/portability.test.mjs test/portability-native.test.mjs test/native-runtime-preparation.test.mjs test/native-qa-paths.test.mjs test/native-qa-cdp.test.mjs test/package-dependencies.test.mjs test/permissions.test.mjs test/profile-storage.test.mjs test/secret-storage.test.mjs test/credential-startup.test.mjs test/app-paths.test.mjs test/updates.test.mjs test/startup-diagnostics.test.mjs
       - name: Install Linux build and display dependencies
         if: runner.os == 'Linux'
         run: |

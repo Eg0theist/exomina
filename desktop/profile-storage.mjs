@@ -49,7 +49,9 @@ export class ProfileStorage {
         this.status.canUseStandard=this.status.pendingEncryption&&!this.recoveryPresent&&!this.anyEncrypted;
         if(this.platform!=='win32')throw blocked('This existing EFS profile requires Windows and its recovery certificate. It has not been converted or replaced.');
         const checks=[];
-        for(const root of [...new Set([...roots,this.workspace])]){
+        // Project folders are checked when accessed through verifyWorkspace.
+        // A selected project must not gate opening the private chat library.
+        for(const root of roots){
           if(root!==this.dataDir&&!await this.exists(root))continue;
           checks.push(this.recoveryRecord?await this.vault.verifyStartup(root,{recoveryThumbprint:this.recoveryRecord.thumbprint}):await this.vault.preflight(root));
         }
