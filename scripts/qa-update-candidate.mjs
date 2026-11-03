@@ -1,6 +1,7 @@
 // Required before a local Windows package is offered as an update. Exercise the
 // exact executable with synthetic retained EFS data and legacy runtime entries.
 import {createProtectedQaProfile} from './qa-profile.mjs';
+import {prepareWindowsQaOwner} from './native-qa-windows-owner.mjs';
 import {Store} from '../desktop/store.mjs';
 import {WindowsVault} from '../desktop/vault.mjs';
 import {mkdir,readFile,writeFile,symlink} from 'node:fs/promises';
@@ -10,6 +11,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {watchStartup} from './native-qa-startup.mjs';
 if(process.platform!=='win32')throw Error('Local update candidate qualification currently requires Windows.');
+await prepareWindowsQaOwner();
 const build=path.resolve(process.argv[2]||''),stamp=JSON.parse(await readFile(path.join(build,'exomina.build.json'),'utf8'));
 const require=createRequire(import.meta.url),{_electron}=require('playwright');
 const fixture=await createProtectedQaProfile('update-candidate'),profile=fixture.profile,output=fixture.output;
