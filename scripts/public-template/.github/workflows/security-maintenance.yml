@@ -9,6 +9,8 @@ on:
       validate_only:
         type: boolean
         default: false
+  push:
+    branches: ['release/**']
   # This is the required branch-protection check, so every PR must produce it,
   # including documentation-only and website-only changes.
   pull_request:
@@ -19,7 +21,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   validate:
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.validate_only)
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.validate_only)
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
