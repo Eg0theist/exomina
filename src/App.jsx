@@ -48,6 +48,7 @@ import { findTextMatches } from './chat-search.js';
 import {conversationSummary} from '../desktop/library-view.mjs';
 import { officialLoginUrl } from '../desktop/provider-auth.mjs';
 import RecoveryAudit from './RecoveryAudit.jsx';
+import LocalStorageSettings from './LocalStorageSettings.jsx';
 import Markdown, { CopyButton } from './Markdown.jsx';
 import ReplyExport from './ReplyExport.jsx';
 import AssistantText from './AssistantText.jsx';
@@ -1126,6 +1127,7 @@ export default function App({ session = {} }) {
         <SettingsPanel section="updates">{isDesktop && <UpdateSettings Toggle={Toggle} active={!!runningIds.length||voice.active} onAutoUpdate={value => saveSettings({ autoUpdate: value })} onReleaseSource={value=>saveSettings({updateFeedUrl:value})} onReview={async value=>{await refresh();await selectConversation({id:value.conversationId});setDraft(value.prompt,value.conversationId);}} />}</SettingsPanel>
         <SettingsPanel section="memory"><section className="settings-section" id="settings-memory"><div className="section-title"><h2>Memory & privacy</h2></div>
           <div className="settings-row"><div><strong>Saved memories</strong><p>Useful context is kept automatically. Open your notes when you want to inspect, correct or remove something.</p></div><button className="secondary-button" onClick={() => navigate('memory')}><Brain size={15} />View saved memories</button></div>
+          {isDesktop && <LocalStorageSettings security={data.security} active={running || !!data.activeRuns?.length || voice.active} />}
           {isDesktop && data.security?.mode === 'efs' && <RecoveryAudit audit={data.security?.recoveryAudit} active={running || !!data.activeRuns?.length} onChange={recoveryAudit => setData(previous => ({ ...previous, security: { ...previous.security, recoveryAudit } }))} />}
           <div className="settings-row"><div><strong>Include relevant memories</strong><p>Share relevant saved notes with the AI you are using.</p></div><Toggle label="Include relevant memories" checked={settings.memoryEnabled} onChange={value => saveSettings({ memoryEnabled: value })} /></div>
           <MemoryCaptureControl value={settings.memoryCapture} onChange={value => saveSettings({ memoryCapture: value })} disabled={busyAction === 'settings'} />
