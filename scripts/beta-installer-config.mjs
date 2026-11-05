@@ -4,7 +4,7 @@ import {writeFile,rm,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {snapshotSource} from '../desktop/update-source.mjs';
+import {snapshotSource,WEBSITE_MEDIA} from '../desktop/update-source.mjs';
 import {UpdateMerge} from '../desktop/update-merge.mjs';
 import {prepareWindowsInterop} from './prepare-windows-interop.mjs';
 import {createHash} from 'node:crypto';
@@ -111,7 +111,7 @@ export default {
     for(const name of ['exomina-source','exomina.release-integrity.json']){const target=path.resolve(context.appOutDir,name);if(path.dirname(target)!==path.resolve(context.appOutDir))throw Error('Invalid beta baseline destination.');await rm(target,{recursive:true,force:true});}
     await writeFile(path.join(context.appOutDir,'exomina.distribution.json'),JSON.stringify(marker,null,2)+'\n');
     await writeFile(path.join(context.appOutDir,'exomina.build.json'),JSON.stringify(stamp,null,2)+'\n');
-    await snapshotSource(project,path.join(context.appOutDir,'exomina-source'),stamp);
+    await snapshotSource(project,path.join(context.appOutDir,'exomina-source'),stamp,{skip:WEBSITE_MEDIA});
   },
   async afterSign(context){
     const vendor=await verifyVendorBinaries(context.appOutDir,project);
