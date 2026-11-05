@@ -5,7 +5,7 @@ import {pathsEqual} from './path-policy.mjs';
 /** App-owned locations are independent of the checkout and packaged executable.
  * Explicit data overrides keep development and synthetic QA profiles isolated.
  */
-export function appPaths({packaged,root,localAppData,appData,documents,legacyDataDir,legacyDataExists=false,ownDataExists=false,betaDataExists=false,distribution,home,platform=process.platform,env=process.env,pathApi=path}) {
+export function appPaths({packaged,root,localAppData,appData,documents,legacyDataDir,legacyDataExists=false,ownDataExists=false,betaDataExists=false,profileChoice,distribution,home,platform=process.platform,env=process.env,pathApi=path}) {
   const p=pathApi;
   if(env.EXOMINA_DATA_DIR||!packaged){
     const dataDir=p.resolve(env.EXOMINA_DATA_DIR||p.join(root,'data'));
@@ -22,20 +22,42 @@ export function appPaths({packaged,root,localAppData,appData,documents,legacyDat
   if(legacyDataExists&&!ownDataExists&&(!beta||!betaDataExists)&&legacyDataDir)return {dataDir:legacyDataDir,accountsDir:legacyDataDir,workspace:p.join(legacyDataDir,'workspace'),legacy:true};
   // New beta installers keep private data outside redirected Documents. Existing
   // profiles keep their current location; relocation still requires migration.
-  const privateRoot=p.join(platform!=='win32'?appData:beta&&(!ownDataExists||betaDataExists)?localAppData:documents,'Exomina','Private');
-  return {dataDir:p.join(privateRoot,'data'),accountsDir:p.join(privateRoot,'accounts'),workspace:p.join(documents,'Exomina','Workspace')};
+  // A beta that declined an older library keeps its projects apart from it too.
+  const separate=beta&&profileChoice==='new';
+  const privateRoot=p.join(platform!=='win32'?appData:beta&&(separate||(profileChoice!=='existing'&&(!ownDataExists||betaDataExists)))?localAppData:documents,'Exomina','Private');
+  return {dataDir:p.join(privateRoot,'data'),accountsDir:p.join(privateRoot,'accounts'),workspace:p.join(documents,separate?'Exomina Beta':'Exomina','Workspace')};
+}
+
+/** Remembers which library a beta install uses, outside either library. An offer
+ * stays open until the person answers it in the app. */
+export function betaProfileChoiceFile(localAppData,{pathApi=path}={}){return pathApi.join(localAppData,'Exomina','profile-choice.json');}
+export function parseBetaProfileChoice(text){
+  try{const value=JSON.parse(String(text).trimStart());return value?.choice==='existing'||value?.choice==='new'?{choice:value.choice,offer:value.offer===true}:undefined;}catch{return undefined;}
 }
 
 /** Resolve legacy/default folders only when explicit isolated paths do not win. */
-export function resolveAppLocations({packaged,root,home,distribution,env=process.env,platform=process.platform,pathApi=path,getPath,exists}) {
+export function resolveAppLocations({packaged,root,home,distribution,env=process.env,platform=process.platform,pathApi=path,getPath,exists,readChoice,saveChoice}) {
  const options={packaged,root,home,distribution,env,platform,pathApi};
  if(env.EXOMINA_DATA_DIR||!packaged||home)return appPaths(options);
  const documents=getPath('documents'),appData=getPath('appData');
  const legacyDataDir=pathApi.join(pathApi.dirname(getPath('exe')),'data');
- return appPaths({...options,documents,appData,localAppData:env.LOCALAPPDATA,legacyDataDir,
-  legacyDataExists:exists(pathApi.join(legacyDataDir,'state.json')),
-  ownDataExists:platform==='win32'&&exists(pathApi.join(documents,'Exomina','Private','data','state.json')),
-  betaDataExists:platform==='win32'&&Boolean(env.LOCALAPPDATA)&&exists(pathApi.join(env.LOCALAPPDATA,'Exomina','Private','data','state.json'))});
+ const legacyDataExists=exists(pathApi.join(legacyDataDir,'state.json'));
+ const ownDataExists=platform==='win32'&&exists(pathApi.join(documents,'Exomina','Private','data','state.json'));
+ const betaDataExists=platform==='win32'&&Boolean(env.LOCALAPPDATA)&&exists(pathApi.join(env.LOCALAPPDATA,'Exomina','Private','data','state.json'));
+ let profileChoice,olderLibrary;
+ const beta=distribution?.profile==='beta'&&distribution.manualUpdates===true;
+ if(beta&&ownDataExists&&env.LOCALAPPDATA&&readChoice){
+  // An older library in Documents may belong to another Exomina on this PC. Its
+  // chats and sign-ins open here only after the person asks. Until then this install
+  // gets its own library and offers the older one in the app; nothing is changed.
+  const file=betaProfileChoiceFile(env.LOCALAPPDATA,{pathApi}),folder=pathApi.join(documents,'Exomina','Private');
+  let saved=parseBetaProfileChoice(readChoice(file));
+  if(!saved&&!betaDataExists){saved={choice:'new',offer:true};saveChoice(file,saved);}
+  profileChoice=saved?.choice;
+  if(saved?.offer)olderLibrary={file,folder};
+ }
+ const resolved=appPaths({...options,documents,appData,localAppData:env.LOCALAPPDATA,legacyDataDir,legacyDataExists,ownDataExists,betaDataExists,profileChoice});
+ return olderLibrary?{...resolved,olderLibrary}:resolved;
 }
 
 /** Installed distribution metadata never supplies data paths or credentials. */

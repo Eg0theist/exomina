@@ -7,6 +7,7 @@ import {createHash} from 'node:crypto';
 import {createReadStream, createWriteStream} from 'node:fs';
 import {mkdir, readFile, rename, rm, stat, writeFile} from 'node:fs/promises';
 import {cpus} from 'node:os';
+import {assertDiskSpace} from './disk-guard.mjs';
 import path from 'node:path';
 import {Readable, Transform} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
@@ -67,6 +68,7 @@ export async function downloadNliModel({root, id, fetchImpl = fetch, onProgress 
   const dir = path.join(root, model.id);
   await mkdir(dir, {recursive: true});
   const total = model.files.reduce((sum, file) => sum + file.size, 0);
+  await assertDiskSpace(root, total, {label: 'Downloading this model'});
   let done = 0;
   for (const file of model.files) {
     const target = local(dir, file);

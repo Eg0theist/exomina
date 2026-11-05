@@ -6,6 +6,7 @@ import {StdioMcpClient} from './external-mcp.mjs';
 import {driverConfig,approvedDriverLaunch,driverLaunchSignature} from './computer-connection.mjs';
 import {inspectSignature,inspectDriverPackage,CUA_SIGNING_AUTHORITY_KEY,assertPublisher} from './tool-update-trust.mjs';
 import {ConnectionRuntimeUpdates} from './connection-runtime-updates.mjs';
+import {assertDiskSpace} from './disk-guard.mjs';
 
 const REPOSITORY='trycua/cua',DAY=86400000;
 const samePath=(a,b)=>typeof a==='string'&&typeof b==='string'&&path.resolve(a).toLowerCase()===path.resolve(b).toLowerCase();
@@ -148,6 +149,7 @@ export class ToolUpdates{
     if(!old?.enabled||!approvedDriverLaunch(original,old))throw Error('Set up computer control before updating its driver.');
     this.busy=true;this.state.error='';this.changed();let directory;
     try{
+      await assertDiskSpace(this.root,candidate.bytes*3,{label:'Updating this tool'});
       const bytes=await boundedFetch(candidate.url,{json:false,limit:candidate.bytes,fetcher:this.fetcher});
       if(bytes.length!==candidate.bytes||createHash('sha256').update(bytes).digest('hex')!==candidate.sha256)throw Error('Driver checksum verification failed. The installed version was kept.');
       directory=path.join(this.root,`cua-${candidate.version}-${randomUUID()}`);await mkdir(directory);

@@ -97,3 +97,29 @@ test('a missing installer marker recovers the adjacent profile instead of openin
   assert.throws(()=>installHome(exeDir,{...options,read:()=>{throw Object.assign(Error('denied'),{code:'EACCES'});}}),/denied/);
   assert.equal(installHome('C:\\Portable',options),undefined);
 });
+
+test('a beta install never opens an older library unasked and remembers the answer',async()=>{
+  const {resolveAppLocations,betaProfileChoiceFile,parseBetaProfileChoice}=await import('../desktop/app-paths.mjs');
+  const p=path.win32,LOCAL='C:\\Local',DOCS='C:\\Docs',own=p.join(DOCS,'Exomina','Private','data','state.json'),own2=p.join(LOCAL,'Exomina','Private','data','state.json');
+  const file=betaProfileChoiceFile(LOCAL,{pathApi:p}),saved=(choice,offer)=>({[file]:JSON.stringify({choice,...(offer?{offer}:{})})});
+  const run=({files=[own],answers={},dist={profile:'beta',manualUpdates:true},env={LOCALAPPDATA:LOCAL},home}={})=>{const written=[];const result=resolveAppLocations({packaged:true,root:'C:\\Build',home,distribution:dist,env,platform:'win32',pathApi:p,
+    getPath:name=>({documents:DOCS,appData:'C:\\Roaming',exe:'D:\\Exomina Public Test\\Exomina.exe'})[name],exists:name=>files.includes(name),readChoice:name=>answers[name]||'',saveChoice:(name,value)=>written.push([name,value])});return {result,written};};
+  const separate={dataDir:p.join(LOCAL,'Exomina','Private','data'),accountsDir:p.join(LOCAL,'Exomina','Private','accounts'),workspace:p.join(DOCS,'Exomina Beta','Workspace')};
+  const older={file,folder:p.join(DOCS,'Exomina','Private')};
+  // First launch: own library and projects, with the older one offered and the offer saved.
+  const first=run();assert.deepEqual(first.result,{...separate,olderLibrary:older});assert.deepEqual(first.written,[[file,{choice:'new',offer:true}]]);
+  // The offer and separate folders persist until answered, also once the new library exists.
+  const pending=run({files:[own,own2],answers:saved('new',true)});assert.deepEqual(pending.result,{...separate,olderLibrary:older});assert.deepEqual(pending.written,[]);
+  // Keeping this one ends the offer; opening the older one uses the established location.
+  assert.deepEqual(run({files:[own,own2],answers:saved('new')}).result,separate);
+  const existing=run({answers:saved('existing')}).result;
+  assert.equal(existing.dataDir,p.join(DOCS,'Exomina','Private','data'));assert.equal(existing.workspace,p.join(DOCS,'Exomina','Workspace'));assert.equal(existing.olderLibrary,undefined);
+  assert.equal(run({files:[own,own2],answers:saved('existing')}).result.dataDir,p.join(DOCS,'Exomina','Private','data'));
+  // A corrupt answer is treated as unanswered, never as permission to open the older library.
+  assert.equal(parseBetaProfileChoice('nonsense'),undefined);assert.equal(parseBetaProfileChoice('{"choice":"elsewhere"}'),undefined);assert.deepEqual(parseBetaProfileChoice('\uFEFF{"choice":"new"}'),{choice:'new',offer:false});
+  assert.deepEqual(run({answers:{[file]:'nonsense'}}).result,{...separate,olderLibrary:older});
+  // No offer without an older library, with an established beta library, or outside the beta.
+  for(const scenario of [{files:[]},{files:[own,own2]},{dist:null},{dist:{profile:'beta',manualUpdates:false}},{home:'C:\\Installed'},{env:{LOCALAPPDATA:LOCAL,EXOMINA_DATA_DIR:'C:\\QA'}}]){const {result,written}=run(scenario);assert.equal(result.olderLibrary,undefined);assert.deepEqual(written,[]);}
+  assert.equal(run({files:[]}).result.dataDir,p.join(LOCAL,'Exomina','Private','data'));
+  assert.equal(run({files:[]}).result.workspace,p.join(DOCS,'Exomina','Workspace'));
+});

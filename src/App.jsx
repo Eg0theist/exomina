@@ -50,6 +50,8 @@ import {conversationSummary} from '../desktop/library-view.mjs';
 import { officialLoginUrl } from '../desktop/provider-auth.mjs';
 import RecoveryAudit from './RecoveryAudit.jsx';
 import LocalStorageSettings from './LocalStorageSettings.jsx';
+import DiskSpaceSettings from './DiskSpaceSettings.jsx';
+import OlderLibraryCard from './OlderLibraryCard.jsx';
 import Markdown, { CopyButton } from './Markdown.jsx';
 import ReplyExport from './ReplyExport.jsx';
 import AssistantText from './AssistantText.jsx';
@@ -626,6 +628,7 @@ export default function App({ session = {} }) {
       else if (event.type === 'browser.reveal') { const id = selectedRef.current && !selectedRef.current.startsWith('pending-') ? selectedRef.current : null; if (event.conversationId === undefined || event.conversationId === id) revealBrowser(); }
       else if (event.type === 'browser.state') { const next = event.state || event, id = selectedRef.current && !selectedRef.current.startsWith('pending-') ? selectedRef.current : null; if (event.conversationId !== undefined && event.conversationId !== id) return; setBrowserInfo(previous => ({ ...previous, ...next })); if (!browserAddressFocused.current && next.url !== undefined) setBrowserAddress(next.url === 'about:blank' ? '' : next.url); }
       else if (event.type === 'state.changed' || event.type === 'security.changed') refresh();
+      else if (event.type === 'disk.changed') setNotice(event.message);
       else if (event.type === 'sync.status') setData(previous => ({ ...previous, sync: event.sync || event.status }));
       else if (event.type === 'transport.connected') setTransportOnline(true);
       else if (event.type === 'transport.offline') setTransportOnline(false);
@@ -1034,6 +1037,7 @@ export default function App({ session = {} }) {
       {error && <div className="feedback error" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
       {page === 'chat' && conversation?.archived && <div className="archived-chat-banner"><span>This chat is archived.</span><button onClick={() => updateConversation('conversations.archive', { id: conversation.id, archived: false }).catch(() => {})}>Restore chat</button></div>}
       {authLink && <ProviderSignIn key={authLink.loginId||authLink.url} auth={authLink} name={providers[authLink.provider]?.name} onClose={()=>{const current=authLink;setAuthLink(null);if(current.loginId)api.invoke('provider.authCancel',{provider:current.provider,loginId:current.loginId}).catch(()=>{});}}/>}
+      <OlderLibraryCard library={data.olderLibrary} />
       {notice && <div className="toast" role="status"><Check size={17} /><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={15} /></button></div>}
       {loading ? <div className="loading-page"><Logo /><Spinner size={20} /><span>Opening your workspace…</span></div> : <>
 
@@ -1131,6 +1135,7 @@ export default function App({ session = {} }) {
         <SettingsPanel section="memory"><section className="settings-section" id="settings-memory"><div className="section-title"><h2>Memory & privacy</h2></div>
           <div className="settings-row"><div><strong>Saved memories</strong><p>Useful context is kept automatically. Open your notes when you want to inspect, correct or remove something.</p></div><button className="secondary-button" onClick={() => navigate('memory')}><Brain size={15} />View saved memories</button></div>
           {isDesktop && <LocalStorageSettings security={data.security} active={running || !!data.activeRuns?.length || voice.active} />}
+          {isDesktop && <DiskSpaceSettings />}
           {isDesktop && data.security?.mode === 'efs' && <RecoveryAudit audit={data.security?.recoveryAudit} active={running || !!data.activeRuns?.length} onChange={recoveryAudit => setData(previous => ({ ...previous, security: { ...previous.security, recoveryAudit } }))} />}
           <div className="settings-row"><div><strong>Include relevant memories</strong><p>Share relevant saved notes with the AI you are using.</p></div><Toggle label="Include relevant memories" checked={settings.memoryEnabled} onChange={value => saveSettings({ memoryEnabled: value })} /></div>
           <MemoryCaptureControl value={settings.memoryCapture} onChange={value => saveSettings({ memoryCapture: value })} disabled={busyAction === 'settings'} />

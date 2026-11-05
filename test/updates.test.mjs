@@ -6,7 +6,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {EventEmitter} from 'node:events';
-import {Updater,readStamp,STAMP} from '../desktop/updates.mjs';
+import {Updater,readStamp,STAMP,canPromoteInstalledSource} from '../desktop/updates.mjs';
 import {readUpdateState,writeUpdateState} from '../desktop/update-state.mjs';
 import {PermissionPolicy,hostAction} from '../desktop/permissions.mjs';
 
@@ -380,6 +380,79 @@ test('provisional startup is not a user-facing success and an orphaned verificat
     await writeFile(path.join(t.stateDir,'last-update.json'),JSON.stringify({buildId:B.id,attemptId:pending.attemptId,status:'verifying-startup'}));
     assert.equal(await t.updater.takeResult(),null);
     t.updater.isProcessAlive=()=>false;const status=await t.updater.status();assert.equal(status.lastResult.status,'failed');assert.equal(status.autoBlocked,true);
+  }finally{await t.cleanup();}
+});
+
+async function startupHandoff(t){
+  await mkdir(t.stateDir,{recursive:true});
+  const record={attemptId:'12345678-1234-4234-8234-123456789012',buildId:B.id};
+  const now=Date.now(),token='a'.repeat(32);
+  const files={
+    'pending-update.json':{...record,pid:1234,ready:true,startedAt:new Date(now).toISOString()},
+    'update-ready.json':{attemptId:record.attemptId,pid:1234},
+    'update-watcher.json':{...record,installerPid:5678,phase:'verifying-startup',updatedAt:new Date(now).toISOString()},
+    'last-update.json':{...record,status:'verifying-startup'},
+    'install-report.json':{...record,ok:true,programCleanup:{...record,pid:5678,monitored:true,token}},
+    'program-cleanup-pending.json':{...record,schema:1,token,createdAt:new Date(now).toISOString(),expiresAt:new Date(now+180000).toISOString()},
+  };
+  const save=()=>Promise.all(Object.entries(files).map(([name,value])=>writeFile(path.join(t.stateDir,name),JSON.stringify(value))));
+  await save();return {files,save};
+}
+
+test('the installed candidate opens during its live health handoff while another installer stays blocked',async()=>{
+  const t=await layout({installed:B,staged:B});
+  try{
+    await startupHandoff(t);
+    const status=await t.updater.status();
+    assert.equal(status.inProgress,true);assert.equal(status.verifyingStartup,true);
+    assert.equal(status.lastResult,null,'The live helper must not produce an installed success notice.');
+    await writeFile(path.join(t.build,STAMP),JSON.stringify({...B,id:'cccccccc-3333',version:'0.4.1'}));
+    await t.updater.launch();assert.equal(t.calls.length,0);
+    assert.ok(await readUpdateState(path.join(t.stateDir,'pending-update.json')));
+  }finally{await t.cleanup();}
+});
+
+test('copying, old builds and invalid or stale handoffs never bypass the startup wait',async()=>{
+  for(const scenario of ['old-build','copying','phase','attempt','build','control-attempt','unmonitored','token','expired','future','duration','dead-helper','recovery-path']){
+    const t=await layout({installed:scenario==='old-build'?A:B,staged:B});
+    try{
+      const {files,save}=await startupHandoff(t),report=files['install-report.json'],challenge=files['program-cleanup-pending.json'];
+      if(scenario==='copying'){files['last-update.json'].status='installing';files['update-watcher.json'].phase='installing';report.ok=false;}
+      if(scenario==='phase'){files['last-update.json'].status='installing';files['update-watcher.json'].phase='installing';}
+      if(scenario==='attempt')report.attemptId='87654321-1234-4234-8234-123456789012';
+      if(scenario==='build')report.buildId=A.id;
+      if(scenario==='control-attempt')report.programCleanup.attemptId='87654321-1234-4234-8234-123456789012';
+      if(scenario==='unmonitored')report.programCleanup.monitored=false;
+      if(scenario==='token')challenge.token='b'.repeat(32);
+      if(scenario==='expired'){challenge.createdAt=new Date(Date.now()-200000).toISOString();challenge.expiresAt=new Date(Date.now()-1000).toISOString();}
+      if(scenario==='future')challenge.createdAt=new Date(Date.now()+10000).toISOString();
+      if(scenario==='duration')challenge.expiresAt=new Date(Date.now()+300000).toISOString();
+      if(scenario==='dead-helper')t.updater.isProcessAlive=pid=>pid!==5678;
+      if(scenario==='recovery-path')t.updater.appDir=path.join(t.home,'Recovery');
+      await save();const status=await t.updater.status();
+      assert.equal(status.inProgress,true,scenario);assert.equal(status.verifyingStartup,false,scenario);
+    }finally{await t.cleanup();}
+  }
+});
+
+test('Source promotion requires positive startup success for the installed build',()=>{
+  const good={inProgress:false,installed:B,lastResult:{buildId:B.id,status:'installed'}};
+  assert.equal(canPromoteInstalledSource(good),true);
+  for(const status of ['verifying-startup','failed','rolled-back','recovery-opened','installed-unverified'])assert.equal(canPromoteInstalledSource({...good,lastResult:{buildId:B.id,status}}),false,status);
+  assert.equal(canPromoteInstalledSource({...good,inProgress:true}),false);
+  assert.equal(canPromoteInstalledSource({...good,inProgress:undefined}),false);
+  assert.equal(canPromoteInstalledSource({...good,lastResult:null}),false);
+  assert.equal(canPromoteInstalledSource({...good,lastResult:{buildId:A.id,status:'installed'}}),false);
+  assert.equal(canPromoteInstalledSource(null),false);
+});
+
+test('Windows casing differences preserve both handoff recognition and health acknowledgement',{skip:process.platform!=='win32'},async()=>{
+  const t=await layout({installed:B,staged:B});
+  try{
+    await startupHandoff(t);t.updater.home=t.home.toUpperCase();
+    assert.equal((await t.updater.status()).verifyingStartup,true);
+    assert.equal(await t.updater.confirmStartup({pid:1234,rendererPid:6789}),true);
+    assert.equal((await readUpdateState(path.join(t.stateDir,'program-cleanup-health.json'))).buildId,B.id);
   }finally{await t.cleanup();}
 });
 

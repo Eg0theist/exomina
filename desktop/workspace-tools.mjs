@@ -3,6 +3,7 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {normalizedPath,pathsEqual,pathWithin} from './path-policy.mjs';
+import {assertDiskSpace,WRITE_RESERVE_BYTES} from './disk-guard.mjs';
 
 const within=pathWithin;
 const sameDirectory=pathsEqual;
@@ -62,6 +63,8 @@ export class WorkspaceTools {
       const offset=Math.max(0,Math.floor(Number(args.offset)||0));const limit=Math.min(64000,Math.max(1,Math.floor(Number(args.limit)||16000)));
       return textResult({path:args.path,text:data.slice(offset,offset+limit),totalCharacters:data.length,nextOffset:offset+limit<data.length?offset+limit:null});
     }
+    // Replacing a file truncates it first; a full disk would lose its contents.
+    await assertDiskSpace(path.dirname(file),Buffer.byteLength(content,'utf8'),{label:'Writing this file',reserve:WRITE_RESERVE_BYTES});
     let backup;
     try{const current=await stat(file);if(!current.isFile())throw Error('The destination is not a regular file.');if(current.size>32*1024*1024)throw Error('The existing file is too large to back up automatically.');const backups=path.join(this.dataDir,'file-backups');await mkdir(backups,{recursive:true});backup=path.join(backups,randomUUID()+'.bak');await copyFile(file,backup);}catch(error){if(error.code!=='ENOENT')throw error;}
     await mkdir(path.dirname(file),{recursive:true});await this.target(args.path,true);await writeFile(file,content,'utf8');return textResult({written:args.path,bytes:Buffer.byteLength(content,'utf8'),backup:backup||null});

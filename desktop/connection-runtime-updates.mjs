@@ -3,6 +3,7 @@ import {randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {runtimeTarget,registryFetch,verifiedManifest,downloadRuntimePackage,extractRuntimePackage,inspectRuntimePackage,runtimeInventory,runtimeFileSnapshot,plainDirectory,connectionVersion} from './connection-runtime-packages.mjs';
 import {probeConnectionRuntime} from './connection-runtime-probe.mjs';
+import {assertDiskSpace} from './disk-guard.mjs';
 
 const nameOf=id=>id==='codex'?'ChatGPT connection':'Claude connection';
 export function connectionNewer(a,b){if(!connectionVersion(a)||!connectionVersion(b))return false;const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]>y[i];return false;}
@@ -72,6 +73,7 @@ export class ConnectionRuntimeUpdates{
     try{
       // Always resolve signed metadata afresh. The display cache is not authority.
       const release=await this.release(id);if(this.installed(id)&&!connectionNewer(release.version,this.installed(id)))throw Error('This connection is already up to date.');
+      await assertDiskSpace(this.root,release.manifest.unpackedSize,{label:'Updating this connection'});
       this.assertCurrent(id,original);await plainDirectory(this.root);directory=path.join(this.root,`connection-${id}-${release.version}-${randomUUID()}`);await mkdir(directory);this.staging.add(directory);const program=path.join(directory,'program');await mkdir(program);
       const archive=path.join(directory,'download.tgz');await downloadRuntimePackage(release.manifest,archive,{fetcher:this.fetcher});this.assertCurrent(id,original);
       const extracted=await extractRuntimePackage(archive,program,{limit:release.manifest.unpackedSize});await rm(archive);if(extracted.bytes!==release.manifest.unpackedSize)throw Error('The connection package size differs from its registry metadata.');

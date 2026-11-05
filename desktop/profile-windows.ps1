@@ -16,7 +16,12 @@ function Private-Access($entry) {
   $acl = Get-Acl -LiteralPath $entry.FullName
   if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $script:sid.Value) { return $false }
   $ownerAccess = $false
+  # Chromium grants its sandboxed network process access to folders in its own
+  # profile, and Windows may refuse to remove that grant. A capability SID admits
+  # only that AppContainer, never an ordinary program. Anywhere else it is unexpected.
+  $chromiumProfile = $entry.FullName.Substring($script:root.Length) -match '^\\(browser-data|public-profile)(\\|$)'
   foreach ($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
+    if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and $chromiumProfile -and $rule.IdentityReference.Value -like 'S-1-15-3-1024-*') { continue }
     if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and $rule.IdentityReference.Value -notin @($script:sid.Value,'S-1-5-18')) { return $false }
     if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Deny -and $rule.IdentityReference.Value -in @($script:sid.Value,'S-1-5-18')) { return $false }
     if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and $rule.IdentityReference.Value -eq $script:sid.Value -and ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -eq [Security.AccessControl.FileSystemRights]::FullControl) { $ownerAccess = $true }

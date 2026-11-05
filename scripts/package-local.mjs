@@ -20,6 +20,9 @@ export async function packageLocal({root=path.resolve(import.meta.dirname,'..'),
     // profile. This check launches the exact candidate with retained encrypted
     // data and legacy runtime entries; failures leave that candidate withheld.
     await run(root,['scripts/qa-update-candidate.mjs',p.candidate]);
+    // A fresh-profile launch cannot catch a candidate exiting because its own
+    // update supervisor is still alive. Qualify the installed handoff as well.
+    await run(root,['scripts/qa-update-handoff.mjs',p.candidate]);
     const result=await stage({root,candidate:p.candidate,locked:true});
     await record(root,result.build);
     return result;
