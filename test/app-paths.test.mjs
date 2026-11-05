@@ -115,6 +115,14 @@ test('a beta install never opens an older library unasked and remembers the answ
   const existing=run({answers:saved('existing')}).result;
   assert.equal(existing.dataDir,p.join(DOCS,'Exomina','Private','data'));assert.equal(existing.workspace,p.join(DOCS,'Exomina','Workspace'));assert.equal(existing.olderLibrary,undefined);
   assert.equal(run({files:[own,own2],answers:saved('existing')}).result.dataDir,p.join(DOCS,'Exomina','Private','data'));
+  // With the older library gone, a separate library keeps its folders and nothing is offered.
+  assert.deepEqual(run({files:[own2],answers:saved('new',true)}).result,separate);
+  // A choice to use a library that no longer exists falls back to this install's own.
+  const gone=run({files:[own2],answers:saved('existing')}).result;
+  assert.equal(gone.dataDir,p.join(LOCAL,'Exomina','Private','data'));assert.equal(gone.olderLibrary,undefined);
+  // A choice file that cannot be written must not stop startup or open the older library.
+  assert.deepEqual(resolveAppLocations({packaged:true,root:'C:\Build',distribution:{profile:'beta',manualUpdates:true},env:{LOCALAPPDATA:LOCAL},platform:'win32',pathApi:p,
+    getPath:name=>({documents:DOCS,appData:'C:\Roaming',exe:'D:\Test\Exomina.exe'})[name],exists:name=>name===own,readChoice:()=>'',saveChoice:()=>{throw Error('denied');}}),{...separate,olderLibrary:older});
   // A corrupt answer is treated as unanswered, never as permission to open the older library.
   assert.equal(parseBetaProfileChoice('nonsense'),undefined);assert.equal(parseBetaProfileChoice('{"choice":"elsewhere"}'),undefined);assert.deepEqual(parseBetaProfileChoice('\uFEFF{"choice":"new"}'),{choice:'new',offer:false});
   assert.deepEqual(run({answers:{[file]:'nonsense'}}).result,{...separate,olderLibrary:older});

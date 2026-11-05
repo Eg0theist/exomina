@@ -1038,9 +1038,11 @@ async function invokeAction(method,payload={}){
   if(method==='conversations.delete'&&terminalSessions?.hasRunning(payload.id))throw Error('Stop this chat’s terminal commands and sessions before deleting it.');
   if(method==='library.keepCurrent'||method==='library.useOlder'){
     if(!olderLibrary)throw Error('There is no older library to choose.');
+    if(method==='library.useOlder'&&!restartGuard.status().idle)throw Error('Finish or stop active replies, terminals and commands, then open the older library.');
     saveLibraryChoice(olderLibrary.file,{choice:method==='library.useOlder'?'existing':'new'});
+    olderLibrary=null;
     if(method==='library.useOlder'){quitting=true;app.relaunch();app.quit();return {restarting:true};}
-    olderLibrary=null;emit({type:'state.changed'});return {restarting:false};
+    emit({type:'state.changed'});return {restarting:false};
   }
   if(method.startsWith('disk.')){
     if(!diskGuard)throw Error('Disk information is not ready yet.');

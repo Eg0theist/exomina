@@ -46,15 +46,18 @@ export function resolveAppLocations({packaged,root,home,distribution,env=process
  const betaDataExists=platform==='win32'&&Boolean(env.LOCALAPPDATA)&&exists(pathApi.join(env.LOCALAPPDATA,'Exomina','Private','data','state.json'));
  let profileChoice,olderLibrary;
  const beta=distribution?.profile==='beta'&&distribution.manualUpdates===true;
- if(beta&&ownDataExists&&env.LOCALAPPDATA&&readChoice){
+ if(beta&&env.LOCALAPPDATA&&readChoice){
   // An older library in Documents may belong to another Exomina on this PC. Its
   // chats and sign-ins open here only after the person asks. Until then this install
   // gets its own library and offers the older one in the app; nothing is changed.
   const file=betaProfileChoiceFile(env.LOCALAPPDATA,{pathApi}),folder=pathApi.join(documents,'Exomina','Private');
   let saved=parseBetaProfileChoice(readChoice(file));
-  if(!saved&&!betaDataExists){saved={choice:'new',offer:true};saveChoice(file,saved);}
-  profileChoice=saved?.choice;
-  if(saved?.offer)olderLibrary={file,folder};
+  // A failed save must not stop the app opening; the offer simply returns next launch.
+  if(!saved&&ownDataExists&&!betaDataExists){saved={choice:'new',offer:true};try{saveChoice(file,saved);}catch{}}
+  // Once the older library is gone there is nothing to open or offer. A separate
+  // library still keeps its own project folder.
+  profileChoice=saved?.choice==='existing'&&!ownDataExists?undefined:saved?.choice;
+  if(saved?.offer&&ownDataExists)olderLibrary={file,folder};
  }
  const resolved=appPaths({...options,documents,appData,localAppData:env.LOCALAPPDATA,legacyDataDir,legacyDataExists,ownDataExists,betaDataExists,profileChoice});
  return olderLibrary?{...resolved,olderLibrary}:resolved;
