@@ -122,16 +122,27 @@ export class RunActivity {
     this.cut();
     this.add({id:randomUUID(),kind:'status',text:clip(text,400),status:denied?'denied':'done',startedAt:this.stamp(),endedAt:this.stamp()});
   }
+  /** One retry row follows the attempt to its observed outcome. */
+  retry({retryId,phase,reason}){
+    if(!retryId||!['waiting','started','succeeded','failed','cancelled'].includes(phase))return;
+    const id=`retry:${retryId}`,status={waiting:'running',started:'running',succeeded:'done',failed:'error',cancelled:'stopped'}[phase];
+    let step=this.find(id);
+    if(step&&step.status!=='running')return;
+    if(!step){this.cut();this.settleThinking();step=this.add({id,kind:'status',notice:'retry',status,phase,text:clip(reason,400),startedAt:this.stamp()});}
+    else Object.assign(step,{phase,status,text:clip(reason,400)});
+    if(status!=='running')step.endedAt=this.stamp();
+    this.send(step);return step;
+  }
   /** Closes the timeline. The provider's final text wins; narration that turns out
    * to be the last thing written becomes the answer instead of a duplicate note. */
   handoff(text){
     this.settleThinking();
-    for(const step of this.steps)if(step.status==='running'){step.status='stopped';step.outcomeConfirmed=false;step.endedAt=this.stamp();this.send(step);}
+    for(const step of this.steps)if(step.status==='running'){step.status='stopped';step.outcomeConfirmed=false;step.endedAt=this.stamp();if(step.notice==='retry')step.text='The reply ended before the retry outcome was confirmed.';this.send(step);}
     this.cut();this.add({id:randomUUID(),kind:'status',notice:'handoff',text:clip(text,400),status:'done',startedAt:this.stamp(),endedAt:this.stamp()});this.block=null;
   }
   finish(finalText,{failed=false}={}){
     this.settleThinking();
-    for(const step of this.steps)if(step.status==='running'){step.status='stopped';step.outcomeConfirmed=false;step.endedAt=this.stamp();this.send(step);}
+    for(const step of this.steps)if(step.status==='running'){step.status='stopped';step.outcomeConfirmed=false;step.endedAt=this.stamp();if(step.notice==='retry')step.text='The reply ended before the retry outcome was confirmed.';this.send(step);}
     const answer=typeof finalText==='string'?finalText.trim():'';
     const index=this.steps.findLastIndex(step=>step.kind==='note'),last=this.steps[index];
     if(!this.message.content.trim()&&last&&(!answer||last.text.trim()===answer)){this.steps.splice(index,1);this.message.content=last.text;}

@@ -11,7 +11,7 @@ import {codexPolicy} from '../desktop/permissions.mjs';
 import {UserQuestions} from '../desktop/user-questions.mjs';
 
 class Child extends EventEmitter {
-  constructor() { super(); this.stdin = new PassThrough(); this.stdout = new PassThrough(); this.stderr = new PassThrough(); this.killed = false; }
+  constructor() { super(); this.stdin = new PassThrough(); this.stdout = new PassThrough(); this.stderr = new PassThrough(); this.killed = false; setImmediate(() => { if (!this.killed) this.emit('spawn'); }); }
   kill() { if (this.killed) return; this.killed = true; this.emit('exit', null, 'SIGTERM'); this.emit('close', null, 'SIGTERM'); }
   json(value) { this.stdout.write(JSON.stringify(value) + '\n'); }
   finish(code = 0) { this.stdout.end(); this.stderr.end(); setImmediate(() => { this.emit('exit', code); this.emit('close', code); }); }
@@ -1049,12 +1049,112 @@ test('an expired Claude sign-in is retried once, and stale sign-ins start Claude
   });
   const first = await f.manager.run({ provider: 'claude', conversationId: 'r1', prompt: 'synthetic' });
   assert.equal(first.text, 'ok'); assert.equal(attempts, 2);
-  assert.ok(f.events.some(e => e.type === 'chat.retry' && e.conversationId === 'r1'));
+  const retries = f.events.filter(e => e.type === 'chat.retry' && e.conversationId === 'r1');
+  assert.deepEqual(retries.map(event => event.phase), ['waiting', 'started', 'succeeded']);
+  assert.equal(new Set(retries.map(event => event.retryId)).size, 1);
+  assert.ok(retries.every(event => !/renewing|renewed/.test(event.reason)));
   // Fresh now: parallel runs no longer wait for each other. Make the sign-in stale and check they queue.
   f.manager.claudeFreshAt = 0;
   const results = await Promise.all([f.manager.run({ provider: 'claude', conversationId: 'p1', prompt: 'a' }), f.manager.run({ provider: 'claude', conversationId: 'p2', prompt: 'b' })]);
   assert.deepEqual(results.map(r => r.text), ['ok', 'ok']);
   assert.equal(overlap, false);
+});
+
+test('a second Claude authentication failure ends the retry with a sign-in instruction', async t => {
+  let requests = 0;
+  const f = await fixture(t, { beforeRequest: () => { requests++; } });
+  f.manager.claudeStatus = async () => ({ connected: true });
+  f.setHandler(child => setImmediate(() => {
+    child.json({ type: 'assistant', error: 'authentication_error', message: { content: [{ type: 'text', text: 'Failed to authenticate: OAuth session expired and could not be refreshed' }] } });
+    child.json({ type: 'result', subtype: 'success', is_error: true, result: 'Failed to authenticate: OAuth session expired and could not be refreshed' });
+    child.finish();
+  }));
+  await assert.rejects(f.manager.run({ provider: 'claude', conversationId: 'expired', prompt: 'Synthetic task' }), /after one retry.*Sign in again in AI connections/);
+  assert.equal(f.calls.length, 2); assert.equal(requests, 1);
+  assert.deepEqual(f.events.filter(event => event.type === 'chat.retry').map(event => event.phase), ['waiting', 'started', 'failed']);
+  assert.equal(f.events.some(event => event.type === 'chat.delta'), false, 'synthetic error text must not become an answer');
+  assert.equal(f.manager.authRetries.size, 0);
+});
+
+test('Claude authentication failure cannot replay earlier output, reasoning, tool calls or background work', async t => {
+  for (const mode of ['text', 'thinking', 'tool', 'background']) {
+    const f = await fixture(t); f.manager.claudeStatus = async () => ({ connected: true });
+    f.manager.claudeFreshAt = Date.now();
+    f.setHandler(child => setImmediate(() => {
+      if (mode === 'text') child.json({ type: 'assistant', message: { content: [{ type: 'text', text: 'Published once. OAuth session expired is a possible later error.' }] } });
+      if (mode === 'thinking') child.json({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking' } } });
+      if (mode === 'tool') child.json({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'side-effect', name: 'Bash', input: { command: 'synthetic-once' } }] } });
+      if (mode === 'background') child.json({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ id: 'work' }] });
+      child.json({ type: 'assistant', error: 'authentication_error', message: { content: [{ type: 'text', text: 'Failed to authenticate: OAuth session expired and could not be refreshed' }] } });
+      child.json({ type: 'result', is_error: true, result: 'Failed to authenticate: OAuth session expired and could not be refreshed' });
+      child.finish();
+    }));
+    await assert.rejects(f.manager.run({ provider: 'claude', conversationId: mode, prompt: 'Synthetic task' }), /Sign in again.*request was not restarted/);
+    assert.equal(f.calls.length, 1, mode); assert.equal(f.manager.claudeFreshAt, 0);
+    assert.equal(f.events.some(event => event.type === 'chat.retry'), false, mode);
+    if (mode === 'text') assert.deepEqual(f.events.filter(event => event.type === 'chat.delta').map(event => event.text), ['Published once. OAuth session expired is a possible later error.']);
+  }
+});
+
+test('stopping or closing a scheduled auth retry prevents another attempt and settles its status', async t => {
+  for (const action of ['cancel', 'close']) {
+    const f = await fixture(t); let attempts = 0;
+    f.manager.runOnce = async () => { attempts++; throw Object.assign(new Error('OAuth session expired'), { noOutput: true }); };
+    const forward = f.manager.emit;
+    f.manager.emit = event => { forward(event); if (event.type === 'chat.retry' && event.phase === 'waiting') action === 'cancel' ? f.manager.cancel('scheduled') : f.manager.close(); };
+    await assert.rejects(f.manager.run({ provider: 'claude', conversationId: 'scheduled', prompt: 'Synthetic task' }), /Stopped/);
+    assert.equal(attempts, 1);
+    assert.deepEqual(f.events.filter(event => event.type === 'chat.retry').map(event => event.phase), ['waiting', 'cancelled']);
+    assert.equal(f.manager.authRetries.size, 0);
+  }
+});
+
+test('a queued retry reserves its conversation and a failed launch is never reported as started', async t => {
+  const f = await fixture(t); let attempts = 0, queued;
+  const ready = new Promise(resolve => { queued = resolve; });
+  const forward = f.manager.emit;
+  f.manager.emit = event => { forward(event); if (event.type === 'chat.retry' && event.phase === 'waiting') queued(); };
+  f.manager.runOnce = async () => { if (++attempts === 1) throw Object.assign(new Error('OAuth session expired'), { noOutput: true }); throw Error('Synthetic launch blocked.'); };
+  const pending = assert.rejects(f.manager.run({ provider: 'claude', conversationId: 'reserved', prompt: 'Synthetic task' }), /Synthetic launch blocked/);
+  await ready;
+  assert.equal(f.manager.runtimeChangeBusy(), true);
+  await assert.rejects(f.manager.run({ provider: 'claude', conversationId: 'reserved', prompt: 'Second task' }), /already has a running request/);
+  await pending;
+  const retries = f.events.filter(event => event.type === 'chat.retry');
+  assert.deepEqual(retries.map(event => event.phase), ['waiting', 'failed']);
+  assert.match(retries.at(-1).reason, /could not start/);
+  assert.equal(attempts, 2); assert.equal(f.manager.authRetries.size, 0);
+});
+
+test('request ownership covers admission and cancellation between process cleanup and retry', async t => {
+  for (const phase of ['admission', 'cleanup']) {
+    let reached, release;
+    const ready = new Promise(resolve => { reached = resolve; });
+    const paused = new Promise(resolve => { release = resolve; });
+    const f = await fixture(t, phase === 'admission' ? { beforeRequest: async () => { reached(); await paused; } } : {});
+    let attempts = 0;
+    f.manager.runOnce = async () => { attempts++; reached(); await paused; throw Object.assign(new Error('OAuth session expired'), { noOutput: true }); };
+    const pending = assert.rejects(f.manager.run({ provider: 'claude', conversationId: phase, prompt: 'Synthetic task' }), /Stopped/);
+    await ready;
+    assert.equal(f.manager.runtimeChangeBusy(), true);
+    await assert.rejects(f.manager.run({ provider: 'claude', conversationId: phase, prompt: 'Duplicate task' }), /already has a running request/);
+    f.manager.cancel(phase); release(); await pending;
+    assert.equal(attempts, phase === 'admission' ? 0 : 1);
+    assert.equal(f.events.some(event => event.type === 'chat.retry'), false);
+    assert.equal(f.manager.requests.size, 0); assert.equal(f.manager.authRetries.size, 0);
+  }
+});
+
+test('an empty Claude message envelope alone does not suppress the one safe retry', async t => {
+  const f = await fixture(t); f.manager.claudeStatus = async () => ({ connected: true }); let attempts = 0;
+  f.setHandler(child => setImmediate(() => {
+    child.json({ type: 'stream_event', event: { type: 'message_start', message: { id: 'empty' } } });
+    if (++attempts === 1) child.json({ type: 'result', is_error: true, result: 'OAuth session expired' });
+    else child.json({ type: 'result', subtype: 'success', result: 'Recovered' });
+    child.finish();
+  }));
+  assert.equal((await f.manager.run({ provider: 'claude', conversationId: 'empty-envelope', prompt: 'Synthetic task' })).text, 'Recovered');
+  assert.equal(attempts, 2);
 });
 
 test('Codex speeds come from advertised service tiers and apply to one turn only', async t => {

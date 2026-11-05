@@ -24,7 +24,7 @@ test('Standard keeps only current narration, with complete history and thinking 
   f.activity.delta('Earlier progress.', 'first');
   f.activity.tool({id: 'read', name: 'workspace_read', input: {path: 'a'}, status: 'running'});
   f.activity.tool({id: 'read', status: 'done', outcomeConfirmed: true});
-  f.activity.permission('The sign-in expired. Exomina is renewing it and trying again.');
+  f.activity.permission('The sign-in failed. Sign in again in AI connections.');
   f.activity.thinking({id: 'thought', text: 'Detailed provider reasoning.', start: true});
   f.activity.delta('Current plain update.', 'second');
   f.activity.cut();
