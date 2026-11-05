@@ -54,9 +54,13 @@ jobs:
           New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
           node -e "if(Number(process.versions.node.split('.')[0])<24)throw Error('The runner needs Node.js 24 or newer. Configure its trusted runtime before enabling this job.')"
           if ($LASTEXITCODE) { throw 'Unsupported runner Node runtime.' }
+          # Exercise the scheduled path on copied manifests, including clean
+          # no-op runs. A passing --check alone cannot establish this works.
+          node scripts/security-maintenance.mjs --verify-prepare --report build/security-maintenance-preparation.json
+          if ($LASTEXITCODE) { throw 'Scheduled preparation verification failed.' }
           npm ci --ignore-scripts
           if ($LASTEXITCODE) { throw 'Dependency installation failed.' }
-          node scripts/security-maintenance.mjs --check --report build/security-maintenance-validation.json
+          node scripts/security-maintenance.mjs --check --security-only --report build/security-maintenance-validation.json
           if ($LASTEXITCODE) { throw 'Candidate security validation failed.' }
           node node_modules/electron/install.js
           if ($LASTEXITCODE) { throw 'Pinned Electron preparation failed.' }
@@ -68,9 +72,18 @@ jobs:
           if ($LASTEXITCODE) { throw 'Build failed.' }
           npm test
           if ($LASTEXITCODE) { throw 'Tests failed.' }
+      - name: Retain validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/security-maintenance-*.json
+          if-no-files-found: warn
+          retention-days: 14
   prepare:
     if: github.event_name != 'pull_request' && !inputs.validate_only && github.ref_name == github.event.repository.default_branch
     runs-on: windows-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
@@ -100,8 +113,9 @@ jobs:
         run: |
           node -e "if(Number(process.versions.node.split('.')[0])<24)throw Error('The runner needs a trusted Node.js 24+ runtime.')"
           if ($LASTEXITCODE) { throw 'Unsupported runner Node runtime.' }
-          node scripts/security-maintenance.mjs --prepare --report build/security-maintenance-report.json
+          node scripts/security-maintenance.mjs --prepare --security-only --report build/security-maintenance-report.json
           if ($LASTEXITCODE) { throw 'Security candidate preparation failed.' }
+          'Security advisories were checked. Ordinary version upgrades are handled by Dependabot.' >> $env:GITHUB_STEP_SUMMARY
           git diff --quiet -- package.json package-lock.json scripts/prepare-analysis-node.mjs desktop/app-analysis-node.mjs
           if ($LASTEXITCODE -eq 0) { 'changed=false' >> $env:GITHUB_OUTPUT; exit 0 }
           if ($LASTEXITCODE -ne 1) { throw 'Candidate diff could not be inspected.' }
@@ -190,6 +204,14 @@ jobs:
             gh pr merge security/maintenance --auto --squash --match-head-commit $head
             if ($LASTEXITCODE) { throw 'Automatic merge request failed.' }
           }
+      - name: Retain preparation diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-preparation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/security-maintenance-report.json
+          if-no-files-found: warn
+          retention-days: 14
   candidate-merged:
     needs: prepare
     if: needs.prepare.result == 'success' && github.ref_name == github.event.repository.default_branch && vars.EXOMINA_SECURITY_AUTO_CANDIDATE == 'true' && vars.EXOMINA_PUBLIC_RELEASE_ENABLED == 'true'
