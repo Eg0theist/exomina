@@ -8,20 +8,20 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const ANALYSIS_NODE_RUNTIME = Object.freeze({
-  schemaVersion: 1,
-  name: 'Node.js',
-  version: '24.22.1',
-  platform: 'win32',
-  architecture: 'x64',
-  executable: 'node.exe',
-  sha256: 'd702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5',
-  executableSha256: 'd702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5',
-  license: 'LICENSE',
-  licenseSha256: 'ed34dd8e3f0a78dbaf00d0444ce8e285b015b765379c2e17880455f70370f8e9',
-  archive: 'node-v24.22.1-win-x64.zip',
-  archiveSha256: 'd2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5',
-  source: 'https://nodejs.org/dist/v24.22.1/node-v24.22.1-win-x64.zip',
-  checksums: 'https://nodejs.org/dist/v24.22.1/SHASUMS256.txt',
+  "schemaVersion": 1,
+  "name": "Node.js",
+  "version": "24.22.2",
+  "platform": "win32",
+  "architecture": "x64",
+  "executable": "node.exe",
+  "sha256": "1c331340fa6cac5e4294725959070a143fa0507195a78ad77eed7943f719aac9",
+  "executableSha256": "1c331340fa6cac5e4294725959070a143fa0507195a78ad77eed7943f719aac9",
+  "license": "LICENSE",
+  "licenseSha256": "ed34dd8e3f0a78dbaf00d0444ce8e285b015b765379c2e17880455f70370f8e9",
+  "archive": "node-v24.22.2-win-x64.zip",
+  "archiveSha256": "ca1bff5d8ead13c9f2ea404a176db46bd430704d5b5113734049fa365e7799e2",
+  "source": "https://nodejs.org/dist/v24.22.2/node-v24.22.2-win-x64.zip",
+  "checksums": "https://nodejs.org/dist/v24.22.2/SHASUMS256.txt"
 });
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const maxArchiveBytes = 64 * 1024 * 1024;

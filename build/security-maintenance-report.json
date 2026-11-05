@@ -1,0 +1,88 @@
+{
+  "format": 1,
+  "checkedAt": "2026-11-05T07:05:10.152Z",
+  "npm": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "blockers": [],
+    "plan": {
+      "updates": [
+        {
+          "section": "dependencies",
+          "name": "@modelcontextprotocol/client",
+          "current": "2.3.1",
+          "version": "2.4.0"
+        },
+        {
+          "section": "dependencies",
+          "name": "@muse-code/sdk",
+          "current": "1.4.6",
+          "version": "1.4.14"
+        },
+        {
+          "section": "dependencies",
+          "name": "onnxruntime-node",
+          "current": "1.30.0",
+          "version": "1.31.1"
+        },
+        {
+          "section": "dependencies",
+          "name": "rea-agents",
+          "current": "6.7.0",
+          "version": "6.8.0"
+        },
+        {
+          "section": "devDependencies",
+          "name": "electron",
+          "current": "44.10.1",
+          "version": "44.10.2"
+        },
+        {
+          "section": "devDependencies",
+          "name": "electron-builder",
+          "current": "26.18.0",
+          "version": "26.18.1"
+        },
+        {
+          "section": "devDependencies",
+          "name": "vite",
+          "current": "8.3.5",
+          "version": "8.3.6"
+        }
+      ],
+      "manual": []
+    },
+    "remaining": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    }
+  },
+  "node": {
+    "installed": "24.22.1",
+    "available": "24.22.2",
+    "securityUpdateAvailable": false,
+    "signaturePins": [
+      "6018A47185244F3B175DAFC18D0D8EB47E3F84CF",
+      "F026E9D2F6BF94760DD86FFEECD888F28842DE73"
+    ],
+    "candidate": {
+      "version": "24.22.2",
+      "stage": "D:\\a\\exomina\\exomina\\.verification\\security-maintenance\\cb73fde9-12f0-4e31-ad7f-4ba2587c33d8",
+      "previousRuntime": null
+    }
+  },
+  "hostedProviders": "Provider-hosted services are patched by their operators; no local version change can establish their security.",
+  "prepared": true,
+  "releaseVersion": "0.7.1",
+  "sourcePolicy": "compatible-security-maintenance"
+}
