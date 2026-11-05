@@ -91,6 +91,7 @@ jobs:
         if: always() && steps.macos_install.outcome == 'success'
         with:
           name: exomina-beta-darwin-${{ matrix.arch }}-installers
+          overwrite: true
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
@@ -101,6 +102,7 @@ jobs:
         if: always() && steps.deb_install.outcome == 'success'
         with:
           name: exomina-beta-linux-${{ matrix.arch }}-deb-installer
+          overwrite: true
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
@@ -110,6 +112,7 @@ jobs:
         if: always()
         with:
           name: exomina-beta-${{ matrix.platform }}-${{ matrix.arch }}-qa
+          overwrite: true
           retention-days: 7
           if-no-files-found: ignore
           include-hidden-files: true

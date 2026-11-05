@@ -729,7 +729,7 @@ function providerEmit(event){
     if(event.type==='chat.helper'){if(!event.messageId||event.messageId===running.message.id)running.activity.helper(event.helper);return;}
     if(event.type==='chat.nativeActivity'){running.activity.native(event.activity);return;}
     // Any error text from the failed attempt moves into the timeline; the retry writes the answer.
-    if(event.type==='chat.retry'){running.activity.cut();running.activity.permission(event.reason);return;}
+    if(event.type==='chat.retry'){running.activity.retry(event);return;}
     if(event.type==='chat.notice'){running.activity.permission(event.text);return;}
   }
   emit(event);

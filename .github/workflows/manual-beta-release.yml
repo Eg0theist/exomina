@@ -103,6 +103,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: exomina-beta-windows-x64-installer
+          overwrite: true
           path: release/*-windows-x64-Setup.exe
           if-no-files-found: error
           compression-level: 0
@@ -135,6 +136,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: windows-upgrade-report
+          overwrite: true
           path: release/windows-upgrade.json
           if-no-files-found: warn
       - name: Qualify exact Windows installer and packaged approval UI
@@ -193,11 +195,13 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: exomina-beta-windows-failure-diagnostics
+          overwrite: true
           path: release/failure-diagnostics/*.json
           if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: exomina-beta-windows-x64-qa
+          overwrite: true
           path: release/qualification/*.json
           if-no-files-found: error
   native:

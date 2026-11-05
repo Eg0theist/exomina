@@ -16,6 +16,27 @@ function run(){
   return {message,activity,events,tick:ms=>{clock+=ms;}};
 }
 
+test('retry status follows one attempt to failure, success or cancellation without claiming renewal', () => {
+  for (const [phase, status] of [['failed', 'error'], ['succeeded', 'done'], ['cancelled', 'stopped']]) {
+    const {activity, message} = run();
+    activity.retry({retryId:'one',phase:'waiting',reason:'One retry is scheduled.'});
+    assert.equal(message.activity[0].status,'running');
+    activity.retry({retryId:'one',phase:'started',reason:'Retrying once.'});
+    activity.retry({retryId:'one',phase,reason:'Observed '+phase});
+    activity.retry({retryId:'one',phase:'started',reason:'Late event'});
+    assert.equal(message.activity.length,1);assert.equal(message.activity[0].status,status);
+    assert.equal(message.activity[0].text,'Observed '+phase);assert.ok(message.activity[0].endedAt);
+  }
+});
+
+test('a reply ending without a retry receipt never leaves an active retry message behind', () => {
+  const {activity,message} = run();
+  activity.retry({retryId:'one',phase:'waiting',reason:'One retry is scheduled.'});
+  activity.finish(null,{failed:true});
+  assert.equal(message.activity[0].status,'stopped');
+  assert.match(message.activity[0].text,/ended before the retry outcome was confirmed/);
+});
+
 test('text before a tool call becomes narration, the rest is the answer', ()=>{
   const {message,activity,events}=run();
   activity.delta('Let me look at the theme code.','m1');

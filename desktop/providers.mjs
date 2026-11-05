@@ -271,13 +271,14 @@ export class ProviderManager {
       approveDetailed: approveDetailed || (async request => ({ approved: await approve(request) })), getPermissionMode,
       toolDefinitions, callTool, requestUserInput, requestElicitation, cancelElicitation, gateway, codexPath, claudePath, getRuntimePath, spawnImpl, beforePrepare, beforeRequest, isProviderEnabled });
     this.active = new Map();
+    this.requests = new Map();
     this.codexChildren = new CodexChildRouting(this.active, {onRetire: state => this.nativeChildRetired(state), onHelper: (state, helper) => {
       const root = state.rootState;
       if (this.active.get(state.conversationId) !== root) return;
       this.emit({type: 'chat.helper', conversationId: state.conversationId, ...(root.messageId ? {messageId: root.messageId} : {}), helper});
     }});
     this.realtimeListeners = new Set();
-    this.claudeFreshAt = 0; this.claudeAuthWait = null; this.retryCancelled = new Set();
+    this.claudeFreshAt = 0; this.claudeAuthWait = null; this.authRetries = new Map();
     this.loginProcesses = new Map();
     this.loginSessions = new Map();this.connectRequests=new Map();this.logoutRequests=new Map();this.authClosing=new Set();
     this.loginSpawnImpl = loginSpawnImpl || (spawnImpl===spawn ? spawnLogin : null);
@@ -323,7 +324,7 @@ export class ProviderManager {
     } finally { this.runtimeLookups--; }
   }
   runtimeChangeBusy() {
-    return this.closed || this.runtimeLookups > 0 || this.active.size > 0 || this.connectRequests.size > 0 || this.loginProcesses.size > 0 || this.metadataProcesses.size > 0 || !!this.rpcPromise || this.modelRequests.size > 0 || [...this.runtimeChildren].some(child => child !== this.rpc?.child && child.exitCode == null && child.signalCode == null);
+    return this.closed || this.runtimeLookups > 0 || this.active.size > 0 || this.requests.size > 0 || this.authRetries.size > 0 || this.connectRequests.size > 0 || this.loginProcesses.size > 0 || this.metadataProcesses.size > 0 || !!this.rpcPromise || this.modelRequests.size > 0 || [...this.runtimeChildren].some(child => child !== this.rpc?.child && child.exitCode == null && child.signalCode == null);
   }
   async withRuntimeChange(provider, change) {
     if (!['codex', 'claude'].includes(provider) || this.runtimeTransition || this.runtimeChangeBusy()) throw Object.assign(new Error('Connection updates wait until active requests and sign-in finish.'), {deferred: true});
@@ -749,18 +750,51 @@ export class ProviderManager {
 
   async run(options) {
     this.requireProvider(options.provider);
+    if (this.requests.has(options.conversationId) || this.active.has(options.conversationId)) throw new Error('This conversation already has a running request.');
+    // Keep admission and cancellation owned through preparation, process cleanup
+    // and retry backoff, including the intervals with no live child process.
+    const request = { cancelled: false };
+    this.requests.set(options.conversationId, request);
+    try {
     // Counted once per request; the sign-in renewal below is the same request.
     await this.beforeRequest({ provider: options.provider, kind: options.memoryCatchUp === true ? 'catchup' : options.ephemeral ? 'background' : 'reply', conversationId: options.conversationId });
+    if (request.cancelled || this.closed) throw new Error('Stopped.');
     try { return await this.runOnce(options); }
     catch (error) {
-      // Another Claude process may have renewed the shared sign-in a moment ago; a fresh start reads it.
-      if (options.provider !== 'claude' || options.noAuthRetry || options.authRetried || !error.noOutput || !CLAUDE_AUTH_EXPIRED.test(error.message) || this.closed) throw error;
-      this.retryCancelled.delete(options.conversationId);
-      this.emit({ type: 'chat.retry', conversationId: options.conversationId, reason: 'The Claude sign-in had expired. Exomina is renewing it and trying again.' });
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      if (this.retryCancelled.delete(options.conversationId) || this.closed) throw new Error('Stopped.');
-      return this.runOnce({ ...options, authRetried: true });
+      if (request.cancelled || this.closed) throw new Error('Stopped.');
+      if (options.provider !== 'claude' || options.noAuthRetry || options.authRetried || !CLAUDE_AUTH_EXPIRED.test(error.message) || this.closed) throw error;
+      this.claudeFreshAt = 0;
+      // A fresh process can pick up a sign-in renewed by another Claude process.
+      // This is not a host-managed renewal, and must never replay completed work.
+      if (error.noOutput !== true) throw new Error('Claude could not refresh its sign-in. Sign in again in AI connections, then continue this chat. The request was not restarted; completed work has been kept.', { cause: error });
+      const retry = { id: randomUUID(), started: false, cancelled: false };
+      const report = (phase, reason) => this.emit({ type: 'chat.retry', conversationId: options.conversationId, retryId: retry.id, phase, reason });
+      retry.report = report;
+      this.authRetries.set(options.conversationId, retry);
+      try {
+        await new Promise(resolve => {
+          const timer = setTimeout(resolve, 2000);
+          retry.stop = () => { retry.cancelled = true; clearTimeout(timer); resolve(); };
+          report('waiting', 'Claude could not refresh its sign-in. One retry is scheduled.');
+        });
+        if (retry.cancelled || this.closed) throw new Error('Stopped.');
+        const result = await this.runOnce({ ...options, authRetried: true, authRetryAttempt: retry });
+        if (retry.cancelled || this.closed) throw new Error('Stopped.');
+        report('succeeded', 'The Claude retry completed.');
+        return result;
+      } catch (retryError) {
+        if (retry.cancelled || this.closed) {
+          report('cancelled', 'The Claude retry was stopped.');
+          throw new Error('Stopped.');
+        }
+        if (CLAUDE_AUTH_EXPIRED.test(retryError.message)) retryError = new Error('Claude still could not refresh its sign-in after one retry. Sign in again in AI connections, then continue this chat.', { cause: retryError });
+        report('failed', (retry.started ? 'The Claude retry failed. ' : 'The Claude retry could not start. ') + safeError(retryError));
+        throw retryError;
+      } finally {
+        this.authRetries.delete(options.conversationId);
+      }
     }
+    } finally { this.requests.delete(options.conversationId); }
   }
 
   /** Claude Code renews its sign-in on first use after the access token expired,
@@ -788,6 +822,7 @@ export class ProviderManager {
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('Write a message first.');
     if (this.active.has(conversationId)) throw new Error('This conversation already has a running request.');
     await this.prepare();
+    if (this.requests.get(conversationId)?.cancelled || options.authRetryAttempt?.cancelled || this.closed) throw new Error('Stopped.');
     if (this.active.has(conversationId)) throw new Error('This conversation already has a running request.');
     let resolve, reject;
     const result = new Promise((res, rej) => { resolve = res; reject = rej; });
@@ -1273,7 +1308,17 @@ export class ProviderManager {
     if (options.sessionId) args.push('--resume', options.sessionId);
     const authTurn = await this.claudeAuthTurn();
     if (state.cancelled) { authTurn(false); throw new Error('Stopped.'); }
-    const child = this.spawn(await this.executable('claude'), args, 'claude', path.resolve(options.workspace || this.workspace), runEnv);
+    let child;
+    try {
+      const executable = await this.executable('claude');
+      if (state.cancelled || this.closed || options.authRetryAttempt?.cancelled) throw new Error('Stopped.');
+      child = this.spawn(executable, args, 'claude', path.resolve(options.workspace || this.workspace), runEnv);
+    } catch (error) { authTurn(false); throw error; }
+    if (options.authRetryAttempt) child.once('spawn', () => {
+      if (state.cancelled || this.closed || options.authRetryAttempt.cancelled) return;
+      options.authRetryAttempt.started = true;
+      options.authRetryAttempt.report('started', 'Retrying the Claude request once.');
+    });
     child.once('close', () => authTurn(false));
     state.child = child;
     this.emit({ type: 'chat.timing', conversationId: state.conversationId, phase: 'runtime' });
@@ -1302,6 +1347,14 @@ export class ProviderManager {
       try { event = JSON.parse(line); } catch { fail(new Error('Claude returned invalid streaming JSON.')); return; }
       if (!current()) return;
       if (!event || typeof event !== 'object' || Array.isArray(event)) { fail(Error('Claude returned an invalid streaming event.')); return; }
+      // Synthetic API-error text is not task output. Real output, reasoning,
+      // tool calls or live background work make replay unsafe, even if a later
+      // error happens to contain an authentication phrase.
+      if (event.type === 'stream_event' && ['content_block_start', 'content_block_delta'].includes(event.event?.type)
+        || event.type === 'assistant' && (event.message?.content || []).some(block => block.type === 'tool_use' || block.type === 'thinking' || block.type === 'text' && !event.error && block.text)
+        || event.type === 'user' && event.isReplay !== true && (event.message?.content || []).some(block => block.type === 'tool_result')
+        || event.type === 'system' && event.subtype === 'background_tasks_changed' && event.tasks?.length
+        || event.type === 'result' && !event.is_error && event.result && !providerUsageNotice(event.result) && !CLAUDE_AUTH_EXPIRED.test(event.result)) state.claudeProgress = true;
       if (typeof event.session_id === 'string' && event.session_id) {
         if (state.claudeProtocolSession && state.claudeProtocolSession !== event.session_id) { fail(Error('Claude returned an event for a different native conversation.')); return; }
         state.claudeProtocolSession = event.session_id; state.sessionId = event.session_id;
@@ -1347,7 +1400,7 @@ export class ProviderManager {
           const id = event.message?.id || messageId;
           (event.message?.content || []).forEach((block, index) => {
             if (block.type === 'thinking' && !partialThinking && block.thinking) this.thinking(state, `${id}:${index}`, block.thinking, true);
-            if (block.type === 'text' && !partialForMessage) this.delta(state, block.text, id);
+            if (block.type === 'text' && !partialForMessage && !event.error) this.delta(state, block.text, id);
             if (block.type === 'tool_use') this.toolStep(state, { id: block.id, name: block.name, input: block.input, ...(['Task','Agent'].includes(block.name)?{nativeToolUseId:block.id}:{}), status: 'running' });
           });
           partialForMessage = false; partialThinking = false;
@@ -1389,10 +1442,10 @@ export class ProviderManager {
         const message = finalResult?.result || (Array.isArray(finalResult?.errors) ? finalResult.errors.join('\n') : '') || state.claudeAssistantError?.message || (state.claudeUsageRejected ? 'Claude rejected the request because its subscription usage allowance is exhausted.' : `Claude stopped: ${finalResult?.subtype || code}`);
         const error = new Error(safeError(message));
         error.code = state.claudeAssistantError?.code;
-        error.noOutput = !state.text || CLAUDE_AUTH_EXPIRED.test(state.text);
+        error.noOutput = !state.claudeProgress;
         if(state.claudeUsageRejected || usageExhausted(error))error.usageLimited=true;
         state.reject(error);
-      } else if (code !== 0 || !finalResult) { const error = new Error(`Claude runtime exited (${code}) before completing. ${safeError(stderr)}`); error.noOutput = !state.text; state.reject(error); }
+      } else if (code !== 0 || !finalResult) { const error = new Error(`Claude runtime exited (${code}) before completing. ${safeError(stderr)}`); error.noOutput = !state.claudeProgress; state.reject(error); }
       else {
         const text = finalResult.result || state.text;
         if (!state.text && text) this.delta(state, text);
@@ -1451,9 +1504,11 @@ export class ProviderManager {
   }
 
   cancel(conversationId, reason = 'Stopped.') {
+    const request = this.requests.get(conversationId); if (request) request.cancelled = true;
+    this.authRetries.get(conversationId)?.stop?.();
     const state = this.active.get(conversationId);
     state?.toolGateway?.revoke?.();
-    if (!state) { this.retryCancelled.add(conversationId); return; }
+    if (!state) return;
     state.cancelled = true;
     this.retireCodexChildren(state);
     state.claudeInput?.close();
@@ -1467,6 +1522,8 @@ export class ProviderManager {
 
   close() {
     this.closed = true;
+    for (const request of this.requests.values()) request.cancelled = true;
+    for (const retry of this.authRetries.values()) retry.stop?.();
     for (const adapter of this.adapters.values()) adapter.close();
     for (const id of this.active.keys()) this.cancel(id);
     for(const session of this.loginSessions.values())session.cancelled=true;

@@ -46,6 +46,15 @@ test('public export workflow templates retain the same qualification policy',asy
  }
 });
 
+test('qualification reruns replace stale installers and receipts before publication',async()=>{
+ for(const name of ['manual-beta-release','native-packages']){
+  const document=await workflow(name);
+  const uploads=Object.values(document.jobs).flatMap(job=>job.steps||[]).filter(step=>step.uses?.startsWith('actions/upload-artifact@'));
+  assert.ok(uploads.length>0,name);
+  for(const step of uploads)assert.equal(step.with.overwrite,true,step.with.name+' must replace an earlier attempt');
+ }
+});
+
 test('macOS PR builds retain ad-hoc signing and strict installed verification',async()=>{
  const native=await workflow('native-packages'),job=native.jobs['native-package'];
  const step=job.steps.find(item=>item.id==='build_native');

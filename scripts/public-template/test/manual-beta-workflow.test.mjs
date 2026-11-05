@@ -28,6 +28,9 @@ test('manual PR qualification remains read-only and cannot publish',async()=>{
  assert.equal(manual.permissions.contents,'read');assert.equal(native.permissions.contents,'read');
  assert.match(manual.jobs.publish.if,/github\.event_name == 'workflow_dispatch'/);
  assert.match(manual.jobs.publish.if,/github\.ref_name == github\.event\.repository\.default_branch/);
+ assert.equal(manual.on.workflow_dispatch.inputs.windows_only.type,'boolean');
+ assert.match(manual.jobs.publish.if,/!inputs\.windows_only/,'A partial qualification cannot publish.');
+ assert.match(manual.jobs.native.if,/!inputs\.windows_only/);
  assert.equal(manual.jobs.native.secrets,undefined);
  for(const name of ['manual-beta-release','native-packages']){
   const contents=await readFile(new URL(`.github/workflows/${name}.yml`,root),'utf8');
@@ -40,6 +43,15 @@ test('public export workflow templates retain the same qualification policy',asy
  for(const name of ['manual-beta-release','native-packages']){
   const template=parse(await readFile(new URL(`scripts/public-template/.github/workflows/${name}.yml`,root),'utf8'));
   assert.deepEqual(template,await workflow(name),name);
+ }
+});
+
+test('qualification reruns replace stale installers and receipts before publication',async()=>{
+ for(const name of ['manual-beta-release','native-packages']){
+  const document=await workflow(name);
+  const uploads=Object.values(document.jobs).flatMap(job=>job.steps||[]).filter(step=>step.uses?.startsWith('actions/upload-artifact@'));
+  assert.ok(uploads.length>0,name);
+  for(const step of uploads)assert.equal(step.with.overwrite,true,step.with.name+' must replace an earlier attempt');
  }
 });
 
