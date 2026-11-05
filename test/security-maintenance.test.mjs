@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
-import {chooseCompatibleVersion,dependencyPlan,officialNodeBytes,verifyNodeCandidate,stageNodeCandidate,promoteNodeCandidate,runtimeAdvisoryBlockers,NODE_MAINTENANCE_POLICY,maintenanceNpm} from '../scripts/security-maintenance.mjs';
+import {chooseCompatibleVersion,dependencyPlan,officialNodeBytes,verifyNodeCandidate,stageNodeCandidate,promoteNodeCandidate,runtimeAdvisoryBlockers,NODE_MAINTENANCE_POLICY,maintenanceNpm,maintain} from '../scripts/security-maintenance.mjs';
 import {ANALYSIS_NODE_RUNTIME} from '../scripts/prepare-analysis-node.mjs';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
@@ -24,6 +24,35 @@ function nodeFixture(){const pieces=ANALYSIS_NODE_RUNTIME.version.split('.').map
 test('compatible candidates stay within the stable major, and pre-1.0 dependencies stay within their minor',()=>{
  assert.equal(chooseCompatibleVersion('44.9.3',['44.9.4','44.10.0','45.0.0','44.11.0-beta.1']),'44.10.0');assert.equal(chooseCompatibleVersion('^0.160.1',['0.160.2','0.161.0']),'0.160.2');assert.equal(chooseCompatibleVersion('1.2.3',['1.2.2']),null);
  const plan=dependencyPlan({dependencies:{'@xai-official/grok-win32-x64':'1.0.0','@openai/codex':'0.160.1'},devDependencies:{electron:'44.9.3'}},{'@openai/codex':['0.160.2'],electron:['44.9.4']});assert.equal(plan.updates.length,2);assert.equal(plan.manual.length,1);
+});
+
+test('Dependabot leaves every native provider target to verified runtime qualification',async()=>{
+ const require=createRequire(import.meta.url),builderRequire=createRequire(require.resolve('app-builder-lib/package.json')),{load}=builderRequire('js-yaml');
+ const config=load(await readFile(new URL('../.github/dependabot.yml',import.meta.url),'utf8'));
+ const policy=config.updates.find(item=>item['package-ecosystem']==='npm'&&item.directory==='/');
+ const patterns=policy.ignore.filter(item=>!item['update-types']).map(item=>new RegExp('^'+item['dependency-name'].replace(/[.+?^${}()|[\]\\]/g,'\\$&').replaceAll('*','.*')+'$'));
+ const manifest=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
+ const names=Object.keys(manifest.optionalDependencies).filter(name=>name.startsWith('@xai-official/grok-'));
+ for(const platform of ['win32','darwin','linux'])for(const arch of ['x64','arm64'])names.push('@anthropic-ai/claude-code-'+platform+'-'+arch);
+ for(const name of names)assert.ok(patterns.some(pattern=>pattern.test(name)),name+' must not update without matching runtime pins');
+ for(const name of ['electron','@modelcontextprotocol/client','@muse-code/sdk'])assert.equal(patterns.some(pattern=>pattern.test(name)),false,name+' remains eligible for compatible maintenance');
+});
+
+test('maintenance reports optional native runtimes without querying or updating them, and retains ordinary optional updates',async t=>{
+ const root=await mkdtemp(path.join(tmpdir(),'exomina-provider-maintenance-'));
+ t.after(async()=>{assert.equal(path.dirname(root),tmpdir());await rm(root,{recursive:true,force:true});});
+ const native={};for(const platform of ['win32','darwin','linux'])for(const arch of ['x64','arm64'])for(const provider of ['@xai-official/grok','@anthropic-ai/claude-code'])native[provider+'-'+platform+'-'+arch]='1.0.0';
+ const manifest={dependencies:{library:'1.0.0'},optionalDependencies:{...native,'optional-library':'1.0.0'}};
+ await writeFile(path.join(root,'package.json'),JSON.stringify(manifest));await writeFile(path.join(root,'package-lock.json'),JSON.stringify({packages:{'':manifest}}));
+ const calls=[],report=await maintain({root,prepare:true,runNpm:async args=>{
+  calls.push(args);
+  if(args[0]==='audit')return{code:0,stdout:JSON.stringify({metadata:{vulnerabilities:{total:0}},vulnerabilities:{}})};
+  if(args[0]==='view'){assert.ok(!Object.hasOwn(native,args[1]),'native versions require upstream review');return{code:0,stdout:'["1.0.0","1.0.1"]'};}
+  assert.equal(args[0],'install');assert.ok(args.every(arg=>!Object.keys(native).some(name=>arg.startsWith(name+'@'))));return{code:0,stdout:''};
+ },fetchBytes:async()=>Buffer.from(JSON.stringify([{version:'v'+ANALYSIS_NODE_RUNTIME.version}]))});
+ assert.equal(report.npm.plan.manual.length,12);assert.equal(report.prepared,true);
+ assert.deepEqual(report.npm.plan.updates.map(row=>row.name),['library','optional-library']);
+ assert.ok(calls.some(args=>args[0]==='install'&&args.includes('--save-optional')&&args.includes('optional-library@1.0.1')));
 });
 test('Node downloader rejects alternate hosts, redirects and oversized inputs',async()=>{
  await assert.rejects(officialNodeBytes('https://nodejs.org.attacker.invalid/dist/index.json'),/exact official/);

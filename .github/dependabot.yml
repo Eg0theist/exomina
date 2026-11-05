@@ -14,5 +14,7 @@ updates:
     ignore:
       - dependency-name: '*'
         update-types: [version-update:semver-major]
-      - dependency-name: '@anthropic-ai/claude-code-win32-x64'
-      - dependency-name: '@xai-official/grok-win32-x64'
+      # Native provider executables use reviewed versions and hashes across all
+      # targets. Update those pins together through runtime qualification.
+      - dependency-name: '@anthropic-ai/claude-code-*'
+      - dependency-name: '@xai-official/grok-*'
