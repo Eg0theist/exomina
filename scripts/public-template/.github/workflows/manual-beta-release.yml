@@ -5,7 +5,7 @@ on:
       version:
         description: Exact package version to release as a manual beta
         required: true
-        default: '0.7.0'
+        default: '0.7.1'
       windows_only:
         description: Recheck Windows only without publishing a release
         type: boolean
@@ -106,6 +106,37 @@ jobs:
           path: release/*-windows-x64-Setup.exe
           if-no-files-found: error
           compression-level: 0
+      - name: Qualify upgrade and relaunch from the latest published release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $previous = Join-Path $env:RUNNER_TEMP 'previous-release'
+          New-Item -ItemType Directory -Force -Path $previous | Out-Null
+          # Every beta is a prerelease, which GitHub's "latest" lookup skips.
+          $tag = gh release list --repo $env:GITHUB_REPOSITORY --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName'
+          if ($LASTEXITCODE -or -not $tag) { throw 'The latest published release could not be identified.' }
+          gh release download $tag --repo $env:GITHUB_REPOSITORY --pattern '*-windows-x64-Setup.exe' --dir $previous
+          if ($LASTEXITCODE) { throw 'The published installer could not be downloaded.' }
+          $setup = (Get-ChildItem -LiteralPath $previous -Filter '*-Setup.exe')[0].FullName
+          # The installer holds the program in a nested archive. 7-Zip exits 1 for
+          # warnings about the installer stub, so the extracted files decide success.
+          7z x -y "-o$previous/outer" $setup | Out-Null
+          if ($LASTEXITCODE -gt 1) { throw 'The published installer could not be unpacked.' }
+          $payload = (Get-ChildItem -LiteralPath "$previous/outer" -Recurse -Filter 'app-64.7z')[0].FullName
+          7z x -y "-o$previous/app" $payload | Out-Null
+          if ($LASTEXITCODE) { throw 'The published program could not be unpacked.' }
+          if (-not (Test-Path -LiteralPath "$previous/app/Exomina.exe")) { throw 'The published program is missing.' }
+          Write-Host "Previous release: $tag"
+          node scripts/qa-public-upgrade.mjs --previous "$previous/app/Exomina.exe" --candidate release/win-unpacked/Exomina.exe --report release/windows-upgrade.json
+          if ($LASTEXITCODE) { throw 'The candidate failed to open a library from the published release.' }
+      - name: Retain the upgrade report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-upgrade-report
+          path: release/windows-upgrade.json
+          if-no-files-found: warn
       - name: Qualify exact Windows installer and packaged approval UI
         shell: pwsh
         env:

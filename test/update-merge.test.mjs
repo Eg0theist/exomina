@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm,cp,link} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {snapshotSource,readSnapshot,sourceTree,treeHash,sourcePath} from '../desktop/update-source.mjs';
+import {snapshotSource,readSnapshot,sourceTree,treeHash,sourcePath,WEBSITE_MEDIA} from '../desktop/update-source.mjs';
 import {UpdateMerge,mergeFile} from '../desktop/update-merge.mjs';
 import {runProcess} from '../desktop/update-merge.mjs';
 
@@ -123,4 +123,20 @@ test('legacy installed runtime-log entries allow log changes while program edits
   await f.put(f.appDir,'Exomina.exe','unchanged program');
   await f.put(f.appDir,'another.log','unrecognized file');
   await assert.rejects(f.merge.assertProgramUnmodified(A),/Unrecognized files/);
+});
+
+test('installer source snapshots leave out website video and keep everything else',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'exomina-snapshot-media-'));
+  try{
+    const project=path.join(root,'project'),docs=path.join(project,'scripts','public-template','docs');
+    await mkdir(path.join(docs,'assets','media'),{recursive:true});await mkdir(path.join(project,'desktop'),{recursive:true});
+    await writeFile(path.join(project,'package.json'),'{}');await writeFile(path.join(project,'desktop','main.mjs'),'');
+    await writeFile(path.join(docs,'index.html'),'page');await writeFile(path.join(docs,'assets','media','trailer.mp4'),'video');
+    const skipped=await sourceTree(project,{skip:WEBSITE_MEDIA});
+    assert.equal(skipped.has('scripts/public-template/docs/assets/media/trailer.mp4'),false);
+    assert.equal(skipped.has('scripts/public-template/docs/index.html'),true);
+    assert.equal((await sourceTree(project)).has('scripts/public-template/docs/assets/media/trailer.mp4'),true,'Other builds keep their inputs.');
+    await snapshotSource(project,path.join(root,'snapshot'),{version:'1.0.0',id:'test-build',builtAt:'2026-01-01T00:00:00.000Z'},{skip:WEBSITE_MEDIA});
+    assert.equal((await readSnapshot(path.join(root,'snapshot'))).files.has('scripts/public-template/docs/assets/media/trailer.mp4'),false);
+  }finally{await rm(root,{recursive:true,force:true});}
 });

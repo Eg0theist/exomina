@@ -1,6 +1,6 @@
 import {app,BrowserWindow,ipcMain,dialog,shell,nativeTheme,safeStorage,Tray,Menu,nativeImage,clipboard,powerMonitor,globalShortcut,Notification,screen} from 'electron';
 import {mkdir,writeFile,readFile,stat} from 'node:fs/promises';
-import {existsSync,readFileSync} from 'node:fs';
+import {existsSync,readFileSync,mkdirSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {randomUUID,createHash} from 'node:crypto';
@@ -106,6 +106,7 @@ import {AssetStore} from './assets.mjs';
 import {ChatUploads} from './chat-uploads.mjs';
 import {ImageSupport,imageInstructions} from './image-support.mjs';
 import {resolveAppLocations,appPaths,samePath,installHome,installDistribution} from './app-paths.mjs';
+import {DiskGuard} from './disk-guard.mjs';
 import {DISTRIBUTION_PROFILE,DISTRIBUTION_REPOSITORY} from './distribution.mjs';
 import {privateGate} from './private-gate.mjs';
 import {officialLoginUrl} from './provider-auth.mjs';
@@ -127,7 +128,7 @@ import {WorkspaceWindows} from './workspace-windows.mjs';
 import {ensureWindowsAppIndependence} from './app-lifetime.mjs';
 import {createAppLifetimeJournal} from './app-lifetime-journal.mjs';
 import {WINDOWS_APP_ID,windowsTaskbarIcon,windowsTaskbarDetails,repairWindowsShortcuts} from './windows-taskbar.mjs';
-import {Updater,updateDefinitions,readStamp} from './updates.mjs';
+import {Updater,updateDefinitions,readStamp,canPromoteInstalledSource} from './updates.mjs';
 import {UpdateRestartGuard,UpdateInstallAction,updateRestartBlockers,VOICE_START_METHODS} from './update-restart-guard.mjs';
 import {AppInspection,APP_INSPECTION_TOOLS,inspectionReadActions} from './app-inspection.mjs';
 import {AppControl,APP_CONTROL_TOOL} from './app-control.mjs';
@@ -171,7 +172,10 @@ const startupLifetime=await ensureWindowsAppIndependence();
 if(process.platform==='win32')app.setAppUserModelId(app.isPackaged?(DISTRIBUTION_PROFILE==='beta'?'local.exomina.beta.desktop':WINDOWS_APP_ID):WINDOWS_APP_ID+'.development');
 const legacyDataDir=path.join(path.dirname(app.getPath('exe')),'data');
 let home,distribution;try{const exeDir=path.dirname(app.getPath('exe'));home=app.isPackaged?installHome(exeDir,{read:file=>readFileSync(file,'utf8')}):undefined;distribution=app.isPackaged?installDistribution(exeDir,{read:file=>readFileSync(file,'utf8')}):undefined;}catch(e){dialog.showErrorBox('Exomina could not start',e.message);app.exit(1);}
-const locations=resolveAppLocations({packaged:app.isPackaged,root,home,distribution,getPath:name=>app.getPath(name),exists:existsSync});
+const saveLibraryChoice=(file,value)=>{mkdirSync(path.dirname(file),{recursive:true});writeFileSync(file,JSON.stringify(value),{encoding:'utf8',mode:0o600});};
+const locations=resolveAppLocations({packaged:app.isPackaged,root,home,distribution,getPath:name=>app.getPath(name),exists:existsSync,
+ readChoice:file=>{try{return readFileSync(file,'utf8');}catch{return '';}},saveChoice:saveLibraryChoice});
+let olderLibrary=locations.olderLibrary||null;
 const {dataDir,accountsDir,workspace:defaultWorkspace}=locations;
 if(app.isPackaged&&home)process.chdir(home);
 // Local decision layer. The next-prompt gate is Tier 1 only, so it never probes hardware or loads a model.
@@ -245,7 +249,7 @@ if(!securityStatus.ready){
 if(securityStatus.ready||securityStatus.supported){const temporary=path.join(securityStatus.ready?dataDir:probeDir,'runtime-tmp');await mkdir(temporary,{recursive:true,mode:0o700});process.env.TEMP=process.env.TMP=process.env.TMPDIR=temporary;app.setPath('temp',temporary);app.setPath('crashDumps',path.join(temporary,'crash-dumps'));app.setAppLogsPath(path.join(temporary,'logs'));}
 const approvals=new Map(),active=new Map();
 const chatDeletions=new ChatDeletionCoordinator(()=>[...active.keys(),...(realtimeVoice?.active&&!realtimeVoice.active.preview&&realtimeVoice.active.conversationId?[realtimeVoice.active.conversationId]:[])]);
-let usage=null,usagePoller=null,usageReset=null,hub=null,connections=[],providerModels={},refreshRevision=0,restartRequested=null,updateNotice=null,providerNotice=null;
+let diskGuard=null,usage=null,usagePoller=null,usageReset=null,hub=null,connections=[],providerModels={},refreshRevision=0,restartRequested=null,updateNotice=null,providerNotice=null;
 const modelChoiceCheck=new ModelChoiceCheck({load:()=>providers.subscriptionModels(),apply:models=>{providerModels={...providerModels,...models};emit({type:'connections',connections,providerModels});}});
 function emit(value){chatMemory?.emitted(value);remoteAccess?.event(value);hub?.tasks?.event(value);if(window&&!window.isDestroyed())window.webContents.send('studio:event',value);attention(value)}
 // Questions and approvals raise a silent Windows notification while Exomina is hidden or behind another window; the sound comes from Exomina's own setting.
@@ -1032,6 +1036,20 @@ async function invokeAction(method,payload={}){
   if(method.startsWith('rewrite.'))throw Error('The Humanizer has been removed. Your existing documents are retained.');
   if(libraryBackupActive&&!['bootstrap','window.state','voice.stop','voice.realtime.stop','chat.cancel'].includes(method)&&!/^\w+\.(?:status|view|get)$/.test(method))throw Error('A library backup is being saved. Make this change after it finishes.');
   if(method==='conversations.delete'&&terminalSessions?.hasRunning(payload.id))throw Error('Stop this chat’s terminal commands and sessions before deleting it.');
+  if(method==='library.keepCurrent'||method==='library.useOlder'){
+    if(!olderLibrary)throw Error('There is no older library to choose.');
+    if(method==='library.useOlder'&&!restartGuard.status().idle)throw Error('Finish or stop active replies, terminals and commands, then open the older library.');
+    saveLibraryChoice(olderLibrary.file,{choice:method==='library.useOlder'?'existing':'new'});
+    olderLibrary=null;
+    if(method==='library.useOlder'){quitting=true;app.relaunch();app.quit();return {restarting:true};}
+    emit({type:'state.changed'});return {restarting:false};
+  }
+  if(method.startsWith('disk.')){
+    if(!diskGuard)throw Error('Disk information is not ready yet.');
+    if(method==='disk.status')return diskGuard.status();
+    if(method==='disk.usage')return diskGuard.usage();
+    if(method==='disk.cleanup'){await diskGuard.cleanup();return diskGuard.status();}
+  }
   if(method.startsWith('security.')){
     if(method==='security.status'){Object.assign(securityStatus,protectedSecretStorageStatus(safeStorage));return {...securityStatus,recoveryAudit};}
     if(method==='security.auditRecovery')return auditRecovery();
@@ -1200,7 +1218,7 @@ async function invokeAction(method,payload={}){
     case 'discoveries.run':return discoveries.run(true);
     case 'discoveries.stop':return discoveries.stopRun();
     case 'discoveries.feedback':return discoveries.feedback(payload.id,payload.status);
-case 'bootstrap':return {guard:requestGuard.view(),connectorForms:connectorForms?.view()||[],workbench:workbench?.view(),quickAccess:quickStatus,permissionModes:PERMISSION_MODES,spellcheck:spellcheckState(),titlesPending:[...titlesPending],security:{...securityStatus,...protectedSecretStorageStatus(safeStorage),recoveryAudit},activeRuns:[...active.entries()].map(([conversationId,run])=>({conversationId,startedAt:run.message.startedAt})),queues:Object.fromEntries([...queues.keys()].map(id=>[id,queueView(id)])),approvals:[...approvals.values()].map(({finish,...r})=>r),sync:cloudClient.status(),settings:store.state.settings,providers:PROVIDER_CATALOG,connections,providerModels,libraryCompact:payload.compact===true,conversations:libraryConversations(store.state.conversations,payload),memories:await memory.list(),memoryReview:await memory.reviewStatus(),chatMemory:chatMemory?.status(),archive:archive.summary(),mcpStatus:external?.status||[],tools:allDefinitions().filter(t=>t.name!=='request_permission').map(t=>({...t,category:t.name.split('_')[0],enabled:toolEnabled(t.name,store.state.settings)})),version:app.getVersion(),build:installedBuild,updateNotice:takeUpdateNotice(),providerNotice:takeProviderNotice(),usage:usage?.snapshot()||{},usageResetPending:Boolean(store.state.usageResetAttempt),messaging:hub?.view()||{}};
+case 'bootstrap':return {olderLibrary:olderLibrary?{folder:olderLibrary.folder}:null,guard:requestGuard.view(),connectorForms:connectorForms?.view()||[],workbench:workbench?.view(),quickAccess:quickStatus,permissionModes:PERMISSION_MODES,spellcheck:spellcheckState(),titlesPending:[...titlesPending],security:{...securityStatus,...protectedSecretStorageStatus(safeStorage),recoveryAudit},activeRuns:[...active.entries()].map(([conversationId,run])=>({conversationId,startedAt:run.message.startedAt})),queues:Object.fromEntries([...queues.keys()].map(id=>[id,queueView(id)])),approvals:[...approvals.values()].map(({finish,...r})=>r),sync:cloudClient.status(),settings:store.state.settings,providers:PROVIDER_CATALOG,connections,providerModels,libraryCompact:payload.compact===true,conversations:libraryConversations(store.state.conversations,payload),memories:await memory.list(),memoryReview:await memory.reviewStatus(),chatMemory:chatMemory?.status(),archive:archive.summary(),mcpStatus:external?.status||[],tools:allDefinitions().filter(t=>t.name!=='request_permission').map(t=>({...t,category:t.name.split('_')[0],enabled:toolEnabled(t.name,store.state.settings)})),version:app.getVersion(),build:installedBuild,updateNotice:takeUpdateNotice(),providerNotice:takeProviderNotice(),usage:usage?.snapshot()||{},usageResetPending:Boolean(store.state.usageResetAttempt),messaging:hub?.view()||{}};
     case 'app.inspection.report':appInspection.reportNavigation(payload);return {};
     case 'app.control.navigation.ack':return appNavigation.acknowledge(payload);
     case 'soul.change':{
@@ -1747,16 +1765,19 @@ try{
   startupStage='updates';updateNotice=await updater.takeResult().catch(()=>null);
   // A provisional first launch must not replace customized Source before the
   // independent startup gate passes. A subsequent confirmed launch commits it.
-  try{const update=await updater.status();if(update.lastResult?.status!=='verifying-startup'){const promoted=await updater.merge.commitInstalled(update.installed);if(promoted?.error)updateNotice={status:'failed',message:promoted.error};}}catch(error){updateNotice={status:'failed',message:'The updated app opened, but source promotion needs review: '+error.message};}
-  {const update=await updater.status().catch(()=>null);
-    // Another launch already handed over to the runner, which reopens Exomina when done.
-    if(update?.inProgress){quitting=true;app.quit();return;}
+  {const update=await updater.status();
+    // A launch during copying waits for the runner. The installed candidate is
+    // the exception: its workspace must open to satisfy startup verification.
+    if(update?.inProgress&&!update.verifyingStartup){quitting=true;app.quit();return;}
+    try{if(canPromoteInstalledSource(update)){const promoted=await updater.merge.commitInstalled(update.installed);if(promoted?.error)updateNotice={status:'failed',message:promoted.error};}}
+    catch(error){updateNotice={status:'failed',message:'The updated app opened, but source promotion needs review: '+error.message};}
   }
   conversationTools=new ConversationTools({getConversations:()=>store.state.conversations,getMemoryEnabled:()=>store.state.settings.memoryEnabled,getChatMemory:async chat=>{await chatMemory.sync(chat);await chatMemory.queue;return chatMemoryTree;},getSearch:async chat=>{if(!chatMemorySearch)throw Error('Chat search is unavailable.');await chatMemory.sync(chat);await chatMemory.queue;await chatMemorySearch.flush(chat.id);return chatMemorySearch;},onTitleChanged:async()=>{await store.save();emit({type:'state.changed'});}});
   // Provider replies report usage constantly. Keep it current in memory and
   // let it ride along with the next library save; sign-outs persist at once.
   let usageSaveTimer=null;
   usage=new UsageTracker({emit,initial:store.state.usage||{},onUpdate:(entries,{immediate=false}={})=>{store.state.usage={...entries};if(immediate){clearTimeout(usageSaveTimer);usageSaveTimer=null;store.save().catch(()=>{});}else usageSaveTimer??=setTimeout(()=>{usageSaveTimer=null;store.save().catch(()=>{});},300000);usageSaveTimer?.unref?.();usageHandoffs?.observe().catch(()=>{});}});
+  diskGuard=new DiskGuard({dataDir,accountsDir,getWorkspace:()=>store.state.settings.workspace,temporaryInUse:()=>restartGuard.status().blockers.some(item=>item.kind==='terminals'||item.kind==='commands'),emit,log:message=>console.warn('[disk]',message)});diskGuard.start();
   startupStage='image storage';assets=new AssetStore(dataDir);await assets.init();
   imageSupport=new ImageSupport({assets,getProviders:()=>providers,getRun:id=>active.get(id)?.cancelled?null:active.get(id),getWorkspace:()=>store.state.settings.workspace,isConnected:()=>connections.some(c=>c.id==='codex'&&c.connected),checkUsage:async()=>{await usagePoller?.refreshProvider('codex');const u=usage?.snapshot()?.codex;return u?.fetchStatus==='ready'&&u.windows?.length&&!usageBlocksSelection(u,{provider:'codex',model:'auto'});},canReadAsset:(id,assetId)=>store.state.conversations.some(c=>(c.id===id||store.state.settings.memoryEnabled)&&c.messages.some(m=>m.attachments?.some(a=>a.id===assetId))),approve,emit,publish:async(id,attachment)=>{const run=active.get(id);if(!run)return;run.message.attachments??=[];if(run.message.attachments.length>=20)throw Error('A reply can contain at most 20 images.');if(!run.message.attachments.some(a=>a.id===attachment.id))run.message.attachments.push(attachment);await store.save();emit({type:'chat.asset',conversationId:id,attachment});}});
   startupStage='API connections';apiConnections=new ApiConnections({dataDir,encryption:safeStorage});await apiConnections.init();

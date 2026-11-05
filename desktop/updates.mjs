@@ -5,6 +5,8 @@ import {spawn} from 'node:child_process';
 import {PublicUpdates,updateUrl,releaseIsNewer,compareVersions,PUBLIC_UPDATE_AUTHENTICATION_REQUIRED} from './public-updates.mjs';
 import {UpdateMerge} from './update-merge.mjs';
 import {readUpdateState as readJson,writeUpdateState as writePending} from './update-state.mjs';
+import {pathsEqual} from './path-policy.mjs';
+import {assertDiskSpace,folderBytes} from './disk-guard.mjs';
 
 /** Written by `npm run package` into the build folder; the installer mirrors it into App\. */
 export const STAMP='exomina.build.json';
@@ -12,6 +14,10 @@ const RESULT='last-update.json',PENDING='pending-update.json',PROGRESS='install-
 const READY='update-ready.json';
 function processAlive(pid){if(!Number.isInteger(pid)||pid<=0)return false;try{process.kill(pid,0);return true;}catch(e){return e.code==='EPERM';}}
 const exists=file=>stat(file).then(()=>true,()=>false);
+export function canPromoteInstalledSource(update){
+  return update?.inProgress===false&&typeof update.installed?.id==='string'&&
+    update.lastResult?.buildId===update.installed.id&&update.lastResult.status==='installed';
+}
 export async function readStamp(dir){
   const value=await readJson(path.join(dir,STAMP));
   if(typeof value?.id!=='string'||!/^[\w-]{8,64}$/.test(value.id))return null;
@@ -95,6 +101,19 @@ export class Updater {
     const liveInstallation=[progress,watcher].find(value=>validInstallation(value)&&(!pending||(value.attemptId===pending.attemptId&&value.buildId===pending.buildId))&&alive(value.installerPid));
     const liveInstaller=!!liveInstallation;
     const inProgress=!!(liveRunner||starting||liveInstaller||(pending&&this.startingAttempt===pending.attemptId));
+    // Copying must keep other launches out, but the newly installed build must
+    // open its workspace while the supervisor waits for its health response.
+    // Keep inProgress true so this does not permit a second installer/retry.
+    let verifyingStartup=false;
+    if(inProgress&&installed?.id===pending?.buildId&&pathsEqual(this.appDir,path.join(this.home,'App'))){
+      const [report,challenge]=await Promise.all(['install-report.json','program-cleanup-pending.json'].map(name=>readJson(path.join(this.stateDir,name))));
+      const matches=value=>value?.attemptId===pending.attemptId&&value?.buildId===installed.id;
+      const control=report?.programCleanup,created=Date.parse(challenge?.createdAt),expiry=Date.parse(challenge?.expiresAt),now=Date.now();
+      verifyingStartup=matches(report)&&report.ok===true&&matches(control)&&control.monitored===true&&alive(control.pid)&&
+        matches(challenge)&&challenge.schema===1&&/^[a-f0-9]{32}$/.test(challenge.token||'')&&challenge.token===control.token&&
+        Number.isFinite(created)&&Number.isFinite(expiry)&&created<=now&&now<expiry&&expiry-created<=180000&&
+        ((matches(lastResult)&&lastResult.status==='verifying-startup')||(matches(watcher)&&watcher.phase==='verifying-startup'));
+    }
     if(pending&&!inProgress){
       // A runner can finish its result before removing pending state. Preserve
       // that concrete outcome instead of replacing it with a generic crash.
@@ -110,7 +129,7 @@ export class Updater {
     const autoBlocked=!inProgress&&available&&lastResult?.buildId===staged.id&&lastResult.status!=='installed';
     const release=this.public.feedUrl===this.feedUrl&&releaseIsNewer(this.public.release,installed)?this.public.release:null;
     const merge=available?await this.merge.inspect({installed,staged,source:selected.source,buildPath:selected.buildPath}):null;
-    return {supported:true,installed,staged:staged||null,available,autoBlocked,inProgress,buildPath:selected?.buildPath||this.build,source:selected?.source,lastResult,merge,remote:{configured:!!this.feedUrl,feedUrl:this.feedUrl,release,checkedAt:this.public.checkedAt,progress:this.public.progress,downloadSupported:this.public.downloadSupported,reason:this.public.downloadSupported?'':PUBLIC_UPDATE_AUTHENTICATION_REQUIRED}};
+    return {supported:true,installed,staged:staged||null,available,autoBlocked,inProgress,verifyingStartup,buildPath:selected?.buildPath||this.build,source:selected?.source,lastResult,merge,remote:{configured:!!this.feedUrl,feedUrl:this.feedUrl,release,checkedAt:this.public.checkedAt,progress:this.public.progress,downloadSupported:this.public.downloadSupported,reason:this.public.downloadSupported?'':PUBLIC_UPDATE_AUTHENTICATION_REQUIRED}};
   }
   /** Reads the result of the update that ran before this launch, once. */
   async takeResult(){
@@ -125,7 +144,7 @@ export class Updater {
    * this record never supplies deletion targets or permission to start helpers.
    */
   async confirmStartup({now=Date.now(),pid=process.pid,rendererPid}={}){
-    if(!this.packaged||!this.home||!this.stateDir||path.resolve(this.appDir)!==path.join(path.resolve(this.home),'App')||!Number.isInteger(pid)||pid<=0||!Number.isInteger(rendererPid)||rendererPid<=0)return false;
+    if(!this.packaged||!this.home||!this.stateDir||!pathsEqual(this.appDir,path.join(this.home,'App'))||!Number.isInteger(pid)||pid<=0||!Number.isInteger(rendererPid)||rendererPid<=0)return false;
     const file=path.join(this.stateDir,'program-cleanup-pending.json');
     const metadata=await lstat(file).catch(()=>null);if(!metadata?.isFile()||metadata.isSymbolicLink())return false;
     const challenge=await readJson(file),stamp=await readStamp(this.appDir);
@@ -148,6 +167,8 @@ export class Updater {
     if(this.public.work)throw Error('Wait for the update download to finish or cancel it before applying.');
     if(current.inProgress)return current;
     await this.merge.assertProgramUnmodified(current.installed);
+    // The previous program stays on disk until the new one proves it can start.
+    {const size=await folderBytes(current.buildPath);await assertDiskSpace(this.appDir,size.bytes,{label:'Installing this update'});}
     let checked;
     if(current.source==='public'){
       checked=await this.public.ready(this.feedUrl);

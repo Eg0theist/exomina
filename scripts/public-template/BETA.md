@@ -13,7 +13,7 @@ Download the installer for your operating system and processor from [Releases](h
 For example, on Debian/Ubuntu x64, run this from the download folder:
 
 ```sh
-sudo apt install ./Exomina-Beta-0.7.0-linux-amd64.deb
+sudo apt install ./Exomina-Beta-0.7.1-linux-amd64.deb
 ```
 
 Use the `linux-arm64.deb` file on ARM64. A normal local user profile and a graphical desktop are required. See each release's validation report for the exact tested OS versions.
@@ -44,7 +44,7 @@ Existing Windows EFS profiles stay encrypted and retain their recovery checks. F
 | macOS | `Exomina Beta.app` in Applications | `~/Library/Application Support/Exomina/Private` |
 | Linux | DEB-managed installation | `${XDG_CONFIG_HOME:-~/.config}/Exomina/Private` |
 
-The default project folder is **Documents/Exomina/Workspace**. Choose another local workspace if Documents is redirected. Existing profile locations are preserved when detected.
+The default project folder is **Documents/Exomina/Workspace**. Choose another local workspace if Documents is redirected. If an older Exomina library is found in Documents, this installation starts with its own library and offers the older one in the app; neither choice changes the older library.
 
 ## Using Claude
 

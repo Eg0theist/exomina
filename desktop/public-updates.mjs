@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {normalizeUpdateTrust,verifyReleaseEnvelope} from './update-auth.mjs';
 import {verifyPackageInventory} from './update-package.mjs';
+import {assertDiskSpace} from './disk-guard.mjs';
 
 const MAX_PACKAGE=8*1024**3,MAX_MANIFEST=256*1024;
 export const PUBLIC_UPDATE_AUTHENTICATION_REQUIRED='Public update downloads require publisher authentication, which is not configured in this build. Install a release obtained directly from the publisher or use a locally packaged update.';
@@ -104,6 +105,8 @@ export class PublicUpdates{
  }
  async download(envelope,feedUrl,signal){
   const release=this.authenticated(envelope,feedUrl),target=path.join(this.stateDir,'downloads',release.id+'-'+randomUUID()),buildPath=path.join(target,'build'),archive=path.join(target,'update.zip'),partial=archive+'.part';
+  // The archive and its extracted program exist side by side while verifying.
+  await mkdir(this.stateDir,{recursive:true});await assertDiskSpace(this.stateDir,release.asset.size*3,{label:'Downloading this update'});
   await mkdir(buildPath,{recursive:true});let handle,published=false;
   try{
    this.notify({phase:'downloading',message:'Downloading authenticated update',completed:0,total:release.asset.size});

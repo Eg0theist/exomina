@@ -17,12 +17,15 @@ export async function plainPath(file){
   let cursor=path.resolve(file);
   while(true){const info=await lstat(cursor).catch(e=>{if(e.code==='ENOENT')return null;throw e;});if(info?.isSymbolicLink())throw Error('Linked source or update paths are not allowed.');const parent=path.dirname(cursor);if(parent===cursor)break;cursor=parent;}
 }
-export async function sourceTree(root){
+// Website video is not a build input, and NSIS installers leave .mp4 files out of
+// their archive, so a snapshot containing it could never match the installed program.
+export const WEBSITE_MEDIA=/^scripts\/public-template\/docs\/assets\/media\//;
+export async function sourceTree(root,{skip}={}){
   await plainPath(root);const files=new Map();let total=0;
   async function walk(relative){
     const target=path.join(root,relative),info=await lstat(target).catch(e=>{if(e.code==='ENOENT')return null;throw e;});if(!info)return;
     if(info.isSymbolicLink()||info.isFile()&&info.nlink>1)throw Error('Linked release source inputs are not allowed.');
-    if(info.isDirectory()){for(const name of (await readdir(target)).sort()){const child=relative?relative+'/'+name:name;try{sourcePath(child);}catch{continue;}await walk(child);}return;}
+    if(info.isDirectory()){for(const name of (await readdir(target)).sort()){const child=relative?relative+'/'+name:name;try{sourcePath(child);}catch{continue;}if(skip?.test(child))continue;await walk(child);}return;}
     sourcePath(relative);if(!info.isFile()||info.size>32*1024**2)throw Error('A release source input is not a bounded regular file.');
     total+=info.size;if(total>256*1024**2||files.size>=12000)throw Error('Release source inputs exceed the snapshot limit.');files.set(relative,await readFile(target));
   }
@@ -34,8 +37,8 @@ export async function writeTree(root,files){
   await plainPath(root);await mkdir(root,{recursive:true});
   for(const [file,bytes]of files){sourcePath(file);const target=path.join(root,...file.split('/'));await plainPath(target);await mkdir(path.dirname(target),{recursive:true});await writeFile(target,bytes,{flag:'wx'});}
 }
-export async function snapshotSource(root,destination,release){
-  const files=await sourceTree(root);if(!files.has('package.json')||!files.has('desktop/main.mjs'))throw Error('The release source snapshot is incomplete.');
+export async function snapshotSource(root,destination,release,options){
+  const files=await sourceTree(root,options);if(!files.has('package.json')||!files.has('desktop/main.mjs'))throw Error('The release source snapshot is incomplete.');
   await writeTree(path.join(destination,'files'),files);
   const manifest={format:1,release,treeHash:treeHash(files),files:[...files].map(([file,bytes])=>({path:file,size:bytes.length,sha256:digest(bytes)}))};
   await writeFile(path.join(destination,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');return manifest;

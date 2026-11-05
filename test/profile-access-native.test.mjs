@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,lstat,realpath,readdir,rm,writeFile,readFile} from 'node:fs/promises';
+import {mkdtemp,mkdir,lstat,realpath,readdir,rm,writeFile,readFile} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {WindowsProfileAccess} from '../desktop/profile-access.mjs';
@@ -45,4 +45,27 @@ test('native Windows profile access accepts a fresh ordinary directory before ap
   assert.equal(verified.restrictedAccess,true);assert.equal(verified.anyEncrypted,false);assert.equal(verified.entries,3);
   assert.equal(await readFile(path.join(root,'child.txt'),'utf8'),'Synthetic child file.');
   assert.equal(await readFile(path.join(root,'grandchild.txt'),'utf8'),'Synthetic grandchild file.');
+});
+
+test('Chromium sandbox grants are accepted only inside its own profile folders',{skip:process.platform!=='win32',timeout:60000},async t=>{
+  await prepareWindowsQaOwner();
+  const run=promisify(execFile),temporary=await realpath(os.tmpdir()),root=await mkdtemp(path.join(temporary,'exomina-profile-chromium-')),access=new WindowsProfileAccess();
+  t.after(async()=>{access.close();assert.equal(path.dirname(await realpath(root)),temporary);await rm(root,{recursive:true,force:true});});
+  if((await access.inspect(root)).anyEncrypted===true)await run(path.join(process.env.SystemRoot,'System32','cipher.exe'),['/d',root],{windowsHide:true});
+  const icacls=path.join(process.env.SystemRoot,'System32','icacls.exe');
+  const capability='S-1-15-3-1024-395641907-2340533657-1796656376-1949871151-3167452726-3934347287-2361051074-3061173417';
+  const network=path.join(root,'browser-data','Network'),elsewhere=path.join(root,'other');
+  await mkdir(network,{recursive:true});await mkdir(elsewhere);await writeFile(path.join(network,'cookies'),'x');
+  assert.equal((await access.prepare(root)).restrictedAccess,true);
+  for(const folder of [network,elsewhere])await run(icacls,[folder,'/grant','*'+capability+':(OI)(CI)(M)'],{windowsHide:true});
+  // Outside Chromium's profile the same grant is unexpected, so verifying refuses it.
+  await assert.rejects(access.verify(root),/could not be confirmed/);
+  // Preparing removes it there and leaves Chromium's own grant, which then verifies.
+  assert.equal((await access.prepare(root)).restrictedAccess,true);
+  assert.equal((await access.verify(root)).restrictedAccess,true);
+  const granted=async folder=>(await run(icacls,[folder],{windowsHide:true})).stdout.includes(capability);
+  assert.equal(await granted(network),true);assert.equal(await granted(elsewhere),false);
+  // Any other identity inside Chromium's profile is still refused.
+  await run(icacls,[network,'/grant','*S-1-1-0:(R)'],{windowsHide:true});
+  await assert.rejects(access.verify(root),/could not be confirmed/);
 });
