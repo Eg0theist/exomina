@@ -705,9 +705,9 @@ test('overlapping status callers also share slow metadata preparation',async t=>
 });
 
 test('a status request begun before explicit logout cannot restore a stale connected result',async t=>{
- const f=await fixture(t);let release;const gate=new Promise(resolve=>release=resolve);f.manager.codexUsage=async()=>({});f.manager.codexImageCapabilities=async()=>({});
- f.manager.claudeStatus=async()=>({installed:true,connected:false});f.manager.getCodex=async()=>({request:async method=>{if(method==='account/read'){await gate;return {account:{type:'chatgpt'}};}return {};}});
- const pending=f.manager.status();await new Promise(resolve=>setTimeout(resolve,10));await f.manager.logout('codex');release();const row=(await pending).find(row=>row.id==='codex');assert.equal(row.connected,false);
+ const f=await fixture(t);let release,started;const gate=new Promise(resolve=>release=resolve),entered=new Promise(resolve=>started=resolve);f.manager.codexUsage=async()=>({});f.manager.codexImageCapabilities=async()=>({});
+ f.manager.claudeStatus=async()=>({installed:true,connected:false});f.manager.getCodex=async()=>({request:async method=>{if(method==='account/read'){started();await gate;return {account:{type:'chatgpt'}};}return {};}});
+ const pending=f.manager.status();await entered;await f.manager.logout('codex');release();const row=(await pending).find(row=>row.id==='codex');assert.equal(row.connected,false);
 });
 
 test('Claude nonzero or malformed auth metadata is unknown unless the official runtime explicitly confirms sign-out',async t=>{
@@ -859,6 +859,9 @@ test('provider metadata discovery fails independently and closes on manager shut
     else child.stdin.on('data', () => child.stdout.write('invalid-json\n'));
   });
   assert.deepEqual(await f.manager.subscriptionModels(), getProvider('claude')?{ codex: [], claude: [] }:{codex:[]});
+  // A finished Claude process gets a short grace period to exit (and finish any
+  // sign-in renewal) before it is stopped; it stays tracked until then.
+  for (let i = 0; i < 100 && f.manager.metadataProcesses.size; i++) await new Promise(resolve => setTimeout(resolve, 50));
   assert.equal(f.manager.metadataProcesses.size, 0);
   let spawned;
   const ready = new Promise(resolve => { spawned = resolve; });

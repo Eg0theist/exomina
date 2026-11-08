@@ -52,5 +52,5 @@ export class TerminalSessions {
     task.entry.status='stopping';task.controller.abort();this.cancel(id);this.changed(scope,true);return {stopping:true,id};
   }
   stopConversation(conversationId){const id=chatId(conversationId);for(const [key,task]of this.tasks)if(task.entry.conversationId===id){task.entry.status='stopping';task.controller.abort();this.cancel(key);}this.changed(id,true);}
-  close(){this.closed=true;this.interactive?.close();for(const [id,task]of this.tasks){task.controller.abort();this.cancel(id);}for(const timer of this.notifications.values())clearTimeout(timer);this.notifications.clear();}
+  close({detachInteractive=false}={}){this.closed=true;this.interactive?.close({detach:detachInteractive});for(const [id,task]of this.tasks){task.controller.abort();this.cancel(id);}for(const timer of this.notifications.values())clearTimeout(timer);this.notifications.clear();}
 }

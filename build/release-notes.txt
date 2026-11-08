@@ -1,10 +1,129 @@
-Exomina 0.7 makes everyday work clearer and expands what can change without restarting.
+Local dictation and more precise memory corrections
 
-- Redesigned navigation, settings and first-run walkthroughs.
-- Live tool controls, extension removal and verified connection updates with rollback.
-- Explicit AI voice-sharing consent, connected services and local WAV inspection.
-- More precise conversation recall and revision-checked notebook cleanup.
-- Updated dependencies and stronger conversation-bound tool permissions.
-- Encrypted-profile upgrade compatibility and responsive-workspace confirmation for in-app Windows updates, with recovery of the previous program after failed startup.
+An optional Windows x64 dictation engine uses Whisper on this computer. Setup explicitly downloads checksum-pinned runtime and model files; recording is started separately. Record an utterance, then transcribe it into the draft. Cancel releases the microphone and discards the recording. Original text remains recoverable and recognition never executes a command. Other platforms retain their existing voice options. Synthetic speech evaluation showed fewer word errors, but human microphone and command accuracy remain unqualified.
 
-Public beta updates remain manual. See BETA.md and the release qualification record for supported platforms and remaining checks.
+Memory follows explicit correction chains to the latest available source while preserving unresolved branches, missing links and historical observations. Full entity names take precedence over shorter overlapping aliases, and retrieval exposes the alias binding used to select a source.
+
+Repeatable report checks now cover current source facts, arithmetic, missing information, interrupted delivery and reuse with different inputs. A blind memory comparison records mistakes and false certainty alongside successful recall. These bounded checks do not establish general answer quality.
+
+Public source exports retain required packaging gates, evaluation helpers and protocol models so missing inputs fail during source qualification.
+
+Library backups and local databases use Windows extended paths at the SQLite boundary, allowing deeper client snapshot and restore destinations while retaining the existing file and link checks.
+
+Historical knowledge, reviewed procedure learning and client workspaces
+
+Memory can link original notes to typed entities, explicit aliases and dated facts. Changed sources are flagged and dependency links identify material that needs review. Annotations remain inspectable and removable without rewriting the originals.
+
+Accepted procedures can produce a parameterized candidate. Preselected withheld inputs require fresh host evidence before a separate reviewed promotion. Candidates remain local to their chat, and changed sources or removed evidence require review again.
+
+Client workspaces keep memory in separate local databases and restrict AI context and transcript retrieval to the selected client. New projects establish boundaries without relabelling old conversations. Unsupported execution, sync and voice adapters remain unavailable inside these projects. Local owner controls do not establish remote employee authentication or an operating-system sandbox. Library backups preserve client boundaries and memory.
+
+Outcome receipts now have a durable, bounded archive with damage detection, pagination, export and reviewed retention controls. Receipt history survives rotation from the recent chat view and is included in library backups. Hash consistency does not establish trust against the machine owner.
+
+Traceable memory, procedure inputs and safer dictation
+
+Memory checks now match the observed outcome type, repository, full identifier and date. A passing CI check cannot stand in for an installed build or merged pull request. Recall exposes the source and predicate behind correction cues. Topic similarity remains a review cue.
+
+Skills can pin other skill revisions as inputs. Changed, retired or unavailable sources require review, and a prepared checklist is invalidated when tool definitions or permission scope change. Shared procedures cannot depend on more restricted sources. Imported SKILL.md text can be inspected before saving, with missing tools, mentioned destinations, unsupported scripts and licence limits shown in the preview. Importing instructions never installs hooks or services.
+
+Product verification journeys describe repeatable update, delivery, terminal and procedure checks, with source fingerprints and explicit evidence limits. Bounded protocol checks exercise interruption and approval failures; they do not prove the whole application correct.
+
+Dictation defaults to raw recognition. Optional minimal cleanup normalizes spaces and preferred project capitalization while preserving commands, paths, numbers and negation. The original recognition remains recoverable in the draft. Microphone quality and live service behavior require real-device acceptance.
+
+Recoverable terminals, reusable procedures and delivery receipts
+
+A new terminal host keeps ordinary shells running for up to ten minutes after an unexpected app disconnect. Reopening reconnects to the same shell, while a clean quit still ends sessions not marked to keep running. Hosts already serving open terminals keep their previous behavior until those sessions end and a new host starts.
+
+Skills can include reusable procedures with named inputs, preconditions, data and tool scope, expected outputs, acceptance checks and recovery steps. Preparing a checklist binds it to the exact revision and inputs. Acceptance evidence uses host-observed outcomes recorded after preparation; it does not establish the meaning or general quality of a procedure. Changes require fresh checks. Existing sharing and tool permissions still apply.
+
+Workflow delivery now records each message part before sending and saves provider message references as acknowledgements arrive. Library shows acknowledged parts, uncertain parts and earlier attempts. An uncertain delivery still requires owner reconciliation; it is never automatically replayed. Provider acceptance does not establish that a recipient read the report.
+
+Delivery completion and update recovery
+
+An explicit package-and-install instruction now receives a completion check after confirmed application source edits. The check respects source-only requests, permission denials and approved restarts, and reports work that remains unfinished.
+
+Approved update restarts no longer trigger follow-up turns that delay the restart. Unfinished follow-ups retain their checkpoint for the next reply. The update records the exact approved package and compares it with the running build after reopening; stopping a reply withdraws its pending restart record.
+
+Recoverable report workflows and scoped tool discovery
+
+Scheduled reports now retain their output and delivery history in Library. External delivery requires review of the exact saved report and destination. Interrupted or uncertain sends require reconciliation before another attempt, and recovered backups pause external schedules until their history has been reviewed. Permission and pairing changes are checked again before delivery and between message parts.
+
+AI tools can discover a small set of relevant enabled tools and request their input definitions. Discovery references expire when the conversation, permissions or available tools change; execution continues through the existing approval controls.
+
+Terminal layout and resizing
+
+The terminal panel now has a visible divider along its top edge. Drag it or use the arrow keys to resize the whole panel; its height is remembered. The panel leaves room for the message box, and both stay inside the window. Workspace panes and separate terminal windows resize the live console with their available space. Session details and coding-workspace controls remain available without taking space away from the console.
+
+Terminals through updates, steadier Claude sign-in and sharper memory
+
+On Windows, interactive terminals run from a verified private copy of the bundled runtime instead of the program folder, so app updates keep running terminals open and the new version reconnects to them. If no version reconnects within ten minutes, sessions not marked to keep running are stopped. After a crash or power loss, a terminal keeps its recent output and last folder, and Reopen here starts a new shell in that folder. AI terminal input now presses Enter at line breaks, sends backslashes unchanged and supports named keys such as Ctrl+C, Escape and the arrow keys.
+
+Reopen here starts exactly one shell even when clicked twice, and reopening an AI terminal now switches to the new session under Interactive sessions.
+
+Exomina no longer force-stops Claude while it is renewing your sign-in, which could lose the renewed sign-in. Memory sent with each message links planned work to later progress, matches common German and English terms, ignores question words and reaches voice chats and the cloud service.
+
+Real sign-in renewal timing and macOS/Linux terminal behaviour remain unverified.
+
+Lighter background work and model-switch briefings
+
+Background tasks use one shared rule for light models. On API connections, chat titles and style guides try a light model first and fall back to your chat model if the account refuses it. The notebook planner uses your subscription's light model after a usage check. When you continue on a different model after a reply that used tools, the new model receives a short record of changed and read files, command results, failed steps and open follow-ups, built from stored activity without an extra model call. Briefings saved when usage ran low now apply only to the next three replies. Real requests with the new light model IDs remain unverified.
+
+Build features from chat without restarting
+
+Ask for a feature in the chat Features drawer, review its rendered preview and source, then approve Enable. Ask for revisions or restore the previous version while keeping saved settings. Turning a feature off immediately removes its panel and tools, stops its worker and cancels queued calls. Previews stay with the chat that created them and run no scripts or network requests. Trusted feature workers run with your account permissions.
+
+This update adds disk-space safeguards and corrects sign-in retry reporting.
+
+Claude retries now show their actual outcome. A failed retry gives a clear sign-in action, and a request that already produced an answer, reasoning or tool activity is not automatically replayed. Stop also cancels a queued retry, and another request cannot slip in during retry cleanup.
+
+Settings > Memory & privacy now includes Disk space. Temporary files unused for seven days and expired overwritten-file backups are cleaned up, with older backups limited by size. Temporary cleanup waits while a terminal or command is running. Large downloads, installs and file writes check available space before starting. Chat saves are never refused by this safeguard.
+
+Windows profile checks now recognize Chromium's restricted capability rules only in its browser folders, preventing a library from being blocked after relaunch. Public builds offer an older Documents library through an in-app choice while starting with a separate library.
+
+These changes include regression checks and exact-package Windows startup qualification. Recovery with a real expired sign-in remains unverified.
+
+Visual feedback, reloadable feature packages and coding workspaces
+
+Update startup now distinguishes installation from workspace verification. The new program can open while its update supervisor checks startup, while further installations remain blocked. Exact-package checks cover this live handoff as well as encrypted-profile retention and responsive startup.
+
+In the built-in browser, choose “Describe a change to this element” to review selected element details and add a request to your existing draft. Hidden text and editable fields are excluded, captures expire after navigation, and nothing is sent automatically.
+
+Tools can add local feature packages with static panels, settings and optional trusted workers. Features can be enabled, disabled, updated and rolled back without restarting. Content and compatibility checks bind activation to the reviewed files. Workers run with your account permissions. Static panels block scripts and network resources. Live panel updates now keep the panel and settings form separate, preventing duplicate frames.
+
+Interactive terminals can opt in to keep running when Exomina closes. Reopening reconnects to the owned process and retained output, with renewed input authorization. A computer restart ends live processes; older entries then show unavailable status. Application updates require these processes to close first.
+
+Coding workspaces create a separate Git branch and worktree from committed files. Review comments can be collected and added together to a chat draft. Changed, untracked and ignored files block folder removal; detaching preserves files. Worktrees organize files and do not provide an operating-system sandbox.
+
+The phone Work view shows shared AI terminal status. Recent output requires a separate sharing choice that is off by default. Phone terminal input is not available.
+
+These changes have Windows and synthetic workflow coverage. Native macOS/Linux behaviour and physical phone use remain unverified in this build.
+
+Earlier 0.7 changes
+
+Update reliability preserves existing encrypted profiles and checks the exact candidate against retained encrypted data before offering it. In-app Windows updates keep a verified previous program, wait for the normal workspace to render and respond, and restore the previous program automatically if startup fails. A successful file copy alone no longer counts as a successful update.
+
+Hide HUD keeps the message field and Send button aligned after the composer redesign. Local AI accepts saved decision histories with a UTF-8 encoding marker, preserves unreadable files and allows status to refresh after a repair. Tool updates distinguishes installed and available versions and offers separate connection updates.
+
+Tools now lets you turn optional features off immediately and remove individual tools from the AI's list, with restoration in the same place. Open chats recheck these choices before new actions and after approval. Connected extensions can be disabled or uninstalled without restarting. The Humanizer and its document-rewriting interface have been removed; existing documents are retained.
+
+Tool updates can update ChatGPT and Claude connections without restarting Exomina. Official package signatures and checksums are verified before extraction, compatibility checks use an empty temporary profile without sending a message, and active requests finish before the connection switches. Each connection offers restoration of its previous version. Automatic connection updates have a separate optional setting. Computer-driver updates retain their publisher checks, idle activation and rollback; live driver updates support Windows x64 and ARM64. Exomina itself continues to use app releases.
+
+First-run guidance focuses on connecting an AI, writing a first message and reviewing requested actions. Searchable walkthroughs now follow the current controls in both views, including voice sharing, tool controls, backup and phone requirements. Examples prepare drafts without sending them.
+
+Navigation now keeps Notes, Library and Tools in the same place across all views. AI connections has one main destination. The message box keeps permissions, model and Send visible, with folder, project, memory and response preferences together under Context.
+
+Settings uses a grouped index, search and a compact chooser in narrow windows. Appearance separates themes, reading and window controls, with searchable previews and preserved edits. Library and connection tabs remain available in every view. Tools, connections and memory use consistent rows and optional details instead of repeated explanation cards.
+
+The companion tray shows its current state and Talk action without a permanent explanation block. Voice choices and samples live in Voice settings. Talk defaults to the existing AI voice connection; first use explains microphone and conversation sharing before either begins. Device speech remains an explicit choice, with accessible unavailability reasons, clear connection errors and no silent fallback.
+
+Live colour customization offers preview, Apply, Discard and Reset with contrast validation. Direct app controls support reviewed settings, reusable prompts, project instructions and acknowledged page navigation without computer input. Persistent instructions require confirmation and stale changes are refused.
+
+Connected services adds the official Suno preset and custom public HTTPS MCP endpoints. Adding, connecting and disconnecting are separate actions. Authorization is explicit, credentials stay encrypted locally, and remote actions require approval. Music actions use the connected service's credits.
+
+Local audio inspection measures supported WAV files on demand without uploading them or loading a model. Exact-word and version recall is more precise. Repeated status refreshes are coalesced while preserving immediate user-requested updates.
+
+Notebook resolution can remove exact implemented or discarded passages with revision checks and Undo. Overview content and pagination now follow current shared source revisions so stale work does not reappear.
+
+Security maintenance updates Electron to 44.10.1 and fixes the remaining npm dependency advisories. Tool credentials are bound to their originating conversation and run, including approval rechecks. Export checks cover environment-file variants, database sidecars and unsafe links. Connection setup restores its previous choice after a failed optional installation.
+
+The release includes targeted Windows and synthetic user-flow verification. Live AI voice quality, real Suno account compatibility and physical phone/new-device migration remain separate acceptance checks. Installer qualification is recorded for each exact platform artifact.

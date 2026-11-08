@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 // so unchanged parts are named instead of repeated, and a part that only grew sends just its additions
 // (as OptMem sessions read memory once and then add to it). Every few turns, and after compaction,
 // everything is sent again.
-export const CONTEXT_REFRESH_TURNS=8,SHARED_LABELS={memory:'shared memory notes (memory_wake)',archive:'imported-context summary (archive_search)'};
+export const CONTEXT_REFRESH_TURNS=8,SHARED_LABELS={memory:'shared memory notes (memory_wake)',memoryRelevant:'request-matched memory notes (memory_recall)',archive:'imported-context summary (archive_search)'};
 /** parts: {name: text}. versions: {name: value}, saved with the session. delta(name, previousVersion) returns text or null. */
 export function planSharedContext(c,provider,session,parts,{versions={},delta=()=>null}={}){
   const hashes=Object.fromEntries(Object.entries(parts).map(([key,text])=>[key,createHash('sha256').update(text).digest('hex')]));

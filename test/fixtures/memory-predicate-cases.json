@@ -1,0 +1,14 @@
+[
+  {"name":"CI cannot establish installation","text":"Build ab12cd34 installed.","kind":"github_checks","subject":"checks on team/app@ab12cd34","observed":{},"expected":"reported"},
+  {"name":"merge cannot establish installation","text":"Build ab12cd34 installed.","kind":"github_pr_merged","subject":"team/app#17 merged","observed":{"mergeCommit":"ab12cd34"},"expected":"reported"},
+  {"name":"installation cannot establish CI success","text":"Commit ab12cd34 CI checks passed.","kind":"update_installed","subject":"installed build ab12cd34","observed":{"buildId":"ab12cd34"},"expected":"reported"},
+  {"name":"packaging cannot establish staging","text":"Build ab12cd34 packaged.","kind":"update_staged","subject":"waiting update ab12cd34","observed":{"buildId":"ab12cd34"},"expected":"reported"},
+  {"name":"explicit installed condition matches","text":"Build ab12cd34 installed; live voice remains untested.","kind":"update_installed","subject":"installed build ab12cd34","observed":{"buildId":"ab12cd34"},"expected":"checked"},
+  {"name":"explicit staging condition matches","text":"Build ab12cd34 staged, not installed.","kind":"update_staged","subject":"waiting update ab12cd34","observed":{"buildId":"ab12cd34"},"expected":"checked"},
+  {"name":"explicit CI condition matches","text":"Commit ab12cd34 CI checks passed.","kind":"github_checks","subject":"checks on team/app@ab12cd34","observed":{},"expected":"checked"},
+  {"name":"merge in another repository cannot match","text":"PR17 team/alpha#17 merged.","kind":"github_pr_merged","subject":"team/beta#17 merged","observed":{},"expected":"reported"},
+  {"name":"full identifiers sharing seven characters cannot match","text":"Build ab12cd34 installed.","kind":"update_installed","subject":"installed build ab12cd35","observed":{"buildId":"ab12cd35"},"expected":"reported"},
+  {"name":"unqualified PR remains ambiguous across repositories","text":"PR17 merged.","kind":"github_pr_merged","subject":"team/beta#17 merged","observed":{},"extraMarks":[{"id":"other","at":"2026-11-07T10:00:00Z","kind":"github_pr_merged","subject":"team/alpha#17 merged","status":"verified","observed":{}}],"expected":"reported"},
+  {"name":"unambiguous short prefix can match","text":"Build ab12cd3 installed.","kind":"update_installed","subject":"installed build ab12cd34","observed":{"buildId":"ab12cd34"},"expected":"checked"},
+  {"name":"colliding short prefix cannot choose a build","text":"Build ab12cd3 installed.","kind":"update_installed","subject":"installed build ab12cd34","observed":{"buildId":"ab12cd34"},"extraMarks":[{"id":"other","at":"2026-11-07T10:00:00Z","kind":"update_installed","subject":"installed build ab12cd35","status":"verified","observed":{"buildId":"ab12cd35"}}],"expected":"reported"}
+]

@@ -1,0 +1,61 @@
+Scheduled report workflow pilot
+
+Run a scheduled task from Library > Scheduled tasks. Exomina records its run
+before requesting a report. The original result chat is linked as soon as it
+starts. Generation is never replayed automatically after interruption.
+
+Library > Workflow runs contains the saved report, SHA-256, destination and run
+history. The hash establishes byte integrity, not report accuracy. Exomina-only
+reports finish locally. Telegram and Discord reports wait for owner review;
+they are no longer automatically sent on generation. Unresolved runs block the
+next run of the same schedule, including manual and folder-triggered runs.
+
+Review and send saved report asks for confirmation of the exact report, title,
+channel and paired recipient, even in Full access. Global deny rules and Read
+only mode still block delivery. Policy, pairing, connector generation and bytes
+are checked again after approval and after the durable dispatch checkpoint.
+Multi-part messages and rate-limit retries recheck authorization before each
+request. Revocation cannot retract a request already accepted by the service.
+
+If dispatch was committed but its acknowledgment was lost, the result is
+Unknown. No automatic retry, regeneration or cancellation can clear that state.
+Inspect the actual recipient and record evidence: delivered or not sent. This
+is labelled a human report, separately from a connector acknowledgment. Not
+sent enables another explicit review; reconciliation itself never sends.
+Partial delivery must be treated as an uncertain effect, not as not sent.
+
+After library backup recovery, all external schedules are paused and require
+destination review. A recovered backup can predate a whole run, so absence of
+a journal entry cannot prove no delivery occurred. Known uncertain runs still
+require individual reconciliation. Reviewing history does not enable a task.
+
+Report storage uses the existing protected library store and its flushed atomic
+writes. A failed workflow write blocks further actions until restart. The pilot
+caps reports at 256 KiB, keeps up to 200 runs, and prunes resolved history when
+capacity is reached; unresolved runs are never pruned. A run has a bounded
+review count. Saved reports/history are separate Library artifacts and remain
+if their result chat is deleted. They are not business tenant authorization.
+
+Scoped tool discovery
+
+tool_discover({query,limit}) returns at most 12 matching tool summaries from the
+active saved chat's currently enabled catalog. It does not connect services.
+tool_details({ref}) retrieves the exact current schema. Opaque references bind
+to the chat, run, permission settings, feature settings and catalog, and expire
+after 10 minutes. Revoked, replaced, disabled and out-of-scope tools disappear.
+Temporary chats, unattended scoped jobs and read-only follow-up lanes do not
+receive a broader catalog through discovery. Metadata is untrusted source data.
+
+Execution always calls the original named tool through its ordinary sharing,
+argument validation, approval and permission controls. Discovery's preliminary
+permission is not an execution grant. Unknown prices, destinations and recovery
+guarantees are not invented. This pilot adds selective metadata lookup; it does
+not yet replace provider-native tool loading or add a universal tool-call proxy.
+
+Verification covers durable restarts, actual owned child-process death after a
+synthetic recipient accepts a send, disk-write failures, unknown acknowledgments,
+concurrent resume, altered artifacts/recipients, deny rules and revocation during
+approval, commit, chunking and rate-limit waits. Synthetic Electron UI checks
+exercise report rendering, owner actions and narrow layout. Live messaging and
+production-profile recovery require separate acceptance; no real send is made
+by these tests.

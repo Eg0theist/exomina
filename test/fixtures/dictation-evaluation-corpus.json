@@ -1,0 +1,16 @@
+{
+  "id": "exomina-synthetic-de-en-v1",
+  "kind": "original synthetic text synthesized by installed local Windows TTS",
+  "cases": [
+    {"id":"en-name-negation","language":"en-GB","reference":"Exomina must not send the report to Hamburg without five approvals.","protected":{"names":["Exomina","Hamburg"],"numbers":[{"label":"five","variants":["five","5"]}],"negations":["not","without"]}},
+    {"id":"en-amount","language":"en-GB","reference":"The invoice is for forty two euros and seventeen cents.","protected":{"numbers":[{"label":"42.17 EUR","variants":["forty two euros and seventeen cents","42.17","42,17"]}]}},
+    {"id":"en-command","language":"en-GB","reference":"Type git status and npm test but do not execute either command.","protected":{"commands":["git status","npm test"],"negations":["not"]}},
+    {"id":"en-name","language":"en-GB","reference":"Mara will review the Aurora project in Berlin on Tuesday.","protected":{"names":["Mara","Aurora","Berlin"]}},
+    {"id":"en-control","language":"en-GB","reference":"Please keep the original transcript available for review.","protected":{}},
+    {"id":"de-name-negation","language":"de-DE","reference":"Exomina darf den Bericht nicht ohne fünf Freigaben nach Hamburg senden.","protected":{"names":["Exomina","Hamburg"],"numbers":[{"label":"fünf","variants":["fünf","5"]}],"negations":["nicht","ohne"]}},
+    {"id":"de-amount","language":"de-DE","reference":"Die Rechnung beträgt zweiundvierzig Euro und siebzehn Cent.","protected":{"numbers":[{"label":"42.17 EUR","variants":["zweiundvierzig Euro und siebzehn Cent","42,17","42.17"]}]}},
+    {"id":"de-command","language":"de-DE","reference":"Schreibe git status und npm test aber führe die Befehle nicht aus.","protected":{"commands":["git status","npm test"],"negations":["nicht"]}},
+    {"id":"de-name","language":"de-DE","reference":"Mara prüft das Projekt Aurora am Dienstag in Berlin.","protected":{"names":["Mara","Aurora","Berlin"]}},
+    {"id":"de-control","language":"de-DE","reference":"Bitte bewahre das ursprüngliche Transkript für die Prüfung auf.","protected":{}}
+  ]
+}

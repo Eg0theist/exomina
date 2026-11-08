@@ -1,4 +1,22 @@
-Exomina 0.6 security notes
+Exomina 0.7 security notes, 3 November 2026
+
+The dependency lock uses minimatch 11.0.4, glob 14.0.3 for modern callers,
+and @electron/asar 4.3.1. A pinned-source adapter preserves dir-compare's
+older matcher API. The complete npm audit reports zero findings without
+advisory suppressions. Electron 44.10.1 includes Node 24.22.1 and Undici 7.30.1.
+
+Tool bridge credentials belong to one conversation and run. Permissions are
+checked again after approval. Runtime updates verify signed registry metadata,
+exact package identities, checksums and compatibility. Automatic connection
+updates are off by default. Exports reject secret-file variants, database
+sidecars and unsafe links. Exact installer qualification is recorded separately.
+
+https://releases.electronjs.org/release/v44.10.1
+https://github.com/advisories/GHSA-g3hv-75wg-m249
+https://github.com/advisories/GHSA-3g3m-2fjr-6pw4
+
+Historical 0.6 notes (version-specific findings below reflect that earlier
+review and are superseded by the current dependency review above)
 
 Fresh private storage uses restricted user permissions. Connection keys require
 OS-protected secret storage, refusing Linux plaintext fallbacks. Chats, advanced

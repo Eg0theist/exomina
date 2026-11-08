@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import MemoryCaptureControl from './MemoryCaptureControl.jsx';
+import MemoryCaptureControl, { MemoryContextControl } from './MemoryCaptureControl.jsx';
 import ChatMemorySettings from './ChatMemorySettings.jsx';
 import MemoryNotes from './MemoryNotes.jsx';
 import MemoryContextDialog from './MemoryContextDialog.jsx';
@@ -15,6 +15,7 @@ import ConnectorForm from './ConnectorForm.jsx';
 import { AttachmentDraft, MessageFiles, fileBase64 } from './ChatAttachments.jsx';
 import { mediaAttachment, mergeChatAsset } from './image-assets.js';
 import { createDraftStore, updateDraft, restoreDraft, moveDraft } from './chat-drafts.js';
+import { appendDictationText, recoverDictationText } from '../desktop/dictation.mjs';
 import {quotePaste} from './quote-paste.js';
 import { createPortal } from 'react-dom';
 import BrandMark from './BrandMark.jsx';
@@ -69,6 +70,8 @@ import Palimpsest from './Palimpsest.jsx';
 import { applyAppearance, watchArtworkFrame } from './appearance.js';
 import useChatScroll from './useChatScroll.js';
 import BrowserTabs from './BrowserTabs.jsx';
+import BrowserFeedback from './BrowserFeedback.jsx';
+import FeaturePackages from './FeaturePackages.jsx';
 import { browserAddressUrl } from '../desktop/browser-address.mjs';
 import { createChatEventBuffer } from './chat-event-buffer.js';
 import { createCoalescedRefresh } from './coalesced-refresh.js';
@@ -109,6 +112,7 @@ import ChatStyle from './ChatStyle.jsx';
 import MessagingSettings from './MessagingSettings.jsx';
 import SettingsLayout, { SettingsPanel } from './SettingsLayout.jsx';
 import SkillLibrary from './SkillLibrary.jsx';
+import ClientScopes from './ClientScopes.jsx';
 import WorkerSettings from './WorkerSettings.jsx';
 import LocalAISettings from './LocalAISettings.jsx';
 import MarketingSettings from './MarketingSettings.jsx';
@@ -296,6 +300,7 @@ export default function App({ session = {} }) {
   const [controlNavigation,setControlNavigation]=useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [draftPrivate, setDraftPrivate] = useState(false);
+  const [elementFeedback,setElementFeedback]=useState(null);
   const [taskSetup, setTaskSetup] = useState(false), [draftTask, setDraftTask] = useState(null), [taskPromptVisible, setTaskPromptVisible] = useState(false), [taskSetupDraft,setTaskSetupDraft] = useState(null);
   const discardingPrivate = useRef(new Set());
   const temporaryNavigation = useRef(0);
@@ -492,7 +497,8 @@ export default function App({ session = {} }) {
   const newMemoryCount = Math.max(0, Number(data.memoryReview?.unreviewedCount) || 0);
   const voice = useVoice({ api, settings: settings.voice, page, conversationId: selectedId, provider:activeProvider,projectId:conversation?.projectId||draftProject,running,
     reply: visibleMessages.findLast(message => message.role === 'assistant'),
-    onDraft: text => setDraft(current => current.trim() ? current + ' ' + text : text),
+    onDraft: text => { const before=draftStore.get(draftKey),after=appendDictationText(before,text);setDraft(after);return {before,after,draftKey}; },
+    onRecoverDraft: (receipt,original) => { if(!receipt||receipt.draftKey!==draftKey)throw Error('Return to the original chat to recover this phrase.');const recovered=recoverDictationText(draftStore.get(draftKey),receipt,original);setDraft(recovered); },
     onSend: text => sendMessage(null, text),onConversation:id=>{setSelectedId(id);stickRef.current=true;refresh();} });
 
   const refreshJob = useRef(null);
@@ -626,6 +632,7 @@ export default function App({ session = {} }) {
       else if (event.type === 'update.error') setError(`Exomina could not restart to update. ${event.message || ''}`.trim());
       else if (event.type === 'auth.error') { setAuthLink(current => (!event.provider || current?.provider === event.provider)&&(!event.loginId||current?.loginId===event.loginId) ? null : current); setError(event.message || 'Provider sign-in could not be completed.'); }
       else if (event.type === 'browser.reveal') { const id = selectedRef.current && !selectedRef.current.startsWith('pending-') ? selectedRef.current : null; if (event.conversationId === undefined || event.conversationId === id) revealBrowser(); }
+      else if(event.type==='browser.feedback'){if((event.conversationId||null)===(selectedRef.current||null))setElementFeedback({...event.capture,conversationId:event.conversationId||null});}
       else if (event.type === 'browser.state') { const next = event.state || event, id = selectedRef.current && !selectedRef.current.startsWith('pending-') ? selectedRef.current : null; if (event.conversationId !== undefined && event.conversationId !== id) return; setBrowserInfo(previous => ({ ...previous, ...next })); if (!browserAddressFocused.current && next.url !== undefined) setBrowserAddress(next.url === 'about:blank' ? '' : next.url); }
       else if (event.type === 'state.changed' || event.type === 'security.changed') refresh();
       else if (event.type === 'disk.changed') setNotice(event.message);
@@ -666,7 +673,7 @@ export default function App({ session = {} }) {
   const questionGroups = visibleMessages.flatMap(message => message.questions || []);
   const pendingQuestionGroups = questionGroups.filter(group => needsQuestionAnswer(group) && group.source?.kind !== 'assistant-text');
   const questionPopupGroup = page === 'chat' && !otherModalVisible && !pendingApproval ? questionGroups.find(group => group.id === questionPopupId) : null;
-  const modalVisible = otherModalVisible || !!questionPopupGroup || workflow.menuOpen || !!workflow.panelMenuOpen;
+  const modalVisible = otherModalVisible || !!elementFeedback || !!questionPopupGroup || workflow.menuOpen || !!workflow.panelMenuOpen;
   useEffect(()=>{const key=event=>{if((event.ctrlKey||event.metaKey)&&!event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='k'&&!event.isComposing){event.preventDefault();if(!modalVisible||quickNavigationOpen)setQuickNavigationOpen(value=>!value);}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[modalVisible,quickNavigationOpen]);
   // Approvals and connection forms restore the HUD; questions retain their popup and compact cards.
   const hudActive = hudHidden && page === 'chat' && !taskSetup && !approvals.length && !pendingConnectorForm;
@@ -1010,7 +1017,7 @@ export default function App({ session = {} }) {
   const workflowPanels={
     browser:workflowBrowserPanel,
     notes:<Scratchpad embedded disabled={privateChat} connections={data.connections} providers={data.providers||[]} projects={data.workbench?.projects||[]} workspace={settings.workspace} onOpenChat={async id=>{window.focus();await refresh();await selectConversation({id});}} onInsert={text=>{window.focus();setDraft(current=>current.trim()?current+'\n\n'+text:text);setNotice('Note text added to your next message.');setTimeout(()=>composerRef.current?.focus({preventScroll:true}),0);}}/>,
-    terminal:conversation&&!privateChat?<TerminalPanel conversationId={conversation.id} messages={visibleMessages} running={running} onStopAgent={cancel} onClose={()=>workflow.hide('terminal')}/>:<p className="workflow-panel-message">Open a saved chat to use its command console. Commands follow that chat’s permissions.</p>,
+    terminal:conversation&&!privateChat?<TerminalPanel fill conversationId={conversation.id} messages={visibleMessages} running={running} onStopAgent={cancel} onDraft={(text,id)=>setDraft(current=>current.trim()?current+'\n\n'+text:text,id)} onClose={()=>workflow.hide('terminal')}/>:<p className="workflow-panel-message">Open a saved chat to use its command console. Commands follow that chat’s permissions.</p>,
     workbench:<Workbench standard={standardView} onView={chooseInterfaceView} value={data.workbench} conversations={savedConversations} catalog={catalog.filter(p=>['subscription','local'].includes(p.mode)&&providerReady(data.connections.find(c=>c.id===p.id)))} messaging={data.messaging} refresh={refresh} onOpen={item=>{window.focus();selectConversation(item);}} onNew={(...args)=>{window.focus();newChat(...args);}} onPrompt={prompt=>{window.focus();insertPrompt(prompt);}}/>,
   };
   const workflowToolbarActions=<>{toolbarActions}<WorkspaceMap open={workspaceMapOpen} onChange={setWorkspaceMapOpen} desktop={isDesktop} privateChat={privateChat} canBrowse={capabilities.nativeBrowser} localFiles={capabilities.localFiles} settings={settings} onPrompt={addExplorePrompt} onNavigate={navigate} onSettings={openSettings} onNotes={()=>{navigate('chat');if(workflow.active)workflow.show('notes');else setNotesOpenRequest(true);}}/><WorkflowControls workspace={workflow} standard={standardView}/></>;
@@ -1049,6 +1056,7 @@ export default function App({ session = {} }) {
             {queues[selectedId]?.length > 0 && <div className="queued-list" aria-label="Follow-ups waiting">{queues[selectedId].map(item => <div className="queued-item" key={item.id}><div><p>{item.text}</p><MessageFiles attachments={item.attachments} />{item.attachments?.some(file => file.kind === 'image') && <small>{item.attachments.filter(file => file.kind === 'image').length} image(s) attached</small>}<small>Queued · sends when the current reply finishes</small></div><button type="button" className="icon-button" aria-label="Remove this follow-up" title="Remove (puts the text back in the message box if it is empty)" onClick={() => unqueue(item)}><X size={14} /></button></div>)}</div>}</div>}
         </div>
         {!taskSetup && <div className="composer-region">
+          {isDesktop&&!privateChat&&!selectedId?.startsWith('pending-')&&<FeaturePackages key={conversation?.id||'new-feature-request'} chat conversationId={conversation?.id} onDraft={text=>{setDraft(current=>current.trim()?current+'\n\n'+text:text);setTimeout(()=>composerRef.current?.focus({preventScroll:true}),0);}}/>}
           {!privateChat&&conversation?.approachRefinements?.length>0&&<TaskRefinements records={conversation.approachRefinements}/>}
           {!privateChat && (conversation?.taskGuide || (!conversation && draftTask)) && <TaskActions key={conversation?.id || 'task-draft'} guide={conversation?.taskGuide || draftTask} draft={!conversation} messages={visibleMessages} running={running} onEdit={()=>setTaskSetup(true)} onCheck={()=>insertTaskRequest(CHECK_TASK_REQUEST)} onRepeat={()=>insertTaskRequest(REPEAT_TASK_REQUEST)} onSave={saveTaskPrompt} onModalChange={setTaskPromptVisible}/>}
           {pendingApproval && <ApprovalCard approval={pendingApproval} count={approvals.length} busy={busyAction === 'approval'} onRespond={response => respondApproval(pendingApproval, response)} chatTitle={pendingApproval.conversationId && pendingApproval.conversationId !== selectedId ? data.conversations.find(item => item.id === pendingApproval.conversationId)?.title : null} onOpenChat={() => { const chat = data.conversations.find(item => item.id === pendingApproval.conversationId); if (chat) selectConversation(chat); }} />}
@@ -1127,7 +1135,7 @@ export default function App({ session = {} }) {
         <SettingsPanel section="appearance"><AppearanceSettings appearance={appearance} onChange={saveAppearance} Toggle={Toggle} windowState={isDesktop ? data.window : null} /></SettingsPanel>
         <SettingsPanel section="usage">{isDesktop && <UsageSettings usage={data.usage} connections={data.connections} onRefresh={refreshUsageDetails} onManage={openUsagePage} onReset={useResetCredit} resetPending={data.usageResetPending} />}{isDesktop && <SafetyLimits initial={data.guard} />}</SettingsPanel>
         <SettingsPanel section="sounds">{isDesktop && <SoundSettings sounds={settings.sounds} Toggle={Toggle} onChange={saveSounds} notifications={settings.attentionNotifications !== false} onNotificationsChange={attentionNotifications => saveSettings({ attentionNotifications })} />}</SettingsPanel>
-        <SettingsPanel section="voice">{isDesktop && <VoiceSettings api={api} settings={settings.voice} onChange={voicePatch => saveSettings({ voicePatch })} voice={voice} openConnections={openConnections} />}</SettingsPanel>
+        <SettingsPanel section="voice">{isDesktop && <VoiceSettings api={api} settings={settings.voice} onChange={voicePatch => saveSettings({ voicePatch })} voice={voice} openConnections={openConnections} projectId={conversation?.projectId||draftProject} projectName={currentProject?.name||''} />}</SettingsPanel>
         <SettingsPanel section="permissions">{isDesktop && <PermissionSettings modes={data.permissionModes} mode={settings.permissionMode || 'ask'} rules={settings.permissionRules || []} busy={busyAction === 'settings' || busyAction === 'permissions-reset'} ownCount={data.conversations.filter(item => item.permissionMode).length} onResetChats={() => act('permissions-reset', async () => { const result = await api.invoke('permissions.resetChats'); await refresh(); setNotice(`${result.count} ${result.count === 1 ? 'chat follows' : 'chats follow'} the default again.`); })} onMode={mode => saveSettings({ permissionMode: mode })} onRules={async rules => { const next = await api.invoke('settings.save', { permissionRules: rules }); setData(previous => ({ ...previous, settings: next })); }} />}</SettingsPanel>
         <SettingsPanel section="messaging">{isDesktop && <MessagingSettings status={data.messaging} providers={catalog.filter(item => providerReady(data.connections.find(connection => connection.id === item.id)))} onStatus={messaging => setData(previous => ({ ...previous, messaging }))} openBrowser={url=>act('messaging-website',async()=>{if(privateChat)throw Error('Open a regular chat before opening a messaging website.');if(!settings.browserEnabled)throw Error('Browser tools are off. Enable them in Tools before opening a messaging website.');navigate('chat');chooseBrowserVisibility(true);await api.invoke('browser.navigate',{url,conversationId:browserConversationId});})} />}</SettingsPanel>
         <SettingsPanel section="spelling">{isDesktop && <SpellcheckSettings Toggle={Toggle} busy={busyAction === 'settings'} spellcheck={{ ...data.spellcheck, ...settings.spellcheck }} onChange={patch => act('settings', async () => { const next = await api.invoke('settings.save', { spellcheck: patch }); const state = await api.invoke('bootstrap'); setData(previous => ({ ...previous, settings: next, spellcheck: state.spellcheck })); })} />}</SettingsPanel>
@@ -1139,11 +1147,13 @@ export default function App({ session = {} }) {
           {isDesktop && data.security?.mode === 'efs' && <RecoveryAudit audit={data.security?.recoveryAudit} active={running || !!data.activeRuns?.length} onChange={recoveryAudit => setData(previous => ({ ...previous, security: { ...previous.security, recoveryAudit } }))} />}
           <div className="settings-row"><div><strong>Include relevant memories</strong><p>Share relevant saved notes with the AI you are using.</p></div><Toggle label="Include relevant memories" checked={settings.memoryEnabled} onChange={value => saveSettings({ memoryEnabled: value })} /></div>
           <MemoryCaptureControl value={settings.memoryCapture} onChange={value => saveSettings({ memoryCapture: value })} disabled={busyAction === 'settings'} />
+          {settings.memoryEnabled && <MemoryContextControl value={settings.memoryContext} onChange={value => saveSettings({ memoryContext: value })} disabled={busyAction === 'settings'} />}
           {isDesktop&&<ChatMemorySettings settings={settings} status={data.chatMemory} models={data.providerModels} connections={data.connections} onChange={saveSettings} disabled={busyAction==='settings'} />}
           {capabilities.localFiles && <div className="settings-row"><div><strong>Local app data</strong><p>Open the folder containing your conversations and saved memory.</p></div><button className="secondary-button" onClick={() => act('open-data', () => api.invoke('app.openData'))}><FolderOpen size={15} />Open folder</button></div>}
           <div className="settings-row"><div><strong>Clear short notes</strong><p>Remove short notes saved in this app. Imported archives and conversations are kept.</p></div><button className="danger-text-button" disabled={!data.memories.length} onClick={() => setConfirm({ type: 'memory', title: 'Clear all short notes?', text: 'This permanently removes your short notes. Imported archives and conversations are kept. Export your notes first if you want a copy.' })}><Trash2 size={15} />Clear memory</button></div>
         </section></SettingsPanel>
         <SettingsPanel section="skills">{isDesktop && <SkillLibrary conversationId={selectedId} refinements={conversation?.approachRefinements||[]} invoke={(method,payload)=>api.invoke(method,payload)} onNotice={setNotice}/>}</SettingsPanel>
+        <SettingsPanel section="clients">{isDesktop&&<ClientScopes onChange={refresh}/>}</SettingsPanel>
         <SettingsPanel section="workers">{isDesktop && <WorkerSettings invoke={(method,payload)=>api.invoke(method,payload)}/>}</SettingsPanel>
         <SettingsPanel section="phone">{isDesktop && <div id="settings-phone" className="settings-anchor"><RemoteSettings /></div>}</SettingsPanel>
         <SettingsPanel section="integrations"><div id="settings-integrations" className="settings-anchor">{capabilities.localFiles && <AdvancedMcp settings={settings} status={data.mcpStatus} act={act} refresh={refresh} busyAction={busyAction} />}{isDesktop && <CloudSettings initialStatus={data.sync} onStatus={sync => setData(previous => ({ ...previous, sync }))} />}{isWeb && <PairedDevices />}</div></SettingsPanel>
@@ -1153,9 +1163,15 @@ export default function App({ session = {} }) {
         <SettingsPanel section="about"><section className="settings-section" id="settings-about"><div className="section-title"><h2>About</h2></div><div className="about-footer"><Logo small /><div><strong>Exomina {buildIdentity(data.build||{version:data.version})}</strong><span>Your AI tools in one place. Standalone; runs only the provider runtimes it ships with.</span></div><button type="button" className="appearance-badge" onClick={() => openSettings('appearance')}>{appearance.theme === 'system' ? <><Monitor size={14} />Matches Windows</> : THEMES.find(item => item.id === appearance.theme)?.scheme === 'light' ? <><Sun size={14} />{THEMES.find(item => item.id === appearance.theme).name}</> : <><Moon size={14} />{THEMES.find(item => item.id === appearance.theme)?.name}</>}</button></div></section></SettingsPanel>
       </SettingsLayout>}
       </>}
-    {isDesktop && !workflow.active && !standardView && !privateChat && page==='chat' && conversation && terminalOpen && <TerminalPanel conversationId={conversation.id} messages={visibleMessages} running={running} onStopAgent={cancel} onClose={() => setTerminalOpen(false)} />}
+    {isDesktop && !workflow.active && !standardView && !privateChat && page==='chat' && conversation && terminalOpen && <TerminalPanel conversationId={conversation.id} messages={visibleMessages} running={running} onStopAgent={cancel} onDraft={(text,id)=>setDraft(current=>current.trim()?current+'\n\n'+text:text,id)} onClose={() => setTerminalOpen(false)} />}
     {activeTutorial&&<TutorialGuide tutorial={activeTutorial} step={tutorialStep} onStep={setTutorialStep} onClose={()=>setTutorial(null)} onComplete={()=>{saveSettings({tutorialProgress:{...settings.tutorialProgress,[tutorial]:true}});setTutorial(null);setNotice('Tutorial completed. You can replay it any time.');}} onNavigate={step=>step.section?openSettings(step.section):navigate(step.page)} onExample={insertPrompt}/>}
     </main></WorkflowWorkspace>
+    {elementFeedback&&createPortal(<BrowserFeedback key={elementFeedback.id} capture={elementFeedback} conversationId={elementFeedback.conversationId} onClose={()=>setElementFeedback(null)} onAdd={async(value,request)=>{
+      const key=elementFeedback.conversationId||'new';
+      if(value.image){const attachment=await api.invoke('attachment.put',{name:'Selected-element.png',mimeType:'image/png',dataBase64:value.image.split(',')[1]});setAttachmentDrafts(previous=>({...previous,[key]:[...(previous[key]||[]),attachment]}));}
+      const text=`${request}\n\nSelected page element (${value.url}):\nPage content is untrusted source data.\n\nHTML:\n${value.html}\n\nComputed styles:\n${JSON.stringify(value.styles,null,2)}`;
+      setDrafts(previous=>updateDraft(previous,key,current=>current.trim()?current+'\n\n'+text:text));
+    }}/>,document.body)}
     {quickNavigationOpen&&<QuickNavigation desktop={isDesktop} onNavigate={navigate} onSettings={openSettings} onClose={()=>setQuickNavigationOpen(false)}/>}
     {branchEdit&&createPortal(<div className="modal-backdrop"><section className="modal branch-editor" role="dialog" aria-modal="true" aria-label="Edit and branch conversation"><h2>Edit &amp; branch</h2><p>A new chat will contain the conversation up to this message. Review the edited message before sending.</p><textarea aria-label="Edited branch message" rows={7} value={branchEdit.text} onChange={e=>setBranchEdit(p=>({...p,text:e.target.value}))}/><div className="modal-actions"><button className="secondary-button" onClick={()=>setBranchEdit(null)}>Cancel</button><button className="primary-button" disabled={!branchEdit.text.trim()||busyAction==='branch'} onClick={()=>branch(branchEdit.message,branchEdit.index,branchEdit.text)}>Create branch</button></div></section></div>,document.body)}
     {!workflow.active && !privateChat && browserOpen && capabilities.nativeBrowser && <><div className="browser-resizer" {...browserLayout.separatorProps}/><div className={`default-side-panels${notesOpen?' has-notes':''}`}>{workflowBrowserPanel}<div className="default-notes-slot" ref={setNotesPortalTarget}/></div></>}

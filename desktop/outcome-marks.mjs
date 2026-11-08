@@ -15,6 +15,8 @@ const NOTICE='Exomina ran this check itself. Report "verified" outcomes as obser
 export const OUTCOME_TOOL={name:'outcome_verify',description:'Before telling the user that something is built, staged, installed, running, saved, merged or passed, have Exomina check it. Exomina runs the check itself and records the result in this chat’s verified-outcome log; you cannot write a result. Kinds: update_installed (buildId prefix of the running build), update_staged (optional buildId of the waiting update), process_running (pid, optional process name), file (workspace path, optional sha256 and minBytes), github_pr_merged (repo, number), github_checks (repo, commit sha: every check run finished and none failed). A result is verified, contradicted, unavailable (the check could not observe it) or refused (blocked by permissions). A mark covers only what its check observed at that moment. view lists this chat’s recent marks.',inputSchema:{type:'object',properties:{action:{type:'string',enum:['check','view']},kind:{type:'string',enum:KINDS},claim:{type:'string',maxLength:300,description:'The outcome in plain words, as you would report it.'},buildId:{type:'string',maxLength:64},pid:{type:'integer',minimum:1,maximum:2147483647},name:{type:'string',maxLength:260},path:{type:'string',maxLength:4000},sha256:{type:'string',maxLength:64},minBytes:{type:'integer',minimum:0},repo:{type:'string',maxLength:201},number:{type:'integer',minimum:1},sha:{type:'string',maxLength:40},limit:{type:'integer',minimum:1,maximum:50}},required:['action'],additionalProperties:false}};
 
 const clean=(value,max=300)=>String(value??'').replace(/[\u0000-\u001f]/g,' ').trim().slice(0,max);
+Object.assign(OUTCOME_TOOL.inputSchema.properties,{offset:{type:'integer',minimum:0,maximum:1_000_000},export:{type:'boolean',description:'For view only: return this bounded page with chain hashes and checkpoint metadata. Does not write a file.'}});
+OUTCOME_TOOL.description+=' view accepts offset for retained history and export:true for a bounded page with hash-chain metadata. Archive consistency detects damage, not trusted identity against the desktop owner. Pruning/deletion is available only through direct owner controls.';
 const prefix=(actual,claimed)=>typeof actual==='string'&&actual.toLowerCase().startsWith(String(claimed).toLowerCase());
 
 /** Windows names the process; elsewhere signal 0 only proves that the ID exists. */
@@ -31,13 +33,20 @@ async function sha256File(file){const hash=createHash('sha256');for await(const 
 
 export class OutcomeMarks{
   /** evaluate(action,conversationId) is the live permission policy, consulted on every check. */
-  constructor({store,save=()=>store.save(),evaluate,updater,resolveFile,github=null,fetchImpl=fetch,process:inspect=processInfo,now=()=>new Date()}){Object.assign(this,{store,save,evaluate,updater,resolveFile,github,fetchImpl,inspect,now});}
+  constructor({store,save=()=>store.save(),evaluate,updater,resolveFile,github=null,fetchImpl=fetch,process:inspect=processInfo,now=()=>new Date(),archive=null,getScope=()=>null,approve=async()=>false}){Object.assign(this,{store,save,evaluate,updater,resolveFile,github,fetchImpl,inspect,now,archive,getScope,approve});this.queue=Promise.resolve();}
   chat(id){const chat=this.store.state.conversations.find(item=>item.id===id);if(!chat||chat.private)throw Error('Verified outcomes are kept only in saved chats.');return chat;}
-  view(conversationId,limit=20){const marks=this.chat(conversationId).outcomeMarks||[];return {marks:marks.slice(-limit).reverse(),total:marks.length};}
+  projection(chat,scope){return chat.outcomeScope===JSON.stringify(scope)||chat.outcomeScope===undefined&&scope===null?chat.outcomeMarks||[]:[];}
+  resolve(conversationId,id){const chat=this.chat(conversationId),scope=this.getScope(conversationId);return this.archive?.head(conversationId,scope)?this.archive.get(conversationId,scope,id):this.projection(chat,scope).find(mark=>mark.id===id)||null;}
+  view(conversationId,limit=20,offset=0,exportRows=false){const chat=this.chat(conversationId),scope=this.getScope(conversationId);if(this.archive?.head(conversationId,scope))return this.archive.view(conversationId,scope,{limit,offset,exportRows});const marks=[...this.projection(chat,scope)].reverse();return {marks:marks.slice(offset,offset+limit),total:marks.length,offset,nextOffset:offset+limit<marks.length?offset+limit:null,archive:{status:this.archive?'not-yet-migrated':'unconfigured',notice:'Recent chat-state receipts only. Long-term archival begins with the next recorded check.'}};}
   async call(args={},conversationId){
     const chat=this.chat(conversationId);
-    if(args.action==='view')return this.view(conversationId,args.limit||20);
+    if(args.action==='view'){
+      if(this.evaluate({kind:'read',tool:'outcome_verify',target:'verified outcome archive'},conversationId)?.decision==='deny')throw Error('Outcome history is blocked by the current permission rules.');
+      if(args.limit!==undefined&&(!Number.isSafeInteger(args.limit)||args.limit<1||args.limit>50)||args.offset!==undefined&&(!Number.isSafeInteger(args.offset)||args.offset<0||args.offset>1_000_000)||args.export!==undefined&&typeof args.export!=='boolean')throw Error('Use an archive page of 1–50 receipts and a nonnegative bounded offset.');
+      return this.view(conversationId,args.limit||20,args.offset||0,args.export===true);
+    }
     if(args.action!=='check')throw Error('Choose check or view.');
+    const scope=this.getScope(conversationId),scopeKey=JSON.stringify(scope);
     const subject=this.subject(args);
     const mark={id:randomUUID(),at:this.now().toISOString(),kind:args.kind,claim:clean(args.claim)||subject,subject,checkedBy:'exomina'};
     const verdict=this.evaluate({kind:'read',tool:'outcome_verify',target:subject},conversationId);
@@ -46,10 +55,40 @@ export class OutcomeMarks{
       try{Object.assign(mark,await this.check(args));}
       catch(error){Object.assign(mark,error.refused?{status:'refused',reason:clean(error.message)}:{status:'unavailable',reason:clean(error.message)||'The check could not run.'});}
     }
-    // Append only. Old marks rotate out; none is ever edited.
-    chat.outcomeMarks=[...(chat.outcomeMarks||[]),mark].slice(-MAX_MARKS);
-    await this.save();
-    return {mark,notice:NOTICE};
+    const persist=async()=>{
+      if(this.chat(conversationId)!==chat||JSON.stringify(this.getScope(conversationId))!==scopeKey)throw Error('The chat or client scope changed before the outcome could be recorded.');
+      const current=this.evaluate({kind:'read',tool:'outcome_verify',target:subject},conversationId);
+      if(current?.decision==='deny')Object.assign(mark,{status:'refused',reason:clean(current.reason)||'Permission was revoked before this outcome could be recorded.'}),delete mark.observed;
+      const before=chat.outcomeMarks,beforeScope=chat.outcomeScope,prior=this.projection(chat,scope);
+      // The durable journal must commit before a successful outcome is returned.
+      // Only the recent projection rotates; the archive never drops rows silently.
+      let receipt;
+      if(this.archive){if(!this.archive.head(conversationId,scope))for(const old of prior)this.archive.append(conversationId,scope,old);receipt=this.archive.append(conversationId,scope,mark);}
+      chat.outcomeMarks=[...prior,mark].slice(-MAX_MARKS);chat.outcomeScope=scopeKey;
+      try{await this.save();}catch(error){chat.outcomeMarks=before;chat.outcomeScope=beforeScope;throw error;}
+      return {mark,...(receipt?{archive:receipt}:{}),notice:NOTICE};
+    };
+    const work=this.queue.then(persist);this.queue=work.catch(()=>{});return work;
+  }
+  /** Owner-only controls. Tools cannot select an owner action or another chat. */
+  async archiveControl(args,conversationId,{userInitiated=false}={}){
+    if(!userInitiated)throw Error('Outcome archive controls require a direct owner action.');
+    const chat=this.chat(conversationId),scope=this.getScope(conversationId);
+    if(!this.archive)throw Error('The durable outcome archive is unavailable.');
+    if(args.action==='status'||args.action==='view'){
+      if(args.limit!==undefined&&(!Number.isSafeInteger(args.limit)||args.limit<1||args.limit>50)||args.offset!==undefined&&(!Number.isSafeInteger(args.offset)||args.offset<0||args.offset>1_000_000))throw Error('Choose a bounded archive page.');
+      return this.view(conversationId,args.limit||20,args.offset||0,args.export===true);
+    }
+    if(!['prune','delete'].includes(args.action))throw Error('Choose archive status, prune or delete.');
+    const head=this.archive.head(conversationId,scope);if(!head)return {removed:0};
+    const key=JSON.stringify(scope),snapshot=JSON.stringify(head);
+    if(!await this.approve({title:args.action==='delete'?'Delete this chat’s outcome archive?':'Prune old outcome receipts?',detail:JSON.stringify({conversationId,scope,action:args.action,throughSequence:args.throughSequence,head,notice:'This removes historical evidence. Current claims and learned procedures using removed marks may need new checks.'},null,2),conversationId,action:{kind:'write',tool:'outcome_archive',target:conversationId},requireConfirmation:true,userInitiated:true}))throw Error('The outcome archive change was declined.');
+    const run=async()=>{
+      if(this.chat(conversationId)!==chat||JSON.stringify(this.getScope(conversationId))!==key||JSON.stringify(this.archive.head(conversationId,scope))!==snapshot)throw Error('The outcome archive or scope changed during review. Inspect it again.');
+      if(args.action==='delete'){const before=chat.outcomeMarks;chat.outcomeMarks=[];try{await this.save();}catch(error){chat.outcomeMarks=before;throw error;}return this.archive.deleteChat(conversationId,scope);}
+      const result=this.archive.prune(conversationId,scope,args.throughSequence);chat.outcomeMarks=(chat.outcomeMarks||[]).filter(mark=>this.archive.get(conversationId,scope,mark.id));await this.save();return result;
+    };
+    const work=this.queue.then(run);this.queue=work.catch(()=>{});return work;
   }
   subject(args){
     const {kind}=args;

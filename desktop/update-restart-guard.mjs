@@ -79,6 +79,6 @@ export class UpdateInstallAction {
 }
 
 export const VOICE_START_METHODS=new Set([
-  'voice.listen','voice.speak','voice.realtime.prepare','voice.realtime.start',
+  'voice.listen','voice.speak','voice.local.install','voice.local.transcribe','voice.realtime.prepare','voice.realtime.start',
   'voice.realtime.preview.prepare','voice.realtime.preview.start','voice.realtime.preview.sample',
 ]);

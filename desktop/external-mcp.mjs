@@ -128,8 +128,19 @@ export class StdioMcpClient {
   async close() {
     const child = this.child;
     this.fail(new Error('MCP server connection closed.'));
+    if (!child || child.exitCode !== null || child.signalCode !== null) {this.child=null;return;}
+    if(this.config.featurePackage){
+      // Feature revocation is immediate. Ending stdin gracefully would leave
+      // delayed tool writes alive until the ordinary shutdown timeout.
+      if(!this.closing)this.closing=new Promise((resolve,reject)=>{
+        const timer=setTimeout(()=>{child.removeListener('exit',exited);reject(new Error('The feature worker did not confirm exit. Its effects remain unknown.'));},3000);
+        const exited=()=>{clearTimeout(timer);this.child=null;resolve();};child.once('exit',exited);
+        child.kill();
+      }).finally(()=>{this.closing=null;});
+      await this.closing;
+      return;
+    }
     this.child = null;
-    if (!child || child.exitCode !== null) return;
     child.stdin.end();
     await new Promise((resolve) => {
       const timer = setTimeout(() => { child.kill(); resolve(); }, 1500);
@@ -139,8 +150,8 @@ export class StdioMcpClient {
 }
 
 export class ExternalMcpTools {
-  constructor({ approve, getSettings, emit, createRemoteClient, launchApproved = () => false, rememberLaunch = async () => {}, prepareLaunch = async () => {} }) {
-    this.approve = approve;
+  constructor({ approve, getSettings, emit, createRemoteClient, launchApproved = () => false, rememberLaunch = async () => {}, prepareLaunch = async () => {}, prepareCall = async () => {} }) {
+    this.approve = approve;this.prepareCall=prepareCall;
     this.getSettings = getSettings;
     this.emit = emit ?? (() => {});
     Object.assign(this, { launchApproved, rememberLaunch, prepareLaunch,createRemoteClient });this.connecting=new Map();
@@ -150,6 +161,7 @@ export class ExternalMcpTools {
     this.status = [];
     this.revision = 0;
     this.serverRevisions = new Map();
+    this.stopping = new Map();
   }
 
   get definitions() { return [...this.toolMap.values()].map(({ definition }) => structuredClone(definition)); }
@@ -184,6 +196,9 @@ export class ExternalMcpTools {
       try {
         let entry = this.clients.get(config.id);
         if (!entry) {
+          // A failed stop keeps its process handle. Never start a replacement
+          // while that previous worker's exit remains unconfirmed.
+          if(this.stopping.has(config.id)){const stopping=this.stopping.get(config.id);await Promise.all([...stopping].map(async client=>{await client.close();stopping.delete(client);}));if(this.stopping.get(config.id)===stopping)this.stopping.delete(config.id);}
           const remembered = await this.launchApproved(config);
           const remote=config.transport==='http';
           const approved = remembered || (requestApproval && await this.approve({ title: `${remote?'Connect':'Start'} ${config.name || config.id}`, detail: remote?`Connect to this remote MCP service:\n${config.url}\nIts tool descriptions and results are untrusted. Requested arguments and returned data go to this service and the selected assistant. Calls may consume service credits. Each tool invocation requires separate approval.`:`Launch this local MCP program with your Windows account permissions:\n${config.command}\nArguments: ${JSON.stringify(config.args ?? [])}\nOnly connect a program you trust. ${config.id === 'cua' ? 'Computer use will stay enabled and this driver will reconnect after restarts until you turn it off. ' : ''}Each tool invocation will request separate approval.`, conversationId,...(remote?{requireConfirmation:true,action:{kind:'network',tool:'remote_mcp_connect',target:config.url}}:{}) }));
@@ -225,9 +240,10 @@ export class ExternalMcpTools {
   }
 
   call(name, args = {}, conversationId, {signal} = {}) {
+    const admitted=this.toolMap.get(name),revision=this.revision,serverRevision=this.serverRevisions.get(admitted?.serverId)||0;
     const result = this.queue.then(async () => {
       try {
-        const stopped=()=>{if(signal?.aborted)throw Error('This external tool was cancelled. Its effect is unknown; inspect the target before retrying.');};stopped();
+        const stopped=()=>{if(signal?.aborted)throw Error('This external tool was cancelled. Its effect is unknown; inspect the target before retrying.');if(revision!==this.revision||(this.serverRevisions.get(admitted?.serverId)||0)!==serverRevision||!admitted||this.toolMap.get(name)!==admitted)throw Error('The extension was disabled, replaced or reconnected. This queued request was not replayed.');};stopped();
         const tool = this.toolMap.get(name);
         if (!tool) throw new Error('Unknown external MCP tool. Connect the server in Settings first.');
         const settings = await this.getSettings();
@@ -242,6 +258,8 @@ export class ExternalMcpTools {
         const currentConfig = (await this.getSettings())?.externalMcpServers?.find((server) => server.id === tool.serverId && server.enabled);
         stopped();
         if (!currentConfig || JSON.stringify(currentConfig) !== entry.signature) throw new Error('MCP configuration changed while waiting for approval. No tool was called.');
+        await this.prepareCall(currentConfig);stopped();
+        if(this.clients.get(tool.serverId)!==entry||JSON.stringify((await this.getSettings())?.externalMcpServers?.find(server=>server.id===tool.serverId&&server.enabled))!==entry.signature)throw Error('The extension was replaced before dispatch.');
         const result = await entry.client.request('tools/call', { name: tool.originalName, arguments: args }, ...(config.transport==='http'?[{signal}]:[]));
         stopped();
         if (!result || !Array.isArray(result.content)) throw new Error('External MCP tool returned an invalid response.');
@@ -254,10 +272,19 @@ export class ExternalMcpTools {
 
   async close() {
     this.revision++;
-    await Promise.allSettled([...this.clients.values()].map(({ client }) => client.close()).concat([...this.connecting.values()].map(client=>client.close())));this.connecting.clear();
+    await Promise.allSettled([...this.clients.values()].map(({ client }) => client.close()).concat([...this.connecting.values()].map(client=>client.close()),[...this.stopping.values()].flatMap(clients=>[...clients].map(client=>client.close()))));this.connecting.clear();
     this.clients.clear();
     this.toolMap.clear();
     this.status = [];
   }
-  async disconnect(id){this.serverRevisions.set(id,(this.serverRevisions.get(id)||0)+1);const entry=this.clients.get(id),pending=this.connecting.get(id);this.clients.delete(id);this.connecting.delete(id);for(const [name,tool]of this.toolMap)if(tool.serverId===id)this.toolMap.delete(name);this.status=this.status.filter(server=>server.id!==id);this.status.push({id,connected:false,connecting:false});await Promise.allSettled([entry?.client,pending].filter(Boolean).map(client=>client.close()));this.emit({type:'state.changed'});}
+  async disconnect(id){
+    this.serverRevisions.set(id,(this.serverRevisions.get(id)||0)+1);
+    const clients=new Set([this.clients.get(id)?.client,this.connecting.get(id),...(this.stopping.get(id)||[])].filter(Boolean));
+    this.clients.delete(id);this.connecting.delete(id);if(clients.size)this.stopping.set(id,clients);
+    for(const [name,tool]of this.toolMap)if(tool.serverId===id)this.toolMap.delete(name);
+    this.status=this.status.filter(server=>server.id!==id);this.status.push({id,connected:false,connecting:false});
+    const results=await Promise.allSettled([...clients].map(async client=>{await client.close();clients.delete(client);}));
+    if(!clients.size&&this.stopping.get(id)===clients)this.stopping.delete(id);
+    this.emit({type:'state.changed'});const failed=results.find(result=>result.status==='rejected');if(failed)throw failed.reason;
+  }
 }

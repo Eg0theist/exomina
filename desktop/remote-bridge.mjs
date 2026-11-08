@@ -15,6 +15,7 @@ const pick=(p,keys)=>Object.fromEntries(keys.filter((k)=>p?.[k]!==undefined).map
 const text=(v,max)=>typeof v==='string'?v.slice(0,max):undefined;
 export const REMOTE_METHODS=Object.freeze({
   'bootstrap':()=>({}),
+  'phone.work':p=>({...(typeof p?.id==='string'?{id:p.id.slice(0,100)}:{}),...(typeof p?.conversationId==='string'?{conversationId:p.conversationId.slice(0,200)}:{})}),
   'conversations.get':(p)=>({id:String(p?.id||'')}),
   'conversations.rename':(p)=>({id:String(p?.id||''),title:text(p?.title,200)}),
   'conversations.pin':(p)=>pick(p,['id','pinned']),

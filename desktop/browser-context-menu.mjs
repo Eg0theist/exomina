@@ -7,7 +7,7 @@ function webUrl(value) {
   } catch { return null; }
 }
 
-export function browserContextMenuTemplate(wc, params, { clipboard, navigate, openExternal, openTab }) {
+export function browserContextMenuTemplate(wc, params, { clipboard, navigate, openExternal, openTab, feedback }) {
   const template = [], flags = params.editFlags || {};
   const action = method => () => { wc.focus(); wc[method](); };
   const group = items => { if (!items.length) return; if (template.length) template.push({ type: 'separator' }); template.push(...items); };
@@ -57,6 +57,7 @@ export function browserContextMenuTemplate(wc, params, { clipboard, navigate, op
     ]);
   }
   const pageUrl = webUrl(wc.getURL());
+  if(pageUrl&&feedback&&!params.isEditable&&Number.isFinite(params.x)&&Number.isFinite(params.y))group([{label:'Describe a change to this element…',click:()=>feedback(params.x,params.y)}]);
   if (pageUrl) group([{ label: 'Open page in default browser', click: () => openExternal(pageUrl) }]);
   return template;
 }

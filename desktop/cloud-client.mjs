@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import {sqlitePath} from './sqlite-path.mjs';
 import { chatMetadata } from './chat-management.mjs';
 import { requireProtectedSecretStorage, encryptProtectedSecret, decryptProtectedSecret } from './secret-storage.mjs';
 
@@ -58,7 +59,7 @@ export class CloudClient {
     if (this.db) return;
     await mkdir(this.dataDir, { recursive: true });
     this.file = path.join(this.dataDir, 'cloud-connection.json');
-    this.db = new DatabaseSync(path.join(this.dataDir, 'cloud-client.sqlite'));
+    this.db = new DatabaseSync(sqlitePath(path.join(this.dataDir, 'cloud-client.sqlite')));
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; PRAGMA secure_delete=ON;
       CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS entities(kind TEXT NOT NULL,id TEXT NOT NULL,local_id TEXT NOT NULL,revision INTEGER NOT NULL,checksum TEXT,local_hash TEXT,deleted INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(kind,id));
@@ -97,7 +98,7 @@ export class CloudClient {
     const state = !enabled ? 'disabled' : this.running ? 'syncing' : paused || this.reconfiguring ? 'waiting' : this.lastError ? (/Could not reach/.test(this.lastError) ? 'offline' : 'error') : dirty || pendingCount ? 'waiting' : 'synced';
     return { enabled, state, pendingCount, lastSyncedAt: this.lastSync, configured: enabled, connected: enabled, url: this.config?.url || '', deviceId: this.config?.deviceId || '', deviceName: this.config?.name || '', syncing: Boolean(this.running), paused, lastSync: this.lastSync, error: this.lastError };
   }
-  guard() { if (this.closed) throw new Error('Private sync is closed.'); if (this.isBusy()) throw Object.assign(new Error('Private sync is paused while a chat is running.'), { paused: true }); }
+  guard() { if(this.store.state.clientScopes?.bindings?.length)throw Error('Private sync is paused: this library contains client boundaries. Use a verified library backup until client-aware sync is available.'); if (this.closed) throw new Error('Private sync is closed.'); if (this.isBusy()) throw Object.assign(new Error('Private sync is paused while a chat is running.'), { paused: true }); }
   async request(route, { body, pairing = false, url = this.config?.url } = {}) {
     if (this.closed) throw new Error('Private sync is closed.');
     const controller = new AbortController(); this.controllers.add(controller);
@@ -192,6 +193,7 @@ export class CloudClient {
     return this.running;
   }
   async performSync() {
+    if(this.store.state.clientScopes?.bindings?.length)throw Error('Private sync is paused: this library contains client boundaries. Use a verified library backup until client-aware sync is available.');
     this.guard();
     // Replay uncertain acknowledgements before comparing state. The exact request
     // and operation ID survive a crash or a dropped HTTP response.

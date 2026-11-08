@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { historyText } from './chat-memory-records.mjs';
 import { normalizePersonalization } from './personalization.mjs';
+import { modelTier } from './model-tiers.mjs';
 import { normalizeSoulLearning, soulObservationStatus, SOUL_SCOPES, SOUL_DIMENSIONS, SOUL_LEARNING_LIMITS } from './soul-learning-state.mjs';
 
 const ownText = value => historyText(String(value || '').slice(0, 16000)).replace(/```[\s\S]*?(?:```|$)/g, '').replace(/~~~[\s\S]*?(?:~~~|$)/g, '').split('\n').filter(line => !/^\s*>/.test(line)).join('\n').split(/\n(?:On .{5,120} wrote:|Am .{5,120} schrieb|From:|Von:)/i)[0].trim();
@@ -107,7 +108,7 @@ export function applySoulReflection(value, response, window, traits = [], now = 
 
 export function chooseSoulModel(models, settings, preferred) {
   const eligible = models.filter(model => model.available && ['codex', 'claude'].includes(model.provider) && (!settings.provider || settings.provider === model.provider) && (!settings.model || settings.model === model.model));
-  const rank = model => (/luna|haiku|mini/i.test(model.model) ? 0 : 10) + (model.provider === preferred ? 0 : 2);
+  const rank = model => (modelTier(model) === 'light' ? 0 : 10) + (model.provider === preferred ? 0 : 2);
   const chosen = [...eligible].sort((a, b) => rank(a) - rank(b))[0];
   return chosen ? { ...chosen, effort: (chosen.efforts || []).includes('low') ? 'low' : chosen.defaultEffort || '' } : null;
 }

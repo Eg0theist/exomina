@@ -8,6 +8,15 @@ import { WorkspaceTools } from '../desktop/workspace-tools.mjs';
 
 const policyWith = (settings) => new PermissionPolicy({ getSettings: () => settings });
 
+test('preparing a procedure is read-only while recording acceptance remains a write', () => {
+  const settings={permissionMode:'read-only',permissionRules:[]},policy=policyWith(settings);
+  assert.equal(hostAction('skill_library',{action:'prepare',id:'report'}).kind,'read');
+  assert.equal(policy.evaluate(hostAction('skill_library',{action:'prepare',id:'report'})).decision,'allow');
+  assert.equal(policy.evaluate(hostAction('skill_library',{action:'evaluate',id:'report'})).decision,'deny');
+  settings.permissionRules=[normalizeRule({effect:'deny',tool:'skill_library',match:'report'})];
+  assert.equal(policy.evaluate(hostAction('skill_library',{action:'prepare',id:'report'})).decision,'deny');
+});
+
 test('soul inspection is a read and explicit learning deny rules remain effective', () => {
  const settings={permissionMode:'full',permissionRules:[normalizeRule({effect:'deny',tool:'soul_reflect',match:'consolidate'})]},policy=policyWith(settings);
  assert.deepEqual(hostAction('soul_reflect',{action:'inspect'}),{kind:'read',tool:'soul_reflect',target:'inspect'});

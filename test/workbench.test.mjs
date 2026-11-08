@@ -23,8 +23,12 @@ test('missed tasks skip catch-up after sleep, while manual run works when paused
 test('disconnected tasks wait briefly, then become missed without sending a request',async()=>{
   const f=fixture();const t=await f.work.saveSchedule(schedule);t.nextRun='2026-10-06T09:59:00Z';f.work.available=()=>false;await f.work.tick();assert.equal(f.calls(),0);f.setNow('2026-10-06T11:00:00Z');await f.work.tick();assert.equal(t.last.status,'missed');
 });
-test('delivery failures retain the successful chat and never regenerate it',async()=>{
-  const f=fixture();f.work.deliver=async()=>{throw Error('Bot disconnected');};const t=await f.work.saveSchedule({...schedule,delivery:'telegram',recipient:'42'});t.nextRun='2026-10-06T09:59:59Z';await f.work.run(t.id);assert.equal(t.last.status,'complete');assert.equal(t.last.delivery,'failed');assert.equal(t.last.conversationId,'result-chat');await f.work.tick();assert.equal(f.calls(),1);
+test('external reports wait for review and uncertain delivery never regenerates them',async()=>{
+  const f=fixture();let sends=0;f.work.deliver=async()=>{sends++;throw Error('Bot disconnected');};f.work.workflows.approve=async()=>true;f.work.workflows.check=()=> 'paired-v1';
+  const t=await f.work.saveSchedule({...schedule,delivery:'telegram',recipient:'42'});t.nextRun='2026-10-06T09:59:59Z';await f.work.run(t.id);
+  assert.equal(t.last.status,'complete');assert.equal(t.last.delivery,'pending_review');assert.equal(t.last.conversationId,'result-chat');assert.equal(sends,0);
+  await f.work.workflows.resume(t.last.workflowId);assert.equal(sends,1);assert.equal(f.work.workflows.get(t.last.workflowId).delivery.status,'unknown');
+  await f.work.tick();await assert.rejects(f.work.run(t.id,true),/unfinished/);assert.equal(f.calls(),1);
 });
 test('branching copies only prior messages, resets native sessions, and preserves the original',()=>{
   const f=fixture(),chat=f.store.create('claude');chat.projectId='project';chat.personalization={tone:'warm'};chat.sessions={claude:'private-session'};chat.messages=[{id:'u1',role:'user',content:'A'},{id:'a1',role:'assistant',content:'B'},{id:'u2',role:'user',content:'C',attachments:[{id:'asset',uploadId:'upload'}]},{id:'a2',role:'assistant',content:'D'}];
@@ -33,4 +37,33 @@ test('branching copies only prior messages, resets native sessions, and preserve
 });
 test('branch after a reply retains that answer and validates editable messages',()=>{
   const f=fixture(),chat=f.store.create('codex');chat.messages=[{id:'u',role:'user',content:'question'},{id:'a',role:'assistant',content:'answer'}];const r=branchConversation(f.store,{id:chat.id,messageId:'a'});assert.equal(r.conversation.messages.length,2);assert.throws(()=>branchConversation(f.store,{id:chat.id,messageId:'a',text:'edit'}),/your messages/);
+});
+
+test('interrupted report generation keeps its original chat link and never auto-replays',async()=>{
+  const f=fixture(),t=await f.work.saveSchedule(schedule);let release;
+  f.work.execute=async request=>{await request.onStarted('original-report-chat');return new Promise(r=>{release=r;});};
+  const pending=f.work.run(t.id,true);await new Promise(r=>setImmediate(r));
+  assert.equal(f.work.workflows.get(t.last.workflowId).conversationId,'original-report-chat');assert.equal(t.last.conversationId,'original-report-chat');
+  const restored=new Workbench({store:{...f.store,state:structuredClone(f.store.state),save:async()=>{}},execute:async()=>{throw Error('must not replay');}});
+  await restored.start();restored.stop();assert.equal(restored.workflows.get(t.last.workflowId).status,'interrupted');
+  await assert.rejects(restored.run(t.id,true),/unfinished/);release({text:'report'});await pending;
+});
+test('journal failure cannot start a model request or strand a schedule as busy',async()=>{
+  const f=fixture(),t=await f.work.saveSchedule(schedule);
+  f.work.workflows.writeFailed=true;await assert.rejects(f.work.run(t.id,true),/storage failed/);assert.equal(f.work.busy.has(t.id),false);assert.equal(f.calls(),0);
+  f.work.workflows.writeFailed=false;f.store.save=async()=>{throw Error('disk full');};
+  await assert.rejects(f.work.run(t.id,true),/disk full/);assert.equal(f.calls(),0);assert.equal(f.work.busy.has(t.id),false);
+});
+test('backup recovery quarantines external schedules even when the backup has no workflow record',async()=>{
+  const f=fixture(),t=await f.work.saveSchedule({...schedule,delivery:'telegram',recipient:'42'});
+  f.store.recovery={backup:'synthetic-backup'};await f.work.start();f.work.stop();
+  assert.equal(t.enabled,false);assert.equal(t.recoveryRequired,true);assert.equal(f.work.workflows.runs().length,0);
+  await assert.rejects(f.work.run(t.id,true),/Recovered history/);
+  await assert.rejects(f.work.toggle(t.id,true),/Review recovered/);
+  await assert.rejects(f.work.remove('schedules',t.id),/Review recovered/);
+  await assert.rejects(f.work.saveSchedule({...t,name:'Changed'}),/Review recovered/);
+  await assert.rejects(f.work.reviewRecovery({taskId:t.id,evidence:'yes'}),/Record what/);
+  await f.work.reviewRecovery({taskId:t.id,evidence:'Inspected the paired destination and reconciled prior messages.'});
+  assert.equal(t.enabled,false);assert.equal(t.recoveryReview.type,'human_report');assert.equal(t.recoveryRequired,false);
+  await f.work.run(t.id,true);assert.equal(f.calls(),1);assert.equal(f.work.workflows.get(t.last.workflowId).status,'ready');
 });

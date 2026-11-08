@@ -43,7 +43,7 @@ function ui({ sendError = false } = {}) {
 }
 
 test('voice settings are bounded and speech removes code and link destinations', () => {
-  assert.deepEqual(normalizeVoice({ language: '$(code)', voice: '\nsecret', rate: 20, silenceMs: -1 }), { language: '', voice: '', rate: 5, silenceMs: 1400, previewTone: 'clear', companionMode:'realtime' });
+  assert.deepEqual(normalizeVoice({ language: '$(code)', voice: '\nsecret', rate: 20, silenceMs: -1 }), { language: '', voice: '', rate: 5, silenceMs: 1400, previewTone: 'clear', companionMode:'realtime',dictationMode:'raw' });
   const text = spokenText('# Hello\n**Alex** [reference](https://example.com)\n```js\nSECRET CODE\n```\n![](https://example.com/image.png)');
   assert.equal(text, 'Hello Alex reference Code example omitted.');
 });

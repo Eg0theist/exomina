@@ -35,14 +35,20 @@ scripts.push('qa-profile-owner.mjs');
 scripts.push('package-dependencies.mjs','package-dependencies-before.mjs','package-dependencies-after.mjs');
 scripts.push('package-version.mjs','qa-tool-update-archive.ps1','qa-installer-locks.ps1');
 scripts.push('prepare-dependency-compat.mjs');
-scripts.push('qa-update-candidate.mjs','qa-update-recovery.ps1','qa-efs-upgrade-compat.mjs');
+scripts.push('qa-update-candidate.mjs','qa-update-handoff.mjs');
+scripts.push('qa-update-recovery.ps1','dictation-evaluation.mjs','evaluate-dictation.mjs','evaluate-dictation-local.mjs','evaluate-dictation-windows.ps1','crosscheck-protocols.mjs','check-protocols.mjs','evaluate-memory-blind.mjs','qa-report-workflow.mjs','qa-report-workflow-permissions.mjs');
+scripts.push('prepare-report-model-evaluation.mjs','score-report-model-evaluation.mjs');
+scripts.push('evaluate-dictation-local.mjs');
 for(const file of scripts){try{await copy('scripts/'+file);}catch(e){if(e.code!=='ENOENT')throw e;}}
-for(const relative of ['index.html','remote.html','vite.config.mjs','build/icon.ico','build/icon.png'])await copy(relative);
+for(const relative of ['index.html','remote.html','vite.config.mjs','build/icon.ico','build/icon.png','build/release-notes.txt'])await copy(relative);
 if(!publicContents)for(const file of ['README.md','PRIVATE-BETA.md','FEEDBACK.md','LICENSE','THIRD-PARTY-NOTICES.txt','SECURITY-AUDIT.txt','VALIDATION.txt'])await cp(path.join(root,'scripts/beta-docs',file),path.join(output,file));
-for(const file of ['PROVIDER-TOOLS.md','PUBLIC-UPDATES.md','TERMINAL.md'])await copy(file);
+for(const file of ['PROVIDER-TOOLS.md','PUBLIC-UPDATES.md','TERMINAL.md','WORKFLOWS.txt'])await copy(file);
 let publicOverlay;
 if(publicContents){
  publicOverlay=await applyPublicTemplate(root,output);
+ // Public CI must exercise the same maintained startup and upgrade gates as
+ // the local source. Older templates must not replace these current scripts.
+ for(const file of ['package-dependencies.mjs','qa-native-install.mjs','qa-connector-forms.mjs','qa-connection-signin.mjs','qa-startup-protection-failure.mjs','qa-public-upgrade.mjs','qa-efs-upgrade-compat.mjs'])await copy('scripts/'+file);
  if(publicSource)await copy('.github');
  // Re-exporting a reconciled public tree retains its documentation and website.
  // The selected release's own docs take precedence over default templates.
@@ -52,10 +58,18 @@ await writeFile(path.join(output,'build/update-channel.json'),publicRelease?awai
 await writeFile(path.join(output,'desktop/theme-catalog.mjs'),"export {THEMES,THEME_PROFILE} from './theme-catalog-standard.mjs';\n");
 await writeFile(path.join(output,'desktop/distribution.mjs'),`export const DISTRIBUTION_PROFILE=${JSON.stringify(publicRelease?'public':'beta')};\nexport const DISTRIBUTION_REPOSITORY=${JSON.stringify(repository)};\n`);
 await writeFile(path.join(output,'src/voice-preview-clips.js'),"export {VOICE_PREVIEW_CLIPS,VOICE_CLEAR_PREVIEW_CLIPS} from './voice-preview-clips-beta.js';\n");
+// Keep case pairs and token counts consistent in synthetic test/evaluation text.
+// This modifies only the exported copy, never the frozen source/audio corpus.
+async function fixtureTexts(relative='test'){
+ const files=[];for(const entry of await readdir(path.join(output,relative),{withFileTypes:true})){
+  const file=relative+'/'+entry.name;if(entry.isDirectory())files.push(...await fixtureTexts(file));else if(/\.(?:[mc]?js|json|txt|md|html|ps1|tla|cfg)$/i.test(file))files.push(file);
+ }return files;
+}
+for(const file of [...await fixtureTexts(),'scripts/prepare-beta-release.mjs','scripts/evaluate-dictation.mjs','scripts/evaluate-dictation-local.mjs','src/theme-materials.css']){const target=path.join(output,file),text=await readFile(target,'utf8');await writeFile(target,text.replaceAll('Alex Example','Alex Example').replaceAll('Alex','Alex').replaceAll('alex','alex').replaceAll('Hamburg','Hamburg').replaceAll('hamburg','hamburg').replaceAll('ExampleCo','ExampleCo').replaceAll('exampleco','exampleco').replaceAll('SampleCo','SampleCo').replaceAll('sampleco','sampleco').replaceAll('Fantasy','Fantasy').replaceAll('fantasy','fantasy').replaceAll('Fantasy City','Fantasy City').replaceAll('fantasy-city','fantasy-city'),'utf8');}
 const pkg=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
 pkg.description=publicRelease?'Exomina desktop workspace for AI, memory and tools':publicSource?'Exomina cross-platform beta':'Exomina private Windows beta';pkg.author='Exomina';pkg.homepage=repository;
 delete pkg.dependencies['@anthropic-ai/claude-code-win32-x64'];
-pkg.scripts={...(publicContents?pkg.scripts:{}),prebuild:'node scripts/prepare-version.mjs',build:'vite build',start:'electron .',test:'node --test test/*.test.mjs','version:sync':'node scripts/prepare-version.mjs',
+pkg.scripts={...(publicContents?pkg.scripts:{}),prebuild:'node scripts/prepare-version.mjs',build:'vite build',start:'electron .',test:'node --test --test-concurrency=8 test/*.test.mjs','version:sync':'node scripts/prepare-version.mjs',
  'prepare:runtimes':'node scripts/prepare-beta-vendor.mjs && node scripts/prepare-grok-runtime.mjs && node scripts/prepare-analysis-node.mjs',
  package:publicRelease?'node scripts/package-local.mjs':'node scripts/release-windows.mjs --beta',
  'package:public':'node scripts/release-windows.mjs','package:official':'node scripts/package-official.mjs','release:update':'node scripts/create-public-update.mjs','security:check':'node scripts/security-maintenance.mjs --check','security:prepare':'node scripts/security-maintenance.mjs --prepare',

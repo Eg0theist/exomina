@@ -1,0 +1,15 @@
+.chat-feature-loop{margin:6px 0;color:var(--text);font-size:13px;min-width:0}
+.feature-loop-toggle{display:flex;align-items:center;gap:7px;background:transparent;border:0;color:var(--muted);padding:5px 7px;cursor:pointer;font:inherit}
+.feature-loop-toggle[aria-expanded=true]{color:var(--text)}
+.feature-loop-toggle[aria-expanded=true]>svg:last-child{transform:rotate(180deg)}
+.feature-loop-body{max-height:52vh;overflow:auto;overscroll-behavior:contain;border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--panel,var(--raised));margin:6px 0!important}
+.feature-packages .section-title{display:flex;align-items:center;justify-content:space-between;gap:8px}.feature-packages h2{font-size:16px;margin:0}
+.feature-idea{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.feature-idea label{flex-basis:100%}.feature-idea input{flex:1;min-width:120px;padding:9px 11px;background:var(--raised);border:1px solid var(--border);border-radius:7px;color:var(--text);font:inherit}
+.feature-package-row,.feature-package-preview{border:1px solid var(--border);border-radius:10px;padding:14px;margin:12px 0;overflow-wrap:anywhere}
+.feature-package-preview{border-color:var(--accent,var(--border))}.feature-package-row p,.feature-package-preview p{line-height:1.5}
+.feature-package-row iframe,.feature-package-preview iframe{width:100%;height:190px;border:1px solid var(--border);border-radius:7px;margin:8px 0;background:#171b22;display:block;box-sizing:border-box}
+.feature-packages .feature-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.feature-packages button{cursor:pointer}.feature-packages button:disabled{cursor:default;opacity:.55}
+.feature-packages pre,.feature-packages code{overflow-wrap:anywhere;white-space:pre-wrap;font-size:11px;max-width:100%}.feature-packages details>summary{cursor:pointer}
+.feature-package-row form label{display:flex;align-items:center;gap:12px;margin:10px 0}.feature-package-row form input{min-width:0;max-width:100%}
+.feature-packages{margin-top:28px}.feature-empty,.feature-notice{color:var(--muted);line-height:1.5}.feature-notice{margin:6px;font-size:12px}
+@media(max-width:600px){.feature-loop-body{padding:10px;max-height:45vh}.feature-package-row,.feature-package-preview{padding:10px}.feature-idea button{width:100%}.feature-actions button{white-space:normal;text-align:left}.feature-package-row form label{flex-wrap:wrap}}

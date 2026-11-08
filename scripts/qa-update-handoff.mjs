@@ -103,7 +103,8 @@ finally{if(app){
   await app.evaluate(({app})=>{setImmediate(()=>app.quit());return true;}).catch(()=>{});
   const deadline=Date.now()+10000;while(appMainPid&&alive(appMainPid)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,50));
   if(appMainPid&&alive(appMainPid)){report.passed=false;report.error='The synthetic app did not stop within the shutdown bound.';}
-  else{report.shutdownConfirmed=true;app.close().catch(()=>{});const launcher=app.process();if(launcher.pid!==appMainPid&&launcher.exitCode===null)launcher.kill();}
+  // Take the launcher handle before close(): close tears down the driver connection.
+  else{report.shutdownConfirmed=true;let launcher=null;try{launcher=app.process();}catch{}app.close().catch(()=>{});if(launcher&&launcher.pid!==appMainPid&&launcher.exitCode===null)launcher.kill();}
 }}
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');assert.equal(hash(await readFile(profile+'.setup/recovery-backup.json')),hash(recovery));report.recoveryUnchanged=true;
 await writeFile(path.join(output,'result.json'),JSON.stringify(report,null,2),'utf8');process.stdout.write(JSON.stringify(report)+'\n',()=>process.exit(report.passed?0:1));

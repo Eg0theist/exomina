@@ -74,6 +74,40 @@ test('launch awaits the hidden shipped runner, records it, and blocks a second r
   }finally{await t.cleanup();}
 });
 
+test('a changed expectedBuildId refuses launch before recording or spawning an updater',async()=>{
+  const t=await layout({installed:A,staged:B});
+  try{
+    await assert.rejects(t.updater.launch({conversationId:'chat-1',expectedBuildId:'approved-other-build'}),/staged update changed after restart approval/);
+    assert.equal(t.calls.length,0);assert.equal(t.updater.launched,false);
+    await assert.rejects(readFile(path.join(t.stateDir,'pending-update.json'),'utf8'),{code:'ENOENT'});
+    assert.equal((await t.updater.status()).staged.id,B.id);
+    // A refused stale approval must not poison a later, correctly bound handoff.
+    await t.updater.launch({conversationId:'chat-1',expectedBuildId:B.id});
+    assert.equal(t.calls.length,1);
+    assert.equal(t.calls[0].args[t.calls[0].args.indexOf('-BuildId')+1],B.id);
+  }finally{await t.cleanup();}
+});
+
+test('merged updates bind the selected release and the distinct approved package identity',async()=>{
+  const t=await layout({installed:A,staged:B}),merged={...B,id:'cccccccc-3333'};
+  try{
+    const selected=await t.updater.status();
+    t.updater.status=async()=>({...selected,merge:{required:true}});
+    t.updater.merge.approvedBuild=async current=>{
+      assert.equal(current.staged.id,B.id);
+      return {buildPath:t.build,staged:merged,receipt:path.join(t.stateDir,'merge-receipt.json'),receiptHash:'a'.repeat(64)};
+    };
+    await assert.rejects(t.updater.launch({conversationId:'chat-merged',expectedReleaseId:B.id,expectedBuildId:'wrong-merged-build'}),/prepared update differs from the approved build/);
+    assert.equal(t.calls.length,0);
+    await assert.rejects(readFile(path.join(t.stateDir,'pending-update.json'),'utf8'),{code:'ENOENT'});
+    await t.updater.launch({conversationId:'chat-merged',expectedReleaseId:B.id,expectedBuildId:merged.id});
+    assert.equal(t.calls.length,1);
+    const {args}=t.calls[0];assert.equal(args[args.indexOf('-BuildId')+1],merged.id);
+    const pending=JSON.parse(await readFile(path.join(t.stateDir,'pending-update.json'),'utf8'));
+    assert.equal(pending.buildId,merged.id);assert.equal(pending.conversationId,'chat-merged');
+  }finally{await t.cleanup();}
+});
+
 test('an abandoned pending record does not block startup or trigger an automatic retry',async()=>{
   const t=await layout({installed:A,staged:B});
   try{

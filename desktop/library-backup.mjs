@@ -2,15 +2,25 @@ import {mkdir,mkdtemp,readFile,writeFile,lstat,realpath,open,rename,rm} from 'no
 import {createReadStream} from 'node:fs';
 import {createHash,randomUUID} from 'node:crypto';
 import {DatabaseSync,backup} from 'node:sqlite';
+import {sqlitePath} from './sqlite-path.mjs';
 import path from 'node:path';
 import {tmpdir} from 'node:os';
 import {jsonExportChunks} from './data-export.mjs';
 import {validateState} from './durable-state.mjs';
 import {libraryRestoreLauncher} from './library-launcher.mjs';
 import {validateSkillLibraryState,SKILL_LIMITS} from './skill-library.mjs';
+import {validateClientScopes} from './client-scopes.mjs';
 
 const FORMAT='exomina-library-backup';
 const DATABASES=['memory/notes.sqlite','chat-memory/tree.sqlite','archive.sqlite'];
+const OPTIONAL_DATABASES=['outcome-archive/outcomes.sqlite'];
+const clientDatabase=relative=>/^client-data\/[a-f0-9]{64}\/memory\/notes\.sqlite$/.test(relative);
+const database=relative=>DATABASES.includes(relative)||OPTIONAL_DATABASES.includes(relative)||clientDatabase(relative);
+function clientMemoryPaths(state){
+ if(state.clientScopes===undefined)return [];
+ const scopes=validateClientScopes(state.clientScopes);
+ return scopes.clients.map(client=>'client-data/'+createHash('sha256').update(JSON.stringify([client.organizationId,client.id])).digest('hex')+'/memory/notes.sqlite');
+}
 const SKILLS='shared-skills/library.json';
 const hex=/^[a-f0-9]{64}$/;
 const within=(root,file)=>file===root||file.startsWith(root+path.sep);
@@ -45,6 +55,9 @@ export function backupState(state,{workspace}={}){
   })};
  });
  const result={settings,conversations,projects:structuredClone(state.projects||[]),prompts:structuredClone(state.prompts||[]),schedules:(state.schedules||[]).map(s=>({...s,enabled:false,recipient:'',delivery:'desktop'}))};
+ // These content access labels must survive transfer: omitting them would turn
+ // a restored client chat into a personal chat with broader context.
+ if(state.clientScopes!==undefined)result.clientScopes=structuredClone(validateClientScopes(state.clientScopes));
  for(const project of result.projects){project.folder='';project.files=[];}
  if(state.scratchpad){const {notes,handled,organization}=state.scratchpad;result.scratchpad={notes:structuredClone(notes||[]),handled:structuredClone(handled||[]),jobs:[],settings:{enabled:false},...(organization?{organization:{...structuredClone(organization),autoRefresh:false,refreshConfigured:false}}:{})};}
  if(state.agentSpending)result.agentSpending={policy:{...state.agentSpending.policy,enabled:false},trials:structuredClone(state.agentSpending.trials||[])};
@@ -68,9 +81,9 @@ export async function createLibraryBackup({dataDir,state,uploads={},assets,skill
   await jsonFile(path.join(stage,'state.json'),portable);await add('state.json');
   const portableSkills=portableSkillLibrary(skills,portable);manifest.counts.skills=portableSkills.skills.length;
   await jsonFile(path.join(stage,SKILLS),portableSkills);await add(SKILLS);
-  for(const relative of DATABASES){
-   const source=path.join(dataDir,...relative.split('/'));try{await regular(source);}catch(e){if(e.code==='ENOENT')throw Error('A required library database is missing: '+relative);throw e;}
-   const target=path.join(stage,...relative.split('/'));await mkdir(path.dirname(target),{recursive:true});const db=new DatabaseSync(source,{readOnly:true});try{await backup(db,target);}finally{db.close();}await add(relative);
+  for(const relative of [...DATABASES,...OPTIONAL_DATABASES,...clientMemoryPaths(portable)]){
+   let source;try{source=await safeFile(dataDir,relative);}catch(e){if(e.code==='ENOENT'){if(clientDatabase(relative)||OPTIONAL_DATABASES.includes(relative))continue;throw Error('A required library database is missing: '+relative);}throw e;}
+   const target=path.join(stage,...relative.split('/'));await mkdir(path.dirname(target),{recursive:true});const db=new DatabaseSync(sqlitePath(source),{readOnly:true});try{await backup(db,sqlitePath(target));}finally{db.close();}await add(relative);
   }
   const assetIds=new Set(),uploadIds=new Set();for(const c of portable.conversations)for(const m of c.messages)for(const a of m.attachments||[]){if(a.uploadId)uploadIds.add(a.uploadId);if(hex.test(a.id)&&a.kind!=='file')assetIds.add(a.id);}
   const art=portable.settings.appearance?.companionArtwork;if(hex.test(art?.id||''))assetIds.add(art.id);
@@ -83,12 +96,14 @@ export async function createLibraryBackup({dataDir,state,uploads={},assets,skill
 }
 
 // Account credentials, including remote-mcp-credentials.json, are intentionally outside this allowlist.
-const allowed=relative=>['state.json','asset-index.json','chat-uploads.json',SKILLS,...DATABASES].includes(relative)||/^assets\/[a-f0-9]{64}\.asset$/.test(relative)||/^uploads\/[\w-]{1,100}$/.test(relative);
+const allowed=relative=>['state.json','asset-index.json','chat-uploads.json',SKILLS,...DATABASES,...OPTIONAL_DATABASES].includes(relative)||clientDatabase(relative)||/^assets\/[a-f0-9]{64}\.asset$/.test(relative)||/^uploads\/[\w-]{1,100}$/.test(relative);
 export async function inspectLibraryBackup(folder){
  const root=await realpath(folder),file=await safeFile(root,'manifest.json');if((await regular(file)).size>16*1024*1024)throw Error('Backup manifest is too large.');
  const manifestBytes=await readFile(file),manifest=JSON.parse(manifestBytes.toString('utf8'));if(manifest.format!==FORMAT||manifest.version!==1||!Array.isArray(manifest.files)||manifest.files.length>100000)throw Error('Unsupported Exomina backup.');
  const seen=new Set();for(const entry of manifest.files){if(!allowed(entry.path)||seen.has(entry.path)||!Number.isSafeInteger(entry.bytes)||entry.bytes<0||!hex.test(entry.sha256))throw Error('Invalid backup inventory.');seen.add(entry.path);const source=await safeFile(root,entry.path);const actual=await hashFile(source);if(actual.bytes!==entry.bytes||actual.sha256!==entry.sha256)throw Error('Backup integrity check failed: '+entry.path);}
  for(const name of ['state.json','asset-index.json','chat-uploads.json',...DATABASES])if(!seen.has(name))throw Error('Backup is incomplete: '+name);
+ const state=validateState(JSON.parse(await readFile(await safeFile(root,'state.json'),'utf8'))),clientPaths=new Set(clientMemoryPaths(state));
+ for(const entry of manifest.files)if(clientDatabase(entry.path)&&!clientPaths.has(entry.path))throw Error('A client memory database has no matching client authorization boundary.');
  return {root,manifest,receipt:createHash('sha256').update(manifestBytes).digest('hex')};
 }
 
@@ -96,10 +111,10 @@ export async function verifyLibraryBackup(folder){
  const {root,manifest,receipt}=await inspectLibraryBackup(folder);
  const scratch=await mkdtemp(path.join(tmpdir(),'exomina-backup-check-'));
  try{
-  for(const relative of DATABASES){
+  for(const relative of manifest.files.filter(entry=>database(entry.path)).map(entry=>entry.path)){
    const file=path.join(scratch,...relative.split('/')),entry=manifest.files.find(e=>e.path===relative);
    await copyChecked(await safeFile(root,relative),file,entry);
-   const db=new DatabaseSync(file,{readOnly:true});
+   const db=new DatabaseSync(sqlitePath(file),{readOnly:true});
    try{db.exec('PRAGMA trusted_schema=OFF');if(db.prepare('PRAGMA quick_check').get().quick_check!=='ok')throw Error('A backup database failed its quick check: '+relative);}
    finally{db.close();}
   }
@@ -120,9 +135,9 @@ export async function restoreLibraryBackup({folder,destination,executable,expect
   // Only the verified copies below may be parsed or installed. Hashing happens
   // while the exact destination bytes are copied, closing the review/copy race.
   for(const entry of manifest.files)await copyChecked(await safeFile(sourceRoot,entry.path),path.join(root,...entry.path.split('/')),entry);
-  for(const entry of manifest.files.filter(e=>DATABASES.includes(e.path)||e.path.startsWith('assets/')))await copyChecked(await safeFile(root,entry.path),path.join(profile,...entry.path.split('/')));
+  for(const entry of manifest.files.filter(e=>database(e.path)||e.path.startsWith('assets/')))await copyChecked(await safeFile(root,entry.path),path.join(profile,...entry.path.split('/')));
   // Verify database structure and integrity before the new profile is published.
-  for(const relative of DATABASES.filter(r=>manifest.files.some(f=>f.path===r))){const db=new DatabaseSync(path.join(profile,...relative.split('/')),{readOnly:true});try{db.exec('PRAGMA trusted_schema=OFF');if(db.prepare('PRAGMA quick_check').get().quick_check!=='ok')throw Error('A backup database failed its integrity check.');}finally{db.close();}}
+  for(const relative of manifest.files.filter(entry=>database(entry.path)).map(entry=>entry.path)){const db=new DatabaseSync(sqlitePath(path.join(profile,...relative.split('/'))),{readOnly:true});try{db.exec('PRAGMA trusted_schema=OFF');if(db.prepare('PRAGMA quick_check').get().quick_check!=='ok')throw Error('A backup database failed its integrity check.');}finally{db.close();}}
   const sourceState=validateState(JSON.parse(await readFile(await safeFile(root,'state.json'),'utf8'))),state=backupState(sourceState,{workspace});await jsonFile(path.join(profile,'state.json'),state);
   const skillEntry=manifest.files.find(entry=>entry.path===SKILLS);
   if(skillEntry){
@@ -132,7 +147,7 @@ export async function restoreLibraryBackup({folder,destination,executable,expect
    await jsonFile(path.join(profile,SKILLS),library);
   }
   const assetRows=JSON.parse(await readFile(await safeFile(root,'asset-index.json'),'utf8'));if(!Array.isArray(assetRows))throw Error('Invalid asset index.');
-  await mkdir(path.join(profile,'assets'),{recursive:true});const db=new DatabaseSync(path.join(profile,'assets/index.sqlite'));try{db.exec('CREATE TABLE assets(id TEXT PRIMARY KEY,mimeType TEXT NOT NULL,bytes INTEGER NOT NULL,sha256 TEXT NOT NULL)');const put=db.prepare('INSERT INTO assets VALUES(?,?,?,?)');for(const a of assetRows){if(!hex.test(a.id)||a.sha256!==a.id||!manifest.files.some(f=>f.path==='assets/'+a.id+'.asset'&&f.sha256===a.sha256&&f.bytes===a.bytes))throw Error('Invalid asset record.');put.run(a.id,a.mimeType,a.bytes,a.sha256);}}finally{db.close();}
+  await mkdir(path.join(profile,'assets'),{recursive:true});const db=new DatabaseSync(sqlitePath(path.join(profile,'assets/index.sqlite')));try{db.exec('CREATE TABLE assets(id TEXT PRIMARY KEY,mimeType TEXT NOT NULL,bytes INTEGER NOT NULL,sha256 TEXT NOT NULL)');const put=db.prepare('INSERT INTO assets VALUES(?,?,?,?)');for(const a of assetRows){if(!hex.test(a.id)||a.sha256!==a.id||!manifest.files.some(f=>f.path==='assets/'+a.id+'.asset'&&f.sha256===a.sha256&&f.bytes===a.bytes))throw Error('Invalid asset record.');put.run(a.id,a.mimeType,a.bytes,a.sha256);}}finally{db.close();}
   const uploads=JSON.parse(await readFile(await safeFile(root,'chat-uploads.json'),'utf8'));if(!uploads||Array.isArray(uploads)||typeof uploads!=='object')throw Error('Invalid upload index.');await mkdir(path.join(stage,'Workspace'));
   for(const [id,record]of Object.entries(uploads)){if(!/^[\w-]{1,100}$/.test(id))throw Error('Invalid upload record.');const relative=record.attachment?.relativePath,entry=manifest.files.find(f=>f.path==='uploads/'+id);if(!safeRelative(relative)||!relative.startsWith('.exomina-attachments/')||!entry||entry.bytes!==record.attachment.bytes||entry.sha256!==record.attachment.sha256)throw Error('Invalid or uninventoried attachment.');await copyChecked(await safeFile(root,'uploads/'+id),path.join(stage,'Workspace',...relative.split('/')),entry);record.workspace=workspace;}
   for(const chat of state.conversations)for(const message of chat.messages)for(const attachment of message.attachments||[]){if(attachment.uploadId&&!uploads[attachment.uploadId])throw Error('Conversation references a missing upload.');if(attachment.kind!=='file'&&!assetRows.some(a=>a.id===attachment.id))throw Error('Conversation references a missing asset.');}

@@ -11,13 +11,13 @@ export const FOLLOWUP_TOOL = {
 const terminal = item => ['handled', 'blocked', 'cancelled'].includes(item.taskStatus);
 
 export function followupTranscript(message) {
-  return (message.followups || []).map(item => ({ id: item.id, question: item.text, provider: item.provider, model: item.model, mode: item.mode, status: item.status, answer: item.answer, error: item.error, taskStatus: item.taskStatus, summary: item.summary }));
+  return (message.followups || []).map(item => ({ id: item.id, question: item.text, provider: item.provider, model: item.model, mode: item.mode, status: item.status, answer: item.answer, error: item.error, taskStatus: item.taskStatus, summary: item.summary, ...(item.completionDeferred ? { completionDeferred: item.completionDeferred, attachments: item.attachments || [] } : {}) }));
 }
 
 /** Directions reach the native task while a brief read-only reply runs alongside it. */
 export class LiveFollowups {
-  constructor({ getRun, getChat, prepare, steer, execute, stop, save, emit, settled = () => {} }) {
-    Object.assign(this, { getRun, getChat, prepare, steer, execute, stop, save, emit, settled });
+  constructor({ getRun, getChat, prepare, steer, execute, stop, save, emit, settled = () => {}, completionBoundary = () => null }) {
+    Object.assign(this, { getRun, getChat, prepare, steer, execute, stop, save, emit, settled, completionBoundary });
     this.routes = new Map(); this.pending = new Map(); this.inputs = new Map();
   }
   get busy() { return this.pending.size > 0; }
@@ -92,8 +92,20 @@ export class LiveFollowups {
     }
   }
   unresolved(run) { return (run.message.followups || []).filter(item => item.taskStatus && !terminal(item)); }
+  deferred(parent, currentMessage) {
+    return (this.getChat(parent)?.messages || []).filter(message => message !== currentMessage).flatMap(message => message.followups || [])
+      .filter(item => item.completionDeferred?.kind === 'update_restart' && !terminal(item));
+  }
   async update(parent, { id, status, summary }) {
-    const run = this.getRun(parent), item = run?.message.followups?.find(entry => entry.id === id);
+    const run = this.getRun(parent);
+    let message = run?.message, item = message?.followups?.find(entry => entry.id === id);
+    // An approved restart deliberately ends the active turn before verification
+    // is possible. Only those explicitly deferred cards can be picked up by a
+    // later task in the same chat; other historical cards retain their boundary.
+    if (run && !item) {
+      message = this.getChat(parent)?.messages?.find(entry => entry.followups?.some(followup => followup.id === id && followup.completionDeferred?.kind === 'update_restart' && !terminal(followup)));
+      item = message?.followups?.find(entry => entry.id === id);
+    }
     if (!run || run.cancelled || !item) throw Error('This follow-up does not belong to the active task.');
     if (!['working', 'handled', 'blocked'].includes(status)) throw Error('Choose working, handled or blocked.');
     if (item.taskStatus === 'cancelled') throw Error('This follow-up was stopped.');
@@ -103,17 +115,18 @@ export class LiveFollowups {
     if (!item.activityId) {
       item.activityId = 'followup:' + item.id;
       const step = { id: item.activityId, kind: 'followup', followupId: item.id, status: 'running', startedAt: new Date().toISOString() };
-      if (run.activity) { run.activity.cut(); run.activity.add(step); }
-      else { run.message.activity ??= []; run.message.activity.push(step); }
+      if (message === run.message && run.activity) { run.activity.cut(); run.activity.add(step); }
+      else { message.activity ??= []; message.activity.push(step); }
     }
     item.taskStatus = status;
     if (summary?.trim()) item.summary = summary.trim();
     if (status !== 'working') {
+      delete item.completionDeferred;
       item.handledAt = new Date().toISOString();
-      const step = run.message.activity?.find(entry => entry.id === item.activityId);
-      if (step) { step.status = status === 'handled' ? 'done' : 'denied'; step.endedAt = item.handledAt; run.activity?.send(step); }
+      const step = message.activity?.find(entry => entry.id === item.activityId);
+      if (step) { step.status = status === 'handled' ? 'done' : 'denied'; step.endedAt = item.handledAt; if (message === run.message) run.activity?.send(step); }
     }
-    await this.save(); this.publish(parent, run.message, item);
+    await this.save(); this.publish(parent, message, item);
     return { id, status, summary: item.summary };
   }
   async settle(parent) {
@@ -148,7 +161,20 @@ export class LiveFollowups {
       run.completedResult = result;
       await this.settle(parent);
       if (run.cancelled) throw Error('Stopped.');
-      const outstanding = this.unresolved(run);
+      const outstanding = [...this.unresolved(run), ...this.deferred(parent, run.message)];
+      const boundary = this.completionBoundary(parent);
+      if (boundary?.kind === 'update_restart') {
+        // Restart requires this reply to finish. Resuming inference here would
+        // hold that very gate open, and checking the running build now would
+        // inevitably observe the old version. Keep the work pending durably.
+        run.acceptingFollowups = false;
+        for (const item of outstanding) {
+          item.completionDeferred = { kind: 'update_restart', at: new Date().toISOString(), ...(boundary.buildId ? { buildId: boundary.buildId } : {}) };
+          await this.update(parent, { id: item.id, status: 'working', summary: 'Waiting for the approved Exomina restart. Continue this request after reopening and verify the running build before marking installation complete.' + (item.summary ? ' Previous progress: ' + item.summary.slice(0, 1400) : '') });
+        }
+        for (const item of run.message.followups || []) this.inputs.delete(item.id);
+        return result;
+      }
       if (!outstanding.length) {
         // No asynchronous gap between the last check and closing admission.
         run.acceptingFollowups = false;

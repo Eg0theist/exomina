@@ -8,6 +8,7 @@ import {ChatBrowser} from './browser-pages.mjs';
 import {trustedInput,trustedKey} from './browser-extension/trusted-input.js';
 import {attachBrowserContextMenu} from './browser-context-menu.mjs';
 import {attachLoginPopups} from './browser-logins.mjs';
+import {BrowserFeedback} from './browser-feedback.mjs';
 import {INSPECT_TOOL,inspectOptions,inspectPage,plainDocument,readDocumentBody} from './browser-extension/inspect-source.js';
 const empty={type:'object',properties:{},additionalProperties:false};
 const args=(properties,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
@@ -29,7 +30,9 @@ export class BrowserPage{
       await send('Page.enable');const frame=(await send('Page.getResourceTree')).frameTree?.frame;
       return frame&&plainDocument(frame.mimeType)?{url:frame.url,mimeType:frame.mimeType,content:await readDocumentBody(send,frame)}:null;
     },{signal,milliseconds:this.runtime.timeouts.read})});
+    this.feedback=new BrowserFeedback(this);
     this.detachContextMenu=attachBrowserContextMenu(this.wc,{Menu,clipboard,window,getWindow:()=>this.window,isVisible:()=>this.visible,
+      feedback:async(x,y)=>{const capture=await this.feedback.capture(x,y);this.show(false);this.emit({type:'browser.feedback',capture});},
       navigate:url=>this.navigate(checkedUrl(url)),openTab:openTab&&(url=>openTab(checkedUrl(url))),openExternal:url=>shell.openExternal(checkedUrl(url)),
       onError:error=>{this.error=error.message;if(!this.wc.isDestroyed())this.emit({type:'browser.state',...this.state()})}});
     this.loginPopups=attachLoginPopups(this.wc,{window,browserSession,onError:error=>{this.error=error.message;this.emit({type:'browser.state',...this.state()})}});
