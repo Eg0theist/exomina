@@ -29,6 +29,7 @@ export default function RemoteSettings() {
       <button className="primary-button" disabled={busy}>Connect phone relay</button>
     </form> : <>
       <p>{status.base}</p><label className="remote-toggle"><input type="checkbox" role="switch" aria-label="Allow phone control" checked={status.enabled} disabled={busy} onChange={event => act('remote.enabled', { enabled: event.target.checked })}/>Allow phone control</label>
+      <label className="remote-toggle"><input type="checkbox" role="switch" aria-label="Share agent terminal output with paired phones" checked={status.terminalOutput===true} disabled={busy} onChange={event=>act('remote.terminalOutput',{enabled:event.target.checked})}/>Share agent terminal output with paired phones</label><p>Off by default. When enabled, paired phones can request the latest 8,000 characters of this computer’s shared AI sessions. Personal terminal sessions stay on the computer. This does not enable remote terminal input.</p>
       <p role="status">{!status.enabled ? 'Phone control is off.' : status.connected ? 'Computer connected to your relay.' : status.error?'Connection needs attention.':'Connecting to your relay…'}</p>
       {status.lastConnectedAt&&<p>Last connected: {new Date(status.lastConnectedAt).toLocaleString()}</p>}
       {status.enabled&&status.retryAt&&<p>Retrying automatically after {new Date(status.retryAt).toLocaleTimeString()}.</p>}

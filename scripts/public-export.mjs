@@ -7,7 +7,7 @@ import os from 'node:os';
 
 const run=promisify(execFile);
 const publicRoots=new Set(['desktop','src','test','cloud','public','scripts','build','docs','.github']);
-const rootDocuments=new Set(['.gitignore','index.html','remote.html','vite.config.mjs','package.json','package-lock.json','LICENSE','NOTICE','README.md','BETA.md','BUILDING.md','BUILD-WINDOWS.md','CHAT-MEMORY.md','FEEDBACK.md','START-HERE.txt','SUPPORT.md','PROVIDER-TOOLS.md','PUBLIC-UPDATES.md','TERMINAL.md','THIRD-PARTY-NOTICES.txt','SECURITY-AUDIT.txt','VALIDATION.txt']);
+const rootDocuments=new Set(['.gitignore','.gitattributes','index.html','remote.html','vite.config.mjs','package.json','package-lock.json','LICENSE','NOTICE','README.md','BETA.md','BUILDING.md','BUILD-WINDOWS.md','CHAT-MEMORY.md','FEEDBACK.md','START-HERE.txt','SUPPORT.md','PROVIDER-TOOLS.md','PUBLIC-UPDATES.md','TERMINAL.md','WORKFLOWS.txt','THIRD-PARTY-NOTICES.txt','SECURITY-AUDIT.txt','VALIDATION.txt']);
 const generated=new Set(['desktop/distribution.mjs','desktop/theme-catalog.mjs','src/voice-preview-clips.js','scripts/prepare-beta-release.mjs','scripts/public-export.mjs']);
 
 export function privatePublicPath(relative){

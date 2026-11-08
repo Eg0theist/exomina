@@ -10,6 +10,7 @@ const command = value => Array.isArray(value) ? value.join(' ') : String(value |
 /** kind groups steps visually: read, write, execute, search, web, browser, desktop, memory, image, agent, app, tool. */
 const HOST = {
   audio_inspect: ['read','Measuring an audio file','Measured an audio file',input=>input.path],
+  verification_journeys: ['read','Inspecting verification journeys','Inspected verification journeys',input=>input.id||input.action],
   ghidra_status: ['read', 'Checking the Ghidra project', 'Checked the Ghidra project'],
   ghidra_query: ['read', 'Reading the Ghidra project', 'Read the Ghidra project', input => input.operation],
   ghidra_edit: ['write', 'Updating the Ghidra project', 'Updated the Ghidra project', input => input.operation],

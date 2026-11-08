@@ -7,6 +7,8 @@ import { PermissionPolicy, normalizeRule, hostAction } from '../desktop/permissi
 import {assertFeature} from '../desktop/features.mjs';
 import { PIPELINE_READ_TOOLS } from '../desktop/tool-pipeline.mjs';
 import { ExternalMcpTools } from '../desktop/external-mcp.mjs';
+import {ClientScopes} from '../desktop/client-scopes.mjs';
+import {ClientRuntime} from '../desktop/client-runtime.mjs';
 
 const source = await readFile(new URL('../desktop/main.mjs', import.meta.url), 'utf8');
 function extract(startText, endText) {
@@ -45,12 +47,14 @@ function coordinator({ privateChat = false, scoped = false, pipelineError = fals
     sharedSkills: { call: async (args, id) => { calls.push({ tool: 'skill_library', args, id }); return { skills: [] }; } },
     toolPipeline: { call: async (args, id, options) => { calls.push({ tool: 'tool_pipeline', args, id, signal: options.signal }); return pipelineError ? { status: 'failed', isError: true } : { status: 'completed' }; } },
     scratchpad: { readNotes: (...args) => { calls.push({ tool: 'notes_read', args }); return [{ id: 'fixture' }]; } },
-    store: { state: { settings } },
+    store: { state: { settings,conversations:[] } },
+    clientScopes:{state:()=>({bindings:[]}),captureJob:id=>({chatId:id}),assertJob:()=>{}},
     memoryApproval: () => () => {}, approve: () => {},
     memory: { call: async (...args) => { calls.push({ tool: 'memory_recall', args }); return { content: [{ type: 'text', text: 'fixture' }] }; } },
     terminalPty: undefined, updater: { merge: {} }, chatCompactor: undefined, connectorForms: undefined, appAnalysis: undefined, ghidraWorkspaces: undefined,
     browser: undefined, liveFollowups: undefined, userQuestions: undefined, assist: undefined, approvals: new Map(), providers: { cancel: () => {} }, imageSupport: undefined, apiAgent: undefined, workspaceTools: undefined,
   };
+  context.memoryFor=async()=>context.memory;
   vm.createContext(context);
   vm.runInContext(extract('function authorizeReadTool(', '\nasync function executePipelineRead('), context);
   vm.runInContext(extract('async function hostTool(', '\nasync function restartForUpdate('), context);
@@ -168,6 +172,14 @@ test('pipeline failures propagate through the actual host tool result envelope',
   const result = await f.context.hostTool('tool_pipeline', { action: 'run', steps: [] }, 'chat');
   assert.equal(result.isError, true); assert.equal(JSON.parse(result.content[0].text).status, 'failed');
 });
+test('automatic memory capture never overrides an explicit memory-write denial',async()=>{
+  const f=coordinator();f.settings.memoryCapture='automatic';f.settings.permissionRules=[normalizeRule({effect:'deny',tool:'memory_note'})];
+  await assert.rejects(f.context.hostTool('memory_note',{text:'Synthetic note that must not be saved'},'chat'),/Blocked by your rule/);assert.equal(f.calls.length,0);
+});
+test('memory permission is rechecked after a save approval before writing',async()=>{
+  const f=coordinator();let writes=0;f.context.memoryApproval=()=>async()=>{f.settings.permissionRules=[normalizeRule({effect:'deny',tool:'memory_note'})];return true;};f.context.memory.call=async(name,args,approve)=>{await approve({title:'fixture'});writes++;return {};};
+  await assert.rejects(f.context.hostTool('memory_note',{text:'Must not cross a revoked approval'},'chat'),/Blocked by your rule/);assert.equal(writes,0);
+});
 
 test('removed Storage tools cannot dispatch through a stale tool catalogue', async () => {
   const f = coordinator();
@@ -179,7 +191,7 @@ test('actual reply final cleanup aborts run tools and cancels workers before dro
   for (const failed of [false,true]) {
   const run = { toolController: new AbortController(), cancelled: false }, active = new Map([['chat', run]]), calls = [];
   const context = { active, c: { id: 'chat' }, message: failed?{error:'provider terminated'}:{}, imageSupport: { finish: async () => {} }, restartRequested: null,
-    store: { save: async () => {} }, noteTask: null, discoveryRun: null, privateChat:false,payload:{},soulLearning:{notify:id=>calls.push({learn:id,stillActive:active.has(id)})},
+    store: { save: async () => {} }, noteTask: null, discoveryRun: null, privateChat:false,scopedClient:false,payload:{},soulLearning:{notify:id=>calls.push({learn:id,stillActive:active.has(id)})},
     workers: { cancel: id => calls.push({ id, stillActive: active.has(id), aborted: run.toolController.signal.aborted }) },
     connectorForms: undefined, browser: undefined, chatCompactor: undefined, approvals: new Map(), usagePoller: undefined, workPlans: undefined,
     runWaiters: new Map(), queues: new Map(), emit: () => {}, autoTitle: () => {}, drainQueue: () => {}, restartWhenIdle: () => {} };
@@ -191,4 +203,16 @@ test('actual reply final cleanup aborts run tools and cancels workers before dro
   assert.equal(run.toolController.signal.aborted, true); assert.equal(active.has('chat'), false);
   assert.deepEqual(calls, [{ id: 'chat', stillActive: true, aborted: true },...(failed?[]:[{learn:'chat',stillActive:false}])]);
   }
+});
+
+test('actual outer dispatcher denies tools without a client adapter before any global host service',async()=>{
+  const f=coordinator(),chats=[{id:'chat',projectId:'client-project'}];f.context.store.state.conversations=chats;f.context.store.save=async()=>{};
+  const scopes=new ClientScopes({store:f.context.store,getPrincipal:()=> 'owner',getChat:id=>chats.find(chat=>chat.id===id),resourceExists:()=>true});
+  const org=(await scopes.manage({action:'createOrganization',name:'Fixture agency'})).result,client=(await scopes.manage({action:'createClient',organizationId:org.id,name:'Fixture client'})).result;
+  await scopes.manage({action:'bindResource',organizationId:org.id,clientId:client.id,kind:'project',id:'client-project'});
+  f.context.clientScopes=scopes;f.context.clientRuntime=new ClientRuntime({scopes,dataDir:'.',getChats:()=>chats});f.context.assertNativeScope=()=>{};f.context.toolContext=new AsyncLocalStorage();f.context.assertFeature=assertFeature;
+  let dispatches=0;f.context.hostTool=async()=>{dispatches++;};
+  vm.runInContext(extract('async function callToolImpl(', '\nfunction authorizeReadTool('),f.context);
+  for(const tool of ['archive_search','notes_read','worker_run','external_client_fixture'])await assert.rejects(f.context.callToolImpl(tool,{query:'secret'},'chat'),/no client-isolated adapter/);
+  assert.equal(dispatches,0);
 });

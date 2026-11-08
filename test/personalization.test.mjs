@@ -4,9 +4,9 @@ import {normalizePersonalization,normalizeSoul,soulBudget,SOUL_LIMITS,personaliz
 import {claudeUsage,codexUsage,usageWarnings,UsageTracker} from '../desktop/usage.mjs';
 
 test('personalisation becomes one context block; chat settings win over defaults', ()=>{
-  const settings={about:'Writer in Example City.',tone:'concise',instructions:'Avoid lists.',styles:[{id:'s1',name:'Essay',appliesTo:'documents',guide:'- Long, lyrical sentences.'},{id:'s2',name:'Off',enabled:false,guide:'x'}]};
+  const settings={about:'Writer in Hamburg.',tone:'concise',instructions:'Avoid lists.',styles:[{id:'s1',name:'Essay',appliesTo:'documents',guide:'- Long, lyrical sentences.'},{id:'s2',name:'Off',enabled:false,guide:'x'}]};
   const block=personalizationContext(settings,{tone:'warm',instructions:'Answer in German.'});
-  assert.match(block,/About the user: Writer in Example City\./);
+  assert.match(block,/About the user: Writer in Hamburg\./);
   assert.match(block,/Response tone for this chat: Be warm/);assert.doesNotMatch(block,/Be brief/);
   assert.match(block,/Avoid lists\./);assert.match(block,/this chat only.*Answer in German\./);
   assert.match(block,/"Essay" style for documents, files/);assert.doesNotMatch(block,/"Off"/);

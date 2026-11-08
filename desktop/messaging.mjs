@@ -2,6 +2,7 @@ import {readFile,writeFile,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomInt} from 'node:crypto';
 import {DISCORD_CONTROLS,DISCORD_TASK_HELP} from './discord-tasks.mjs';
+import {deliveryContract,deliveryPart,acknowledgedMessageId} from './delivery-contract.mjs';
 
 /** Exomina in Telegram and Discord: private bots that only answer accounts the
  * user paired with a one-time code. Each conversation there is a normal Exomina
@@ -34,8 +35,9 @@ export function chunk(text,limit){
 
 export class TelegramBridge{
   constructor({token,onMessage,onStatus,fetchImpl=fetch,delayImpl=wait}){Object.assign(this,{token,onMessage,onStatus,fetch:fetchImpl,pause:delayImpl});this.offset=0;this.running=false;this.controller=new AbortController();}
-  async call(method,body,signal){
+  async call(method,body,signal,validate=()=>true){
     for(let attempt=0;attempt<3;attempt++){
+      if(!validate())throw Error('Delivery authorization changed.');
       const requestSignal=AbortSignal.any([this.controller.signal,...(signal?[signal]:[]),AbortSignal.timeout(method==='getUpdates'?60000:15000)]);
       let response;try{response=await this.fetch(`https://api.telegram.org/bot${this.token}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{}),signal:requestSignal});}catch(error){throw new Error(safeError(error,this.token));}
       const data=await response.json().catch(()=>({}));
@@ -64,7 +66,7 @@ export class TelegramBridge{
     return {name:`@${me.username}`};
   }
   stop(){this.running=false;this.controller?.abort();}
-  async send(chatKey,text,{signal}={}){for(const part of chunk(text,LIMIT.telegram)){signal?.throwIfAborted();await this.call('sendMessage',{chat_id:chatKey,text:part,link_preview_options:{is_disabled:true}},signal);}}
+  async send(chatKey,text,{signal,validate=()=>true}={}){const receipts=[];for(const part of chunk(text,LIMIT.telegram)){signal?.throwIfAborted();const result=await this.call('sendMessage',{chat_id:chatKey,text:part,link_preview_options:{is_disabled:true}},signal,validate);receipts.push({messageId:acknowledgedMessageId('telegram',result)});}return receipts;}
   typing(chatKey){return this.call('sendChatAction',{chat_id:chatKey,action:'typing'}).catch(()=>{});}
 }
 
@@ -90,8 +92,9 @@ export async function discordAttachments(items,{fetchImpl=fetch,signal}={}){
 
 export class DiscordBridge{
   constructor({token,onMessage,onStatus,fetchImpl=fetch,WebSocketImpl=globalThis.WebSocket,delayImpl=wait,reconnectDelay=5000,gatewayTimeout=15000}){Object.assign(this,{token,onMessage,onStatus,fetch:fetchImpl,WebSocket:WebSocketImpl,pause:delayImpl,reconnectDelay,gatewayTimeout});this.running=false;this.seq=null;this.controller=new AbortController();this.seenMessages=new Set();}
-  async rest(route,body,method=body?'POST':'GET',signal){
+  async rest(route,body,method=body?'POST':'GET',signal,validate=()=>true){
     for(let attempt=0;attempt<3;attempt++){
+      if(!validate())throw Error('Delivery authorization changed.');
       let response;try{response=await this.fetch(`https://discord.com/api/v10${route}`,{method,headers:{Authorization:`Bot ${this.token}`,'Content-Type':'application/json','User-Agent':'DiscordBot (https://exomina.local, 1.0) Exomina'},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.any([this.controller.signal,...(signal?[signal]:[]),AbortSignal.timeout(15000)])});}catch(error){throw new Error(safeError(error,this.token));}
       const data=response.status===204?{}:await response.json().catch(()=>({}));
       if(response.status===429&&attempt<2){await this.pause(Math.min(60000,Math.max(1000,(Number(data.retry_after)||1)*1000)),signal?AbortSignal.any([this.controller.signal,signal]):this.controller.signal);continue;}
@@ -143,7 +146,7 @@ export class DiscordBridge{
     socket.onerror=()=>{};
   }
   stop(){this.running=false;this.controller.abort();clearInterval(this.heartbeat);clearTimeout(this.gatewayTimer);clearTimeout(this.reconnectTimer);clearTimeout(this.closeTimer);try{this.socket?.close(1000);}catch{}}
-  async send(chatKey,text,{signal}={}){for(const part of chunk(text,LIMIT.discord)){signal?.throwIfAborted();await this.rest(`/channels/${chatKey}/messages`,{content:part,allowed_mentions:{parse:[]}},'POST',signal);}}
+  async send(chatKey,text,{signal,validate=()=>true}={}){const receipts=[];for(const part of chunk(text,LIMIT.discord)){signal?.throwIfAborted();const result=await this.rest(`/channels/${chatKey}/messages`,{content:part,allowed_mentions:{parse:[]}},'POST',signal,validate);receipts.push({messageId:acknowledgedMessageId('discord',result)});}return receipts;}
   typing(chatKey){return this.rest(`/channels/${chatKey}/typing`,{}).catch(()=>{});}
 }
 
@@ -235,7 +238,30 @@ export class MessagingHub{
   newCode(channel){this.assertChannel(channel);if(!this.config(channel).enabled||!this.bridges.has(channel))throw new Error('Connect the bot before pairing an account.');this.clearCode(channel);const value=String(randomInt(100000,1000000)),record={value,expires:Date.now()+this.pairingTtl,misses:0};this.codes.set(channel,record);const timer=setTimeout(()=>{if(this.codes.get(channel)===record){this.clearCode(channel);this.emit({type:'messaging.status',status:this.view()});}},this.pairingTtl);timer.unref?.();this.codeTimers.set(channel,timer);this.emit({type:'messaging.status',status:this.view()});return value;}
   async unpair(channel,userId){this.assertChannel(channel);const key=channel+':'+userId;this.userVersions.set(key,(this.userVersions.get(key)||0)+1);this.revoking.add(key);this.stopUser({channel,userId});try{await this.setConfig(channel,config=>{const removed=config.paired.find(item=>item.id===userId),links={...config.links};if(removed?.chatKey)delete links[removed.chatKey];return{paired:config.paired.filter(item=>item.id!==userId),links,desktopInboxUserId:config.desktopInboxUserId===userId?'':config.desktopInboxUserId};});this.emit({type:'messaging.status',status:this.view()});}finally{this.revoking.delete(key);}}
   recipients(channel){const config=this.config(channel);return config.paired.map(p=>({chatKey:p.chatKey||(channel==='telegram'&&config.links[p.id]?p.id:''),name:p.name||p.id})).filter(p=>p.chatKey);}
-  async sendScheduled(channel,chatKey,text){const bridge=this.bridges.get(channel);if(!bridge||!this.recipients(channel).some(r=>r.chatKey===chatKey))throw Error('This messaging recipient is no longer paired or the bot is disconnected.');await bridge.send(chatKey,text);}
+  scheduledDeliveryBinding(channel,chatKey){
+    this.assertChannel(channel);const config=this.config(channel),paired=config.paired.find(p=>(p.chatKey||(channel==='telegram'&&config.links[p.id]?p.id:''))===chatKey);
+    if(!config.enabled||!this.bridges.has(channel)||!paired||this.revoking.has(channel+':'+paired.id))throw Error('This messaging recipient is no longer paired or the bot is disconnected.');
+    return JSON.stringify({channel,chatKey,userId:paired.id,generation:this.generations.get(channel),userVersion:this.userVersions.get(channel+':'+paired.id)||0});
+  }
+  async sendScheduled(channel,chatKey,text,{validate=()=>true,onProgress}={}){
+    const binding=this.scheduledDeliveryBinding(channel,chatKey),bridge=this.bridges.get(channel);
+    const current=()=>this.scheduledDeliveryBinding(channel,chatKey)===binding&&this.bridges.get(channel)===bridge&&validate();
+    const parts=chunk(text,LIMIT[channel]),receipts=[];
+    for(const [index,part] of parts.entries()){
+      if(!current())throw Error('Delivery authorization changed.');
+      const progress=deliveryPart(part,index,parts.length);
+      await onProgress?.({...progress,status:'dispatching'});
+      if(!current())throw Error('Delivery authorization changed.');
+      const result=await bridge.send(chatKey,part,{validate:current});
+      const messageId=result?.length===1?result[0]?.messageId:null;
+      // Old/test connectors may not return receipts. Workflow mode must never
+      // call missing evidence an acknowledgement or continue after it.
+      if(onProgress&&!(typeof messageId==='string'&&/^\d{1,32}$/.test(messageId)))throw Error('Connector accepted the request without a usable message reference. Reconcile before sending again.');
+      if(onProgress)await onProgress({...progress,status:'acknowledged',messageId});
+      receipts.push({...progress,messageId});
+    }
+    return {contract:deliveryContract(channel),parts:receipts};
+  }
   /** Messages from one chat are answered in order. */
   receive(message){
     const key=`${message.channel}:${message.chatKey}`,userKey=message.channel+':'+message.userId,generation=message.generation??this.generations.get(message.channel),userVersion=this.userVersions.get(userKey)||0,queueVersion=this.queueVersions.get(userKey)||0;

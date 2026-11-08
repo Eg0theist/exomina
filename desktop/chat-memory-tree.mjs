@@ -2,6 +2,7 @@ import {mkdir, lstat, chmod} from 'node:fs/promises';
 import path from 'node:path';
 import {createHash, randomUUID} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
+import {sqlitePath} from './sqlite-path.mjs';
 import {Worker} from 'node:worker_threads';
 import {fileURLToPath} from 'node:url';
 import { SEARCH_ONLY_CHARS, searchOnlyNote, searchOnlyRangeNote, isMachineKind, machineExcerpt, machineRangeNote, toolName, characters } from './chat-memory-classification.mjs';
@@ -39,7 +40,7 @@ export class ChatMemoryTree {
       if((await lstat(this.dir)).isSymbolicLink())throw Error('Chat memory cannot use a linked directory.');
       const filename=path.join(this.dir,'tree.sqlite');
       try{if(!(await lstat(filename)).isFile()||(await lstat(filename)).isSymbolicLink())throw Error('Chat memory database must be a regular file.');}catch(error){if(error.code!=='ENOENT')throw error;}
-      const db=new DatabaseSync(filename);
+      const db=new DatabaseSync(sqlitePath(filename));
       try{
         db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON; PRAGMA busy_timeout=5000; PRAGMA temp_store=MEMORY; PRAGMA foreign_keys=ON;
           CREATE TABLE IF NOT EXISTS tree_chats(chat_id TEXT PRIMARY KEY,next_id INTEGER NOT NULL DEFAULT 0,generation INTEGER NOT NULL DEFAULT 0,revision INTEGER NOT NULL DEFAULT 0,original_bytes INTEGER NOT NULL DEFAULT 0,node_count INTEGER NOT NULL DEFAULT 0,built_count INTEGER NOT NULL DEFAULT 0,ready_count INTEGER NOT NULL DEFAULT 0,running_count INTEGER NOT NULL DEFAULT 0,failed_count INTEGER NOT NULL DEFAULT 0);

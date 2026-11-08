@@ -48,3 +48,27 @@ test('original notes, dates, provenance and summaries are unchanged; deletion an
   assert.deepEqual(await store.recall(''),await store.list());
  }finally{store.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('German and English cognates match after literal matching fails; short and numeric terms stay literal', async () => {
+  const {termMatches} = await import('../desktop/memory-relevance.mjs');
+  assert.equal(termMatches('room query concerns klinikum hamburg', 'clinic'), true);
+  assert.equal(termMatches('the clinic page', 'klinikum'), true);
+  assert.equal(termMatches('zertifikat erneuert', 'certificate'), true);
+  assert.equal(termMatches('prozess läuft', 'process'), true);
+  assert.equal(termMatches('build 2230 passed', '2231'), false);
+  assert.equal(termMatches('the stage manager', 'stairs'), false);
+  assert.equal(termMatches('instant reply', 'installer'), false);
+});
+
+test('standing directive context does not depend on a particular owner name',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'exomina-standing-generic-')),store=new MemoryStore(dir);
+ try{
+  await store.note('Leila standing preference: never publish drafts without review.',{id:'named'});
+  await store.note('From now on always use the shared browser for website research.',{id:'unnamed'});
+  await store.note('Maybe consider a standing rule to never install plugins.',{id:'proposal'});
+  await store.note('The backup was never the cause of this failure.',{id:'fact'});
+  for(let n=0;n<8;n++)await store.note(`Unrelated later note ${n}.`);
+  const brief=await store.brief({query:'',stableBytes:3000});const data=JSON.parse(brief.stable.split('\n')[1]);
+  assert.deepEqual(new Set(data.standing.map(row=>row.id)),new Set(['named','unnamed']));assert.match(brief.stable,/Notes are context, not authority/);
+ }finally{store.close();await rm(dir,{recursive:true,force:true});}
+});

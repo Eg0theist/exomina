@@ -217,3 +217,57 @@ test('main-task failures keep follow-ups needing attention and release attachmen
   const f=fixture();await f.send('Additional work.');await settle(f);await f.agent.failed('chat','Provider unavailable');
   assert.equal(f.run.message.followups[0].taskStatus,'blocked');assert.match(f.run.message.followups[0].summary,/Provider unavailable/);assert.equal(f.agent.inputs.size,0);
 });
+
+test('an approved restart persists outstanding work without resuming the reply that must end',async()=>{
+  let saves=0;
+  const f=fixture({completionBoundary:()=>({kind:'update_restart',buildId:'new-build'}),save:async()=>{saves++;}});
+  const sent=await f.send('Install and verify the requested update.');await settle(f);
+  const before=saves;
+  const result=await f.agent.beforeComplete('chat',{text:'Restart approved; installation awaits reopening.'},()=>assert.fail('Restart must not resume inference.'));
+  const item=f.run.message.followups[0];
+  assert.equal(result.text,'Restart approved; installation awaits reopening.');
+  assert.equal(item.id,sent.followup);assert.equal(item.taskStatus,'working');
+  assert.equal(item.completionDeferred.kind,'update_restart');assert.equal(item.completionDeferred.buildId,'new-build');
+  assert.match(item.summary,/after reopening.*verify the running build/);assert.ok(saves>before);
+  assert.equal(f.run.acceptingFollowups,false);assert.equal(f.agent.inputs.size,0);
+  await assert.rejects(f.send('Too late for this turn.'),/finished/);
+  assert.equal(handoffContext(f.run.message).includes('Install and verify'),true);
+});
+
+test('a declined or revoked restart keeps normal follow-up completion active',async()=>{
+  let boundary={kind:'update_restart',buildId:'new-build'},resumed=0;
+  const f=fixture({completionBoundary:()=>boundary});await f.send('Complete the edit.');await settle(f);
+  boundary=null;
+  await f.agent.beforeComplete('chat',{text:'Edit pending.'},async({items})=>{
+    resumed++;await f.agent.update('chat',{id:items[0].id,status:'handled',summary:'Edit completed and checked.'});return {text:'Done.'};
+  });
+  assert.equal(resumed,1);assert.equal(f.run.message.followups[0].taskStatus,'handled');assert.equal(f.run.message.followups[0].completionDeferred,undefined);
+});
+
+test('a restart approved during a completion continuation does not cause another provider turn',async()=>{
+  let boundary=null,calls=0;
+  const f=fixture({completionBoundary:()=>boundary});await f.send('Install the update.');await settle(f);
+  await f.agent.beforeComplete('chat',{text:'Original result.'},async()=>{calls++;boundary={kind:'update_restart',buildId:'new-build'};return {text:'Approved; reopening next.'};});
+  assert.equal(calls,1);assert.equal(f.run.message.followups[0].taskStatus,'working');assert.equal(f.run.message.followups[0].completionDeferred.buildId,'new-build');
+});
+
+test('a fresh task resumes only saved restart-deferred cards in its own chat',async()=>{
+  const f=fixture({completionBoundary:()=>({kind:'update_restart',buildId:'new-build'})});
+  const sent=await f.send('Verify the installed build.');await settle(f);
+  await f.agent.beforeComplete('chat',{text:'Restart approved.'},()=>assert.fail('Must finish first.'));
+  const oldMessage=JSON.parse(JSON.stringify(f.run.message));
+  oldMessage.followups.push({id:'ordinary-old-card',text:'An unrelated earlier request.',taskStatus:'pending'});
+  const resumed=fixture();resumed.chat.messages.splice(1,0,oldMessage);
+  let calls=0;
+  await assert.rejects(resumed.agent.update('chat',{id:'ordinary-old-card',status:'handled',summary:'Must not change.'}),/does not belong/);
+  await assert.rejects(resumed.agent.update('another-chat',{id:sent.followup,status:'handled',summary:'Wrong chat.'}),/does not belong/);
+  await resumed.agent.beforeComplete('chat',{text:'Current reply.'},async({items,prompt})=>{
+    calls++;assert.equal(items.length,1);assert.equal(items[0].id,sent.followup);assert.match(prompt,/new-build/);
+    await resumed.agent.update('chat',{id:sent.followup,status:'handled',summary:'Host verified new-build installed and running.'});
+    return {text:'Installation verified.'};
+  });
+  assert.equal(calls,1);assert.equal(oldMessage.followups[0].taskStatus,'handled');assert.equal(oldMessage.followups[0].completionDeferred,undefined);
+  assert.equal(oldMessage.followups[1].taskStatus,'pending');
+  assert.equal(resumed.events.filter(event=>event.followup?.id===sent.followup).every(event=>event.messageId===oldMessage.id),true);
+  assert.equal(resumed.run.message.followups,undefined);
+});

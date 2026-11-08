@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {fetchRuntimeBytes} from './runtime-download.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const arguments_=process.argv.slice(2);
 if(arguments_.some(argument=>argument!=='--python-only'))throw Error('Only --python-only is supported.');
@@ -18,8 +19,7 @@ for(const item of programs.filter(item=>!pythonOnly||item.dir==='python')){
  // Refresh its exact pinned archive instead of treating presence as currency.
  if(item.dir!=='python')try{await stat(path.join(target,item.probe));console.log('Using prepared '+item.dir+' runtime.');continue;}catch{}
  if(process.platform!=='win32')throw Error('Windows runtime preparation requires Windows.');
- const response=await fetch(item.url,{signal:AbortSignal.timeout(120000)});if(!response.ok)throw Error('Official runtime download failed: '+response.status);
- const bytes=Buffer.from(await response.arrayBuffer());if(createHash('sha256').update(bytes).digest('hex')!==item.hash)throw Error('Official '+item.dir+' archive checksum mismatch.');
+ const bytes=await fetchRuntimeBytes(item.url,{label:'Official '+item.dir});if(createHash('sha256').update(bytes).digest('hex')!==item.hash)throw Error('Official '+item.dir+' archive checksum mismatch.');
  await mkdir(target,{recursive:true});const archive=path.join(target,'.official-runtime.zip');await writeFile(archive,bytes);
  // Hash verification happens before extraction. ZIP entries must stay inside target.
  const script=`Add-Type -AssemblyName System.IO.Compression.FileSystem\n$zip=[IO.Compression.ZipFile]::OpenRead($env:EXOMINA_VENDOR_ZIP)\ntry { foreach($entry in $zip.Entries) { $name=$entry.FullName.Replace('/','\\'); if($name.Contains(':') -or [IO.Path]::IsPathRooted($name) -or $name.Split('\\').Contains('..')) { throw 'Invalid official archive path' }; $out=[IO.Path]::GetFullPath([IO.Path]::Combine($env:EXOMINA_VENDOR_TARGET,$name)); if(-not $out.StartsWith($env:EXOMINA_VENDOR_TARGET+'\\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Archive path outside runtime' }; if($entry.Name) { $null=[IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($out)); [IO.Compression.ZipFileExtensions]::ExtractToFile($entry,$out,$true) } } } finally { $zip.Dispose() }`;

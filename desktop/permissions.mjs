@@ -162,7 +162,11 @@ export class PermissionPolicy {
 /** Classification for the tools Exomina itself hosts. */
 export function hostAction(name, args = {}) {
   const tool = String(name || '');
-  if(tool==='skill_library')return {kind:['catalog','read'].includes(args.action)?'read':'write',tool,target:String(args.id||args.scope||'chat')};
+  if(tool==='tool_discover'||tool==='tool_details')return {kind:'read',tool,target:String(args.query||args.ref||'')};
+  if(tool==='verification_journeys')return {kind:'read',tool,target:String(args.id||args.action||'')};
+  if(tool==='feature_package')return {kind:['list','preview','prepare','source','discard'].includes(args.action)?'read':'execute',tool,target:String(args.path||args.id||args.previewId||'')};
+  if(tool==='task_workspace')return {kind:['status','diff'].includes(args.action)?'read':'execute',tool,target:'current chat coding workspace'};
+  if(tool==='skill_library')return {kind:['catalog','read','prepare','inspect','dependencies'].includes(args.action)?'read':'write',tool,target:String(args.id||args.scope||'chat')};
   if(tool==='worker_run')return {kind:args.action==='list'?'read':'execute',tool,target:String(args.id||'')};
   if(tool==='tool_pipeline')return {kind:'read',tool,target:String(args.action||'run')};
   if(tool==='spending_preview')return {kind:'read',tool,target:String(args.merchant||'')};

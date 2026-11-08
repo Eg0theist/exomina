@@ -12,6 +12,8 @@ import {SkillLibrary} from '../desktop/skill-library.mjs';
 import {ChatMemoryTree} from '../desktop/chat-memory-tree.mjs';
 import {ChatMemoryService} from '../desktop/chat-memory-service.mjs';
 import {fingerprint} from '../desktop/chat-memory-records.mjs';
+import {ClientScopes} from '../desktop/client-scopes.mjs';
+import {ClientRuntime} from '../desktop/client-runtime.mjs';
 
 async function fixture(t){const root=await mkdtemp(path.join(os.tmpdir(),'exomina-library-test-'));assert.equal(path.dirname(root),os.tmpdir());t.after(()=>rm(root,{recursive:true,force:true}));const dataDir=path.join(root,'data'),folder=path.join(root,'backups'),destination=path.join(root,'restores'),workspace=path.join(root,'work');for(const p of [dataDir,folder,destination,workspace])await mkdir(p);for(const relative of ['memory/notes.sqlite','chat-memory/tree.sqlite','archive.sqlite']){const file=path.join(dataDir,relative);await mkdir(path.dirname(file),{recursive:true});new DatabaseSync(file).close();}return {root,dataDir,folder,destination,workspace};}
 test('library backup restores actual threads, domain databases, content bytes and safe defaults',async t=>{
@@ -132,4 +134,54 @@ test('invalid skill revision content fails restore even when its file checksum m
  await writeFile(file,JSON.stringify({version:1,skills:[{id:'bad',ownerChatId:'c',scope:{kind:'chat',id:'c'},status:'active',revisions:[{revision:1,hash:'0'.repeat(64),references:[]}]}]}),'utf8');
  const manifest=JSON.parse(await readFile(path.join(saved.path,'manifest.json'),'utf8')),entry=manifest.files.find(entry=>entry.path==='shared-skills/library.json'),bytes=await readFile(file);entry.bytes=bytes.length;entry.sha256=createHash('sha256').update(bytes).digest('hex');await writeFile(path.join(saved.path,'manifest.json'),JSON.stringify(manifest),'utf8');
  await assert.rejects(restoreLibraryBackup({folder:saved.path,destination:e.destination}),/skill|Skill|Provide/);assert.deepEqual(await readdir(e.destination),[]);
+});
+
+async function clientFixture(t){
+ const e=await fixture(t),state={settings:{},conversations:[{id:'alpha-chat',projectId:'alpha-project',messages:[]},{id:'beta-chat',projectId:'beta-project',messages:[]},{id:'personal',messages:[]}],projects:[{id:'alpha-project',name:'Alpha'},{id:'beta-project',name:'Beta'}]},store={state,save:async()=>{}};
+ const scopes=new ClientScopes({store,getPrincipal:()=> 'owner',getChat:id=>state.conversations.find(chat=>chat.id===id),resourceExists:()=>true});
+ const org=(await scopes.manage({action:'createOrganization',name:'Agency'})).result,clients=[];
+ for(const name of ['alpha','beta']){const client=(await scopes.manage({action:'createClient',organizationId:org.id,name})).result;clients.push(client);await scopes.manage({action:'bindResource',organizationId:org.id,clientId:client.id,kind:'project',id:name+'-project'});}
+ const runtime=new ClientRuntime({scopes,dataDir:e.dataDir,getChats:()=>state.conversations});
+ try{await (await runtime.memory('alpha-chat')).note('Client Alpha confidential marker');await (await runtime.memory('beta-chat')).note('Client Beta confidential marker');}finally{await runtime.close();}
+ return {...e,state,scopes,org,clients};
+}
+test('backup and restore retain separate client databases and authorization before any retrieval',async t=>{
+ const e=await clientFixture(t),saved=await createLibraryBackup(e),clientFiles=saved.files.filter(entry=>entry.path.startsWith('client-data/'));
+ assert.equal(clientFiles.length,2);assert.equal((await verifyLibraryBackup(saved.path)).verifiedFiles,saved.files.length);
+ const restored=await restoreLibraryBackup({folder:saved.path,destination:e.destination}),state=JSON.parse(await readFile(path.join(restored.profile,'state.json'),'utf8'));
+ assert.deepEqual(state.clientScopes,e.state.clientScopes);
+ const scopes=new ClientScopes({store:{state},getPrincipal:()=> 'owner',getChat:id=>state.conversations.find(chat=>chat.id===id)}),runtime=new ClientRuntime({scopes,dataDir:restored.profile,getChats:()=>state.conversations});
+ try{const a=await runtime.memory('alpha-chat'),b=await runtime.memory('beta-chat');assert.match((await a.run(['wake'])).text,/Alpha confidential/);assert.doesNotMatch((await a.run(['wake'])).text,/Beta confidential/);assert.match((await b.run(['wake'])).text,/Beta confidential/);assert.deepEqual(runtime.chats('personal').map(chat=>chat.id),['personal']);}finally{await runtime.close();}
+});
+test('deep backup and restore destinations preserve scoped client memory',async t=>{
+ const e=await clientFixture(t),folder=path.join(e.folder,'deep-'.repeat(24)),destination=path.join(e.destination,'deep-'.repeat(24));await mkdir(folder);await mkdir(destination);
+ const saved=await createLibraryBackup({...e,folder}),clientFiles=saved.files.filter(entry=>entry.path.startsWith('client-data/'));
+ assert.equal(clientFiles.length,2);assert.ok(clientFiles.every(entry=>path.join(saved.path,...entry.path.split('/')).length>270),'exercise native SQLite backup filenames beyond ordinary Win32 limits');
+ assert.equal((await verifyLibraryBackup(saved.path)).verifiedFiles,saved.files.length);
+ const restored=await restoreLibraryBackup({folder:saved.path,destination}),state=JSON.parse(await readFile(path.join(restored.profile,'state.json'),'utf8'));
+ assert.deepEqual(state.clientScopes,e.state.clientScopes);
+ assert.ok(path.join(restored.profile,clientFiles[0].path).length>270,'exercise reopening client memory under a deep restored profile');
+ const scopes=new ClientScopes({store:{state},getPrincipal:()=> 'owner',getChat:id=>state.conversations.find(chat=>chat.id===id)}),runtime=new ClientRuntime({scopes,dataDir:restored.profile,getChats:()=>state.conversations});
+ try{const a=await runtime.memory('alpha-chat'),b=await runtime.memory('beta-chat');assert.match((await a.run(['wake'])).text,/Alpha confidential/);assert.doesNotMatch((await a.run(['wake'])).text,/Beta confidential/);assert.match((await b.run(['wake'])).text,/Beta confidential/);}
+ finally{await runtime.close();}
+});
+
+test('retired client data transfers without making its chats personal or granting new access',async t=>{
+ const e=await clientFixture(t);await e.scopes.manage({action:'retireClient',organizationId:e.org.id,clientId:e.clients[0].id});
+ const saved=await createLibraryBackup(e);assert.equal(saved.files.filter(entry=>entry.path.startsWith('client-data/')).length,2);
+ const restored=await restoreLibraryBackup({folder:saved.path,destination:e.destination}),state=JSON.parse(await readFile(path.join(restored.profile,'state.json'),'utf8'));
+ const scopes=new ClientScopes({store:{state},getPrincipal:()=> 'owner',getChat:id=>state.conversations.find(chat=>chat.id===id)});assert.equal(scopes.isScoped('alpha-chat'),true);assert.throws(()=>scopes.context('alpha-chat'),/unavailable/);
+});
+test('client database paths require a matching validated boundary even with correct hashes',async t=>{
+ const e=await clientFixture(t),saved=await createLibraryBackup(e),manifestFile=path.join(saved.path,'manifest.json'),manifest=JSON.parse(await readFile(manifestFile,'utf8'));
+ const original=manifest.files.find(entry=>entry.path.startsWith('client-data/')),foreign='client-data/'+'0'.repeat(64)+'/memory/notes.sqlite';await mkdir(path.dirname(path.join(saved.path,foreign)),{recursive:true});await writeFile(path.join(saved.path,foreign),await readFile(path.join(saved.path,original.path)));
+ manifest.files.push({...original,path:foreign});await writeFile(manifestFile,JSON.stringify(manifest),'utf8');await assert.rejects(inspectLibraryBackup(saved.path),/no matching client/);assert.deepEqual(await readdir(e.destination),[]);
+});
+test('malformed client authorization aborts export instead of silently dropping the boundary',async t=>{
+ const e=await fixture(t);await assert.rejects(createLibraryBackup({...e,state:{settings:{},conversations:[],clientScopes:{version:1}}}),/Invalid client authorization/);assert.deepEqual(await readdir(e.folder),[]);
+});
+test('optional durable outcome archive transfers through backup, verification and restore',async t=>{
+ const e=await fixture(t),relative='outcome-archive/outcomes.sqlite',source=path.join(e.dataDir,relative);await mkdir(path.dirname(source));const db=new DatabaseSync(source);try{db.exec("CREATE TABLE receipt(id TEXT PRIMARY KEY,claim TEXT);INSERT INTO receipt VALUES('kept','Retained outcome evidence')");}finally{db.close();}
+ const saved=await createLibraryBackup({...e,state:{settings:{},conversations:[]}});assert.ok(saved.files.some(file=>file.path===relative));await verifyLibraryBackup(saved.path);
+ const restored=await restoreLibraryBackup({folder:saved.path,destination:e.destination}),reopened=new DatabaseSync(path.join(restored.profile,relative),{readOnly:true});try{assert.equal(reopened.prepare('SELECT claim FROM receipt WHERE id=?').get('kept').claim,'Retained outcome evidence');}finally{reopened.close();}
 });

@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import {sqlitePath} from './sqlite-path.mjs';
 import { readExportFile } from './export-files.mjs';
 import { historyObject, historyText } from './chat-memory-records.mjs';
 import { Parser } from 'htmlparser2';
@@ -253,7 +254,7 @@ export class ArchiveStore {
   async init() {
     if (this.db) return;
     await mkdir(this.dir, { recursive: true });
-    this.db = new DatabaseSync(this.file);
+    this.db = new DatabaseSync(sqlitePath(this.file));
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS documents (
         id TEXT PRIMARY KEY, hash TEXT NOT NULL UNIQUE, provider TEXT NOT NULL, kind TEXT NOT NULL,

@@ -1,7 +1,8 @@
 // Shared by the host and renderer. Turning a feature off always removes its
 // tools from discovery AND refuses stale calls made by an already running AI.
 export const FEATURES = Object.freeze([
-  {id:'files',name:'Workspace files',description:'Read and edit files in the chosen folder.',pattern:/^workspace_/},
+  {id:'tool-discovery',name:'Tool discovery',description:'Find relevant tools within the current chat’s access.',pattern:/^tool_(discover|details)$/},
+  {id:'files',name:'Workspace files',description:'Read and edit files in the chosen folder.',pattern:/^(workspace_|task_workspace$)/},
   {id:'terminal',name:'Commands & terminals',description:'Run commands and interactive terminals.',pattern:/^terminal_/},
   {id:'browser',name:'Websites',description:'Use the shared browser.',pattern:/^browser_/,setting:'browserEnabled'},
   {id:'desktop',name:'Computer control',description:'Read the screen and use other apps.',pattern:/^(desktop_|external_cua_)/,setting:'desktopEnabled'},
@@ -11,8 +12,8 @@ export const FEATURES = Object.freeze([
   {id:'helpers',name:'AI reviews',description:'Ask another connected AI for a second opinion.',pattern:/^model_/},
   {id:'cloud',name:'Cloud coding tasks',description:'Use connected cloud coding environments.',pattern:/^codex_cloud_/},
   {id:'github',name:'GitHub',description:'Work with repositories through the GitHub connection.',pattern:/^github_/},
-  {id:'extensions',name:'Extensions & services',description:'Use installed local tools and online services.',pattern:/^(extension_|external_(?!cua_))/},
-  {id:'skills',name:'Shared skills',description:'Read and maintain reusable procedures.',pattern:/^skill_library$/},
+  {id:'extensions',name:'Extensions & services',description:'Use installed local tools and online services.',pattern:/^(feature_package$|extension_|external_(?!cua_))/},
+  {id:'skills',name:'Shared skills',description:'Read and maintain reusable procedures and verification journeys.',pattern:/^(skill_library|verification_journeys)$/},
   {id:'workers',name:'Isolated workers',description:'Run approved commands in Docker or on an SSH worker.',pattern:/^worker_run$/},
   {id:'pipelines',name:'Tool pipelines',description:'Combine supported read operations.',pattern:/^tool_pipeline$/},
   {id:'refinement',name:'Approach learning',description:'Compare evidence and keep useful working methods.',pattern:/^task_refine$/},

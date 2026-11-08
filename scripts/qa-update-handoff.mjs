@@ -63,13 +63,14 @@ const challenge=JSON.parse(await readFile(path.join(stateDir,'program-cleanup-pe
 const env={...process.env,EXOMINA_DATA_DIR:profile,EXOMINA_ACCOUNTS_DIR:runtime,EXOMINA_WORKSPACE_DIR:workspace,HOME:userHome,USERPROFILE:userHome,APPDATA:path.join(userHome,'AppData/Roaming'),LOCALAPPDATA:path.join(userHome,'AppData/Local'),TEMP:output,TMP:output,TMPDIR:output};
 for(const key of Object.keys(env))if(/token|secret|password|api_?key|credential|authorization|^(NODE_OPTIONS|BUN_OPTIONS|ELECTRON_RUN_AS_NODE|CODEX_HOME|CLAUDE_CONFIG_DIR)$/i.test(key)||(/^EXOMINA_/i.test(key)&&!['EXOMINA_DATA_DIR','EXOMINA_ACCOUNTS_DIR','EXOMINA_WORKSPACE_DIR'].includes(key)))delete env[key];
 const {_electron}=createRequire(import.meta.url)('playwright');
-let app,appMainPid,report={at:new Date().toISOString(),buildId:stamp.id,version:stamp.version,output,passed:false,scope:'Exact immutable package in a synthetic installed App layout with a live handoff supervisor, real Windows EFS and production health predicate. No personal profile, sign-in or inference.'};
+let app,appMainPid,startupGuard,stderr='',report={at:new Date().toISOString(),buildId:stamp.id,version:stamp.version,output,passed:false,scope:'Exact immutable package in a synthetic installed App layout with a live handoff supervisor, real Windows EFS and production health predicate. No personal profile, sign-in or inference.'};
 try{
   await assert.rejects(readFile(path.join(stateDir,'program-cleanup-health.json')),{code:'ENOENT'});
   const launchedAt=Date.now();
   app=await _electron.launch({executablePath:path.join(appDir,'Exomina.exe'),args:['--mute-audio','--user-data-dir='+profile],cwd:home,env,timeout:30000});
+  app.process().stderr.on('data',chunk=>{stderr=(stderr+chunk.toString()).slice(-8000);});
   appMainPid=await app.evaluate(()=>process.pid);
-  const guard=watchStartup(app.process()),page=await guard.race(app.firstWindow());page.setDefaultTimeout(20000);
+  const guard=startupGuard=watchStartup(app.process()),page=await guard.race(app.firstWindow());page.setDefaultTimeout(20000);
   await guard.race(page.locator('.app-shell').waitFor());
   const state=await page.evaluate(()=>window.studio.invoke('security.status'));assert.equal(state.ready,true);assert.equal(state.mode,'efs');
   const retained=await page.evaluate(id=>window.studio.invoke('conversations.get',{id}),chat.id);assert.equal(retained.messages[0].content,'Retained during live update handoff');
@@ -97,13 +98,22 @@ Write-Output 'healthy'
   const {rm}=await import('node:fs/promises');await rm(path.join(stateDir,'pending-update.json'));await write('update-watcher.json',{...record,installerPid:0,phase:'installed',updatedAt:new Date().toISOString()});
   const complete=await page.evaluate(()=>window.studio.invoke('update.status'));assert.equal(complete.inProgress,false);assert.equal(complete.lastResult.status,'installed');
   report.checks={workspaceOpensDuringOwnHandoff:true,retainedConversation:true,efsStorage:true,productionHandoffWriter:true,healthAcknowledgedAfterStableInterval:true,productionProcessHealthAccepted:true,wrongHealthTokenRejected:true,handoffRemainsInProgress:true,completedHandoffSettles:true};report.passed=true;
-}catch(error){report.error=error.message;}
+}catch(error){
+  report.error=error.message;
+  if(stderr)report.stderr=stderr;
+  if(startupGuard?.failure)report.startupFailure={message:startupGuard.failure.message,phase:startupGuard.failure.startupPhase,errorClass:startupGuard.failure.errorClass};
+  if(app){let observationTimer;try{report.windowObservation=await Promise.race([
+    app.evaluate(({app,BrowserWindow})=>({pid:process.pid,exe:app.getPath('exe'),windows:BrowserWindow.getAllWindows().map(window=>({id:window.id,visible:window.isVisible(),destroyed:window.isDestroyed(),url:window.webContents.getURL(),loading:window.webContents.isLoading(),crashed:window.webContents.isCrashed(),rendererPid:window.webContents.getOSProcessId()}))})),
+    new Promise((_,reject)=>{observationTimer=setTimeout(()=>reject(Error('Failure window observation timed out.')),2000);}),
+  ]).catch(observationError=>({error:observationError.message}));}finally{clearTimeout(observationTimer);}}
+}
 finally{if(app){
   const alive=pid=>{try{process.kill(pid,0);return true;}catch(error){return error.code==='EPERM';}};
   await app.evaluate(({app})=>{setImmediate(()=>app.quit());return true;}).catch(()=>{});
   const deadline=Date.now()+10000;while(appMainPid&&alive(appMainPid)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,50));
   if(appMainPid&&alive(appMainPid)){report.passed=false;report.error='The synthetic app did not stop within the shutdown bound.';}
-  else{report.shutdownConfirmed=true;app.close().catch(()=>{});const launcher=app.process();if(launcher.pid!==appMainPid&&launcher.exitCode===null)launcher.kill();}
+  // Take the launcher handle before close(): close tears down the driver connection.
+  else{report.shutdownConfirmed=true;let launcher=null;try{launcher=app.process();}catch{}app.close().catch(()=>{});if(launcher&&launcher.pid!==appMainPid&&launcher.exitCode===null)launcher.kill();}
 }}
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');assert.equal(hash(await readFile(profile+'.setup/recovery-backup.json')),hash(recovery));report.recoveryUnchanged=true;
 await writeFile(path.join(output,'result.json'),JSON.stringify(report,null,2),'utf8');process.stdout.write(JSON.stringify(report)+'\n',()=>process.exit(report.passed?0:1));

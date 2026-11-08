@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Blocks, LoaderCircle, Sparkles, Trash2, RefreshCw } from 'lucide-react';
 import { api } from './transport.js';
 import RemoteServices from './RemoteServices.jsx';
+import FeaturePackages from './FeaturePackages.jsx';
 
 const errorText = error => (error?.message || String(error)).replace(/^Error invoking remote method '[^']+': Error: /, '');
 const shown = server => [server.command, ...(server.args || [])].join(' ');
@@ -10,7 +11,7 @@ const shown = server => [server.command, ...(server.args || [])].join(' ');
 export default function Extensions({ settings, status = [], act, refresh, busyAction, hasActiveRun = false }) {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
-  const servers = (settings.externalMcpServers || []).filter(server => server.id !== 'cua'&&server.transport!=='http');
+  const servers = (settings.externalMcpServers || []).filter(server => server.id !== 'cua'&&!server.featurePackage&&server.transport!=='http');
   const apply = (id, action) => act('extension-' + id, async () => {
     setError('');
     try {
@@ -36,6 +37,7 @@ export default function Extensions({ settings, status = [], act, refresh, busyAc
     })}</div>}
     {servers.length > 0 && <p className="connection-small">Turn off or remove an extension immediately. An in-flight action may already have taken effect. Reconnecting waits for replies to finish and reloads only that extension; Exomina stays open. Removing a connection keeps its source files.</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}
+    <FeaturePackages/>
     <RemoteServices settings={settings} status={status} refresh={refresh} hasActiveRun={hasActiveRun}/>
   </section>;
 }

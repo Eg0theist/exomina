@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { normalizeChatTitle } from './chat-management.mjs';
 import { getProvider } from './provider-catalog.mjs';
+import { backgroundApiModel } from './model-tiers.mjs';
 
 const MAX_WORDS = 8;
 const MAX_LENGTH = 60;
@@ -59,9 +60,11 @@ export function canGenerateTitle(chat) {
  * a connected account; falls back to an offline heuristic. Never blocks a reply.
  */
 export class TitleService {
-  constructor({ getProviders, getApiAgent, getConnections, timeout = 45000 }) {
-    Object.assign(this, { getProviders, getApiAgent, getConnections, timeout });
+  constructor({ getProviders, getApiAgent, getConnections, getChosenModel = () => '', timeout = 45000 }) {
+    Object.assign(this, { getProviders, getApiAgent, getConnections, getChosenModel, timeout });
     this.pending = new Map();
+    // Light API models an account refused this session; later requests go straight to the chosen model.
+    this.lightRefused = new Set();
   }
   candidates(preferred) {
     const connected = (this.getConnections() || []).filter(item => item.connected || item.configured);
@@ -77,7 +80,18 @@ export class TitleService {
     if (provider === 'claude' || provider === 'codex') return this.getProviders().oneShot(provider, prompt, { timeout: this.timeout });
     const agent = this.getApiAgent();
     if (!agent) throw new Error('No API runner.');
+    // Background work runs on the provider's light model; the chat's own model is the fallback.
+    const light = backgroundApiModel(provider, this.getChosenModel(provider)), key = provider + '\n' + light;
+    let lightFailed = false;
+    if (light && !this.lightRefused.has(key)) {
+      try {
+        const result = await agent.run({ provider, conversationId: `title-${randomUUID()}`, prompt, model: light, ephemeral: true });
+        if (result?.text?.trim()) return result.text;
+      } catch { lightFailed = true; }
+    }
     const result = await agent.run({ provider, conversationId: `title-${randomUUID()}`, prompt, ephemeral: true });
+    // Only a working fallback shows the light model itself was the problem, not the network.
+    if (lightFailed) this.lightRefused.add(key);
     return result?.text || '';
   }
   /** Any short tool-less request, with the same provider order (style guides). */

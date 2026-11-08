@@ -115,3 +115,15 @@ test('native terminal handles cannot survive a mutable state adopting another th
   const state={provider:'codex',sessionId:'original'},rpc={request:async()=>({data:[{processId:'reused-process',command:'synthetic',cwd:'C:/synthetic',itemId:'item'}]})},terminal=new ProviderTerminals({getContext:async()=>({}),getState:()=>state,getRpc:()=>rpc});
   const before=(await terminal.list('chat')).entries[0].id;state.sessionId='replacement';const after=(await terminal.list('chat')).entries[0].id;assert.notEqual(before,after);await assert.rejects(terminal.stop({conversationId:'chat',id:before}),/owned/);
 });
+
+test('agent terminal input turns line breaks into Enter, keeps backslashes and sends named keys',async()=>{
+  const f=fixture(),id=await open(f);try{
+    await f.terminal.call('terminal_input',{id,text:'cd C:\\new\\tmp\n'},'chat');
+    await f.terminal.call('terminal_input',{id,text:'a\r\nb',keys:['enter','ctrl+c','up']},'chat');
+    await f.terminal.call('terminal_input',{id,keys:['escape']},'chat');
+    assert.deepEqual(f.writes,['cd C:\\new\\tmp\r','a\rb\r\x03\x1b[A','\x1b']);
+    await assert.rejects(f.terminal.call('terminal_input',{id,keys:['ctrl+alt+del']},'chat'),/Unknown terminal key/);
+    await assert.rejects(f.terminal.call('terminal_input',{id},'chat'),/text or at least one key/);
+    assert.equal(f.writes.length,3);
+  }finally{f.terminal.close();}
+});

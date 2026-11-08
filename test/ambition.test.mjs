@@ -13,7 +13,7 @@ test('a lift appends visible guidance and one language note after the user’s w
 });
 
 test('toggling a lift off restores the original request exactly', () => {
-  const original = 'Wie kündige ich meinen Stromvertrag?\n\nIch wohne in Example City.';
+  const original = 'Wie kündige ich meinen Stromvertrag?\n\nIch wohne in Hamburg.';
   const on = toggleLift(toggleLift(original, 'deeper'), 'wider');
   assert.equal(toggleLift(toggleLift(on, 'deeper'), 'wider'), original);
 });

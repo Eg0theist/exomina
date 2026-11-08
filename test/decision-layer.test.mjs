@@ -91,7 +91,7 @@ test('calibration report measures accuracy and expected calibration error', () =
 });
 
 // Synthetic "worth remembering?" gate: durable preferences and decisions versus chit-chat.
-const keep = ['prefers dark mode in every app', 'decided to use Matrix for team chat', 'always wants German typography', 'lives in Example City and works at an agency', 'never wants em-dashes in replies', 'chose beta channel for updates', 'uses a 4090 for local models', 'prefers short status updates', 'decided Highcrest is the district name', 'wants the update installed only after approval'];
+const keep = ['prefers dark mode in every app', 'decided to use Matrix for team chat', 'always wants German typography', 'lives in Hamburg and works at an agency', 'never wants em-dashes in replies', 'chose beta channel for updates', 'uses a 4090 for local models', 'prefers short status updates', 'decided Highcrest is the district name', 'wants the update installed only after approval'];
 const skip = ['thanks, looks good', 'ok go ahead', 'what time is it', 'lol nice', 'hmm let me think', 'can you repeat that', 'cool', 'sounds fine to me', 'one sec', 'never mind that'];
 const people = ['Alex', 'The user', 'He', 'They'];
 const sample = (list, i) => list[i % list.length];

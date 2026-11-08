@@ -50,7 +50,7 @@ export class RemoteAccess {
   enabled() { return this.config?.enabled === true && Date.now() - this.verifiedAt < 30_000; }
   status() {
     const pair = this.pair?.expiresAt > Date.now() ? this.pair : null;
-    return { configured: !!this.config, enabled: this.config?.enabled === true, connected: this.enabled(), base: this.config?.base || '', error: this.error,
+    return { configured: !!this.config, enabled: this.config?.enabled === true, terminalOutput:this.config?.terminalOutput===true, connected: this.enabled(), base: this.config?.base || '', error: this.error,
       errorCode:this.errorCode,retryAt:this.retryAt?new Date(this.retryAt).toISOString():null,lastConnectedAt:this.lastConnectedAt,checking:!!this.refreshing,
       phones: [...(this.config?.peers || []), ...(this.config?.revoking || []).map(p=>({...p,revoking:true}))].map(p => ({ id: p.id, name: p.name, revoking:p.revoking===true,lastSeen: this.devices?.find(d => d.id === p.id)?.lastSeen || null })),
       pending: this.pending.map(p => ({ id: p.id, name: p.name, fingerprint: p.fingerprint })),
@@ -77,6 +77,7 @@ export class RemoteAccess {
     if (this.config.enabled) { this.start(); await this.refresh(); }
     this.changed(); return this.status();
   }); }
+  setTerminalOutput(enabled){return this.mutate(async()=>{if(!this.config)throw Error('Connect your relay first.');this.config.terminalOutput=enabled===true;await this.save();this.changed();return this.status();});}
   start() {
     if (this.timer || this.closed) return;
     this.refresh().catch(() => {});

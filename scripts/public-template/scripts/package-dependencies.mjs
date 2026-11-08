@@ -1,6 +1,6 @@
 // Check inputs independently of electron-builder's dependency collector. A linked
 // node_modules previously let the collector silently omit production packages.
-import {lstat,realpath,readFile,readdir} from 'node:fs/promises';
+import {lstat,realpath,readFile,readdir,open} from 'node:fs/promises';
 import path from 'node:path';
 import {listPackage,extractFile,uncache} from '@electron/asar';
 
@@ -8,6 +8,9 @@ const inside=(root,file)=>{const relative=path.relative(root,file);return relati
 const excluded=(name,patterns)=>patterns.some(pattern=>pattern.endsWith('/*')?name.startsWith(pattern.slice(0,-1)):name===pattern);
 const compatible=(values,target)=>{if(!values)return true;values=Array.isArray(values)?values:[values];return !values.includes('!'+target)&&(values.every(value=>value.startsWith('!'))||values.includes(target));};
 const parse=bytes=>JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/,''));
+async function nativeExecutable(file){
+ const handle=await open(file,'r');try{const bytes=Buffer.alloc(4),{bytesRead}=await handle.read(bytes,0,4,0);if(bytesRead<4)return false;const magic=bytes.readUInt32BE(0);return bytes.subarray(0,2).equals(Buffer.from('MZ'))||magic===0x7f454c46||[0xfeedface,0xcefaedfe,0xfeedfacf,0xcffaedfe,0xcafebabe,0xbebafeca,0xcafebabf,0xbfbafeca].includes(magic);}finally{await handle.close();}
+}
 
 export async function runtimeDependencies(root,{exclude=[],platform=process.platform,arch=process.arch}={}){
  root=await realpath(root);
@@ -55,6 +58,7 @@ export async function runtimeDependencies(root,{exclude=[],platform=process.plat
 
 export async function verifyPackageDependencies(root,archive,options={}){
  const packages=await runtimeDependencies(root,options);
+ const target={platform:options.platform||process.platform,arch:options.arch||process.arch};
  uncache(archive);
  const entries=new Set(listPackage(archive).map(name=>name.replaceAll('\\','/').replace(/^\//,'')));
  const locations=new Map([[await realpath(root),'']]);
@@ -111,10 +115,22 @@ export async function verifyPackageDependencies(root,archive,options={}){
   async function binaries(directory,relative=''){
    for(const file of await readdir(directory,{withFileTypes:true})){
     if(file.name==='node_modules')continue;
+    // Builder omits development fixtures. Declared main/bin/exports are still
+    // checked above even when an upstream package places one in such a folder.
+    if(!relative&&file.isDirectory()&&/^(?:tests?|__tests__|examples?|docs?|benchmarks?)$/i.test(file.name))continue;
     const name=path.posix.join(relative,file.name);
+    // The root manifest is verified above by package identity. Builder rewrites
+    // its development fields even when an upstream tarball marks it executable.
+    if(name==='package.json')continue;
+    // ONNX ships separate binaries for several OSes in one npm package.
+    // Builder removes foreign platform binaries from a native package.
+    if(entry.metadata.name==='onnxruntime-node'){
+     const native=/^bin\/napi-v\d+\/(win32|darwin|linux)\/(ia32|x64|arm64)(?:\/|$)/.exec(name);
+     if(native&&(native[1]!==target.platform||native[2]!==target.arch))continue;
+    }
     if(file.isSymbolicLink())continue;
     if(file.isDirectory())await binaries(path.join(directory,file.name),name);
-    else if(/\.(?:exe|dll|node|pyd|wasm|dylib|so(?:\.\d+)*)$/i.test(file.name)||(process.platform!=='win32'&&((await lstat(path.join(directory,file.name))).mode&0o111))){await checkFile(entry,name,location);nativeFiles++;}
+    else if(/\.(?:exe|dll|node|pyd|wasm|dylib|so(?:\.\d+)*)$/i.test(file.name)||(process.platform!=='win32'&&((await lstat(path.join(directory,file.name))).mode&0o111)&&await nativeExecutable(path.join(directory,file.name)))){await checkFile(entry,name,location);nativeFiles++;}
    }
   }
   await binaries(entry.directory);

@@ -160,10 +160,12 @@ export class Updater {
     const clear=()=>{if(this.launchPromise===promise)this.launchPromise=null;};
     promise.then(clear,clear);return promise;
   }
-  async launchAttempt({conversationId}={}){
+  async launchAttempt({conversationId,expectedBuildId,expectedReleaseId}={}){
     const current=await this.status();
     if(!current.supported)throw Error(current.reason);
     if(!current.available)throw Error('No downloaded or locally packaged update is ready to apply.');
+    const selectedId=expectedReleaseId||(!current.merge?.required?expectedBuildId:null);
+    if(selectedId&&current.staged?.id!==selectedId)throw Error('The staged update changed after restart approval. Review the new build before approving another restart.');
     if(this.public.work)throw Error('Wait for the update download to finish or cancel it before applying.');
     if(current.inProgress)return current;
     await this.merge.assertProgramUnmodified(current.installed);
@@ -175,6 +177,7 @@ export class Updater {
       if(!checked||checked.release.id!==current.staged.id||checked.buildPath!==current.buildPath)throw Error('The public update changed or could not be authenticated. Download and verify it again.');
     }
     if(current.merge?.required){checked=await this.merge.approvedBuild(current);current.buildPath=checked.buildPath;current.staged=checked.staged;}
+    if(expectedBuildId&&current.staged?.id!==expectedBuildId)throw Error('The prepared update differs from the approved build. Review it before approving another restart.');
     this.launched=false;
     await mkdir(this.stateDir,{recursive:true});
     const pending=path.join(this.stateDir,PENDING);

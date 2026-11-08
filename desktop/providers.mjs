@@ -28,6 +28,8 @@ import {ClaudeHelperActivity, nativeHelperFields} from './native-helper-activity
 import {nativeHelperStep} from './helper-step.mjs';
 import {loginOutput,loginCode} from './provider-auth.mjs';
 import {spawnLogin} from './provider-login.mjs';
+import {modelTier,backgroundEffort} from './model-tiers.mjs';
+import {settleClaudeProcess,waitForClaudeRefresh} from './claude-refresh-guard.mjs';
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_LINE = 32 * 1024 * 1024;
@@ -341,6 +343,10 @@ export class ProviderManager {
   }
   environment(provider) { return subscriptionEnvironment(provider, this.dataDir); }
   stopChild(child) { stopProcess(child); }
+  /** Never force-stops Claude while it saves a renewed sign-in (see claude-refresh-guard). */
+  stopClaude(child, graceMs = 0) { return settleClaudeProcess(child, { home: path.join(this.dataDir, 'claude-home'), kill: stopProcess, graceMs }).catch(() => stopProcess(child)); }
+  /** Shutdown waits briefly for a running sign-in renewal before close() stops every process. */
+  waitForClaudeRefresh(maxMs = 10000) { return waitForClaudeRefresh(path.join(this.dataDir, 'claude-home'), { maxMs }).catch(() => false); }
   spawn(executable, args, provider, cwd = this.workspace, env = this.environment(provider)) {
     if (this.runtimeTransition) throw new Error('A connection update is being activated. Try again in a moment.');
     if (this.runtimeRetired.has(provider+'\0'+executable)) throw new Error('This connection executable was replaced. Try the request again.');
@@ -429,7 +435,7 @@ export class ProviderManager {
       authTurn(true);
       if (publish) this.emit({ type: 'usage', provider: 'claude', info: result });
       return result;
-    } finally { authTurn(false); if (child) { this.metadataProcesses.delete(child); stopProcess(child); } }
+    } finally { authTurn(false); if (child) this.stopClaude(child, 3000).finally(() => this.metadataProcesses.delete(child)); }
   }
 
   async claudeStatus() {
@@ -504,7 +510,7 @@ export class ProviderManager {
       let settled = false;
       const finish = (error, models) => {
         if (settled) return;
-        settled = true; clearTimeout(timer); this.metadataProcesses.delete(child); stopProcess(child); turn(false);
+        settled = true; clearTimeout(timer); this.stopClaude(child, 3000).finally(() => this.metadataProcesses.delete(child)); turn(false);
         if (error) reject(error); else resolve(models);
       };
       const timer = setTimeout(() => finish(new Error('Claude model metadata timed out.')), 20000);
@@ -1332,7 +1338,7 @@ export class ProviderManager {
     const current = () => !failed && !state.cancelled && !state.turnEnded && this.active.get(state.conversationId) === state;
     const fail = error => {
       if (!current()) return;
-      failed = true; state.claudeInput?.close(error); state.claudeHelpers?.close('failed'); state.reject(error); stopProcess(child);
+      failed = true; state.claudeInput?.close(error); state.claudeHelpers?.close('failed'); state.reject(error); this.stopClaude(child);
     };
     state.claudeInput = new ClaudeStreamInput({ stream: child.stdin, isActive: current, sessionId: () => state.sessionId, onError: fail });
     const usageActivity = new ClaudeUsageActivity({ turnId: state.claudeActivityTurnId ||= randomUUID(), sessionId: () => state.sessionId });
@@ -1469,8 +1475,8 @@ export class ProviderManager {
     let timer;
     try {
       const models = await this.modelsFor('codex').catch(() => []);
-      const model = models.find(item => /mini|nano/i.test(item.id)) || models.find(item => item.isDefault) || models[0];
-      const effort = model?.efforts?.find(option => ['minimal', 'low'].includes(option.id))?.id;
+      const model = models.find(item => modelTier(item) === 'light') || models.find(item => item.isDefault) || models[0];
+      const effort = backgroundEffort(model?.efforts) || undefined;
       const run = this.run({ provider: 'codex', conversationId: id, prompt, model: model?.id, effort, toolDefinitions: [], ephemeral: true,
         workspace: path.join(this.dataDir, 'runtime-tmp'), developerInstructions: 'Reply with only the requested text.', policy: codexPolicy('read-only') });
       const expired = new Promise((_, reject) => { timer = setTimeout(() => { this.cancel(id); reject(new Error('Quick request timed out.')); }, timeout); });
@@ -1488,7 +1494,7 @@ export class ProviderManager {
     this.metadataProcesses.add(child);
     return new Promise((resolve, reject) => {
       let stdout = '', settled = false;
-      const finish = (error, value) => { if (settled) return; settled = true; clearTimeout(timer); this.metadataProcesses.delete(child); stopProcess(child); turn(!error); if (error) reject(error); else resolve(value); };
+      const finish = (error, value) => { if (settled) return; settled = true; clearTimeout(timer); this.stopClaude(child, 3000).finally(() => this.metadataProcesses.delete(child)); turn(!error); if (error) reject(error); else resolve(value); };
       const timer = setTimeout(() => finish(new Error('Quick request timed out.')), timeout);
       child.stdout.setEncoding('utf8'); child.stdout.on('data', chunk => { stdout = (stdout + chunk).slice(-65536); });
       child.stderr.resume(); child.stdin.on('error', () => {});
@@ -1515,7 +1521,7 @@ export class ProviderManager {
     state.claudeHelpers?.close();
     state.endWait?.();
     state.adapterCancel?.();
-    if (state.child) stopProcess(state.child);
+    if (state.child) { if (state.provider === 'claude') this.stopClaude(state.child); else stopProcess(state.child); }
     if (state.provider === 'codex' && state.sessionId && state.turnId && this.rpc && !this.rpc.closed) this.rpc.request('turn/interrupt', { threadId: state.sessionId, turnId: state.turnId }, 5000).catch(() => {});
     state.reject(new Error(reason));
   }

@@ -88,6 +88,7 @@ async function writeChunks(chunks,write){
 }
 
 export async function createDataExport({store,memory,archive,chatMemoryTree},input={}, {write}={}){
+  if(store.state.clientScopes?.bindings?.length)throw Error('Use Export & transfer → Library backup to preserve client boundaries and isolated memory. Plain JSON/Markdown transfer cannot retain them.');
   const scope=input.scope||'all',format=input.format||'json';
   if(!['chat','chats','memory','all'].includes(scope)||!['json','markdown'].includes(format))throw Error('Choose a valid export scope and format.');
   if(scope==='chat'&&store.conversation(input.conversationId).private===true)throw Error('Temporary chats cannot be exported. Copy text explicitly if you want to keep it.');

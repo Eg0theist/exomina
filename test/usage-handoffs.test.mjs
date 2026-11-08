@@ -56,3 +56,42 @@ test('a pending briefing save rejects a concurrent record and preserves the succ
   release(); await first;
   assert.equal(f.run.message.handoffBriefings.length, 1); assert.equal(f.run.handoffRequests.values().next().value.status, 'prepared');
 });
+
+import { switchBriefing, modelSwitched, replySelection } from '../desktop/usage-handoffs.mjs';
+const toolReply = (extra = {}) => ({ id: 'r1', role: 'assistant', lane: 'tools', provider: 'claude', providersUsed: [{ provider: 'claude', model: 'opus' }], activity: [
+  { kind: 'tool', name: 'Edit', category: 'write', target: 'desktop/routing.mjs', status: 'done' },
+  { kind: 'tool', name: 'Read', category: 'read', target: 'desktop/main.mjs', status: 'done' },
+  { kind: 'tool', name: 'Bash', category: 'execute', target: 'npm test', status: 'error', output: '2 failing: routing.test.mjs' },
+  { kind: 'note', text: 'thinking aloud' }], followups: [{ id: 'f1', text: 'Also fix titles', taskStatus: 'working' }, { id: 'f2', text: 'done one', taskStatus: 'handled' }], ...extra });
+
+test('a model switch after tool work passes host-recorded working state without a model call', () => {
+  const result = switchBriefing([{ role: 'user', content: 'go' }, toolReply()], { provider: 'codex', model: 'gpt-6.1-sol' });
+  assert.ok(result);
+  const state = JSON.parse(result.text.split('Working state:\n')[1]);
+  assert.deepEqual(state.filesChanged, ['desktop/routing.mjs']);
+  assert.deepEqual(state.filesRead, ['desktop/main.mjs']);
+  assert.deepEqual(state.commands, [{ command: 'npm test', status: 'error' }]);
+  assert.match(state.problems[0].output, /2 failing/);
+  assert.deepEqual(state.unfinishedFollowups.map(item => item.id), ['f1']);
+  assert.equal(state.sourceMessageId, 'r1');
+  assert.match(result.text, /claude · opus[\s\S]*codex · gpt-6\.1-sol/);
+});
+
+test('no switch briefing for the same model, an unreported model, or a chat-only reply', () => {
+  const messages = [toolReply()];
+  assert.equal(switchBriefing(messages, { provider: 'claude', model: 'opus' }), null);
+  assert.equal(switchBriefing(messages, { provider: 'claude', model: 'auto' }), null);
+  assert.equal(switchBriefing([toolReply({ lane: 'chat', activity: [] })], { provider: 'codex', model: 'x' }), null);
+  assert.equal(switchBriefing([], { provider: 'codex', model: 'x' }), null);
+  assert.ok(switchBriefing(messages, { provider: 'claude', model: 'sonnet' }), 'model change within one provider counts');
+  assert.equal(modelSwitched({ provider: 'claude', model: '' }, { provider: 'claude', model: 'opus' }), false);
+  assert.deepEqual(replySelection(toolReply({ providersUsed: [{ provider: 'claude', model: 'opus' }, { provider: 'codex', model: 'auto' }] })), { provider: 'codex', model: '' });
+});
+
+test('a saved briefing stops being injected once it is older than the recent replies', () => {
+  const saved = { id: 'old', role: 'assistant', handoffBriefings: [{ status: 'prepared', goal: 'ExampleCo drafts' }] };
+  const later = n => Array.from({ length: n }, (_, i) => [{ role: 'user', content: 'q' + i }, { id: 'a' + i, role: 'assistant', content: 'a' }]).flat();
+  assert.match(briefingContext([saved, ...later(2)]), /ExampleCo drafts/);
+  assert.equal(briefingContext([saved, ...later(3)]), '');
+  assert.equal(briefingContext([saved, ...later(2), { role: 'assistant', error: true }]).includes('ExampleCo'), true, 'failed replies do not push it out');
+});

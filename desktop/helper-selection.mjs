@@ -1,13 +1,10 @@
-const DIFFICULTIES = ['simple', 'standard', 'complex'];
+import { modelTier } from './model-tiers.mjs';
+
+const DIFFICULTIES =['simple', 'standard', 'complex'];
 export const HELPER_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 export const collaborationInstructions = 'When useful for the current user task, model_consult can ask another connected AI for a bounded analysis or draft in this same chat. Check model_available first: it reports supported efforts, image input and suggested task roles. Exomina supports delegation in both directions when the target has verified available usage: a ChatGPT/Codex chat can call model_consult with provider:"claude", and a Claude chat can call it with provider:"codex" for a ChatGPT/Codex helper. These are Exomina helper requests; provider-native subagents remain within their own provider. Each contribution records its source chat, requested target, reported model and status. Assess task difficulty: simple for extraction or a quick check, standard for drafting and ordinary review, complex for difficult reasoning, architecture or a thorough critique. Supply difficulty and a short rationale. Choose an explicit provider, model and supported effort, or omit provider/model to use the difficulty recommendation. Role recommendations are routing heuristics, not measured quality rankings. Use higher effort when warranted; do not always select the largest model. Attach image_ids from chat attachments or image_paths inside this chat\'s workspace when visual evidence matters. Helpers receive actual pixels, have no tools and cannot delegate further. You remain responsible for checking their claims. Only send needed context. Never ask helpers to redeem resets, buy credits or enable extra usage. image_generate can request native ChatGPT images for an explicit user image request.\n';
 
-export function helperRole(model) {
-  const name = `${model.model || model.id || ''} ${model.label || ''}`.toLowerCase();
-  if (/\b(haiku|luna|mini|nano|flash|small)\b/.test(name)) return 'light';
-  if (/\b(opus|astra|terra|pro|deep)\b/.test(name)) return 'deep';
-  return 'balanced';
-}
+export function helperRole(model) { return modelTier(model); }
 export function difficultyEffort(model, difficulty) {
   const supported = model.efforts || [];
   const preferences = difficulty === 'simple' ? ['low', 'minimal', 'medium', 'high'] : difficulty === 'complex' ? ['high', 'xhigh', 'max', 'ultra', 'medium', 'low'] : ['medium', 'high', 'low', 'xhigh', 'max', 'ultra', 'minimal'];

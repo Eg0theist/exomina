@@ -3,6 +3,7 @@ import {constants} from 'node:fs';
 import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
+import {sqlitePath} from './sqlite-path.mjs';
 
 export const MAX_ASSET_BYTES=20*1024*1024;
 const ID=/^[a-f0-9]{64}$/;
@@ -60,7 +61,7 @@ export class AssetStore {
   constructor(dataDir){this.root=path.resolve(typeof dataDir==='object'?dataDir.dataDir:dataDir);this.dir=path.join(this.root,'assets');this.db=null;}
   async checkDir(){const stat=await lstat(this.dir);if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('The image store must be a regular protected directory.');const resolved=await realpath(this.dir);if(resolved.toLowerCase()!==this.dir.toLowerCase())throw Error('The image store cannot use redirected directories.');}
   async init(){if(this.db)return;await mkdir(this.dir,{recursive:true,mode:0o700});await this.checkDir();const dbFile=path.join(this.dir,'index.sqlite');try{const s=await lstat(dbFile);if(!s.isFile()||s.isSymbolicLink()||s.nlink!==1)throw Error('The image index must be a regular file.');}catch(e){if(e.code!=='ENOENT')throw e;}
-    this.db=new DatabaseSync(dbFile);this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY,mimeType TEXT NOT NULL,bytes INTEGER NOT NULL,sha256 TEXT NOT NULL);');}
+    this.db=new DatabaseSync(sqlitePath(dbFile));this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY,mimeType TEXT NOT NULL,bytes INTEGER NOT NULL,sha256 TEXT NOT NULL);');}
   async ready(){if(!this.db)await this.init();await this.checkDir();}
   file(id){return path.join(this.dir,safeId(id)+'.asset');}
   index(){if(!this.db)throw Error('Image store is not open.');return this.db.prepare('SELECT id,mimeType,bytes,sha256 FROM assets ORDER BY id').all().map(metadata);}

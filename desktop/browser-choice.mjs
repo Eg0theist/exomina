@@ -55,6 +55,7 @@ export class BrowserChoice {
     return action === 'close' ? this.embedded.closeTab(payload.tabId, id) : this.embedded.selectTab(payload.tabId, id);
   }
   cancel(id) { this.embedded.cancel(id); this.connected.cancel(id); }
+  takeFeedback(id,captureId){if(this.current!==this.embedded)throw Error('Element feedback is available in the built-in browser.');if(!this.current.isEnabled())throw Error('Browser tools are off.');return this.embedded.page(id).feedback.take(captureId);}
   remove(id) { this.embedded.remove(id); this.connected.remove(id); }
   async command(action, id = this.selectedId) {
     if (this.current === this.connected) return this.connected.command(action, {}, id);

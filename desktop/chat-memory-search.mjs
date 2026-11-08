@@ -3,6 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Worker} from 'node:worker_threads';
 import {DatabaseSync} from 'node:sqlite';
+import {sqlitePath} from './sqlite-path.mjs';
 
 // A derived, rebuildable keyword index over the immutable chat originals. It lives in its own
 // database, so nothing here can alter or delay the source log. Writes happen only on a worker
@@ -82,7 +83,7 @@ export function removeChat(search, chatId) {
 
 /** Runs one request against freshly opened databases; shared by the worker and by tests. */
 export function runIndexRequest(dataDir, request) {
-  const search = new DatabaseSync(searchFile(dataDir));
+  const search = new DatabaseSync(sqlitePath(searchFile(dataDir)));
   prepareIndex(search);
   try {
     const rebuild=search.prepare('SELECT value FROM search_meta WHERE key=?').get('index-version')?.value!==INDEX_VERSION;
@@ -92,7 +93,7 @@ export function runIndexRequest(dataDir, request) {
       catch(error){search.exec('ROLLBACK');throw error;}
     }
     if (request.type === 'remove') { removeChat(search, request.chatId); return { added: 0 }; }
-    const tree = new DatabaseSync(treeFile(dataDir), { readOnly: true });
+    const tree = new DatabaseSync(sqlitePath(treeFile(dataDir)), { readOnly: true });
     try {
       tree.exec('PRAGMA busy_timeout=5000');
       const chats = request.type === 'backfill' || rebuild ? tree.prepare('SELECT chat_id AS id FROM tree_chats').all().map(row => row.id) : [request.chatId];
@@ -132,8 +133,8 @@ export class ChatMemorySearch {
   async init() {
     if (this.#db) return this;
     await mkdir(path.dirname(searchFile(this.dataDir)), { recursive: true, mode: 0o700 });
-    const writer = new DatabaseSync(searchFile(this.dataDir)); prepareIndex(writer); writer.close();
-    this.#db = new DatabaseSync(searchFile(this.dataDir), { readOnly: true });
+    const writer = new DatabaseSync(sqlitePath(searchFile(this.dataDir))); prepareIndex(writer); writer.close();
+    this.#db = new DatabaseSync(sqlitePath(searchFile(this.dataDir)), { readOnly: true });
     this.#db.exec('PRAGMA busy_timeout=2000');
     return this;
   }

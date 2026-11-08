@@ -1,0 +1,8 @@
+import React,{useEffect,useState} from 'react';
+export default function PhoneWork({remote,online,active,refreshKey}){
+  const [value,setValue]=useState(null),[error,setError]=useState(''),[output,setOutput]=useState(null),[busy,setBusy]=useState(false);
+  useEffect(()=>{if(!active||!online||!remote)return;let live=true;remote.invoke('phone.work').then(next=>{if(live){setValue(next);setError('');}}).catch(()=>{if(live)setError('This computer does not currently provide terminal status to the phone.');});return()=>{live=false;};},[active,online,remote,refreshKey]);
+  if(!active)return null;
+  async function read(session){setBusy(true);setError('');try{const next=await remote.invoke('phone.work',{id:session.id,conversationId:session.conversationId});setValue(next);setOutput(next.output);}catch(e){setOutput(null);setError(e.message);}finally{setBusy(false);}}
+  return <section className="phone-card"><h2>Shared terminals</h2>{error&&<p role="status">{error}</p>}{value?.protocolVersion===1&&<><p>{value.capabilities.terminalOutput?'Recent output is available on request.':'Enable terminal output sharing in Phone access on your computer to read output here.'}</p>{!value.sessions.length&&<p>No shared AI terminal sessions.</p>}{value.sessions.map(session=><article key={session.id}><strong>{session.title}</strong><p>{session.status}{session.keepAlive?' · Kept through app restart':''}</p><button disabled={!online||busy||!value.capabilities.terminalOutput} onClick={()=>read(session)}>Read recent output</button></article>)}</>}{output&&online&&<details open><summary>Output observed at {new Date(output.observedAt).toLocaleTimeString()}</summary><pre className="phone-terminal-output">{output.text||'No retained output.'}</pre></details>}</section>;
+}

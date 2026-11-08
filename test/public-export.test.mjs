@@ -20,7 +20,7 @@ async function fixture(directory,name,files){
 }
 
 test('public path policy allows source and docs while excluding credential and output paths',()=>{
- for(const relative of ['desktop/main.mjs','scripts/package-cross-platform.mjs','scripts/release-windows.mjs','docs/release-notes.md','docs/de/index.html','build/entitlements.mac.plist','LICENSE'])assert.equal(publicPathAllowed(relative),true,relative);
+ for(const relative of ['desktop/main.mjs','scripts/package-cross-platform.mjs','scripts/release-windows.mjs','docs/release-notes.md','docs/de/index.html','build/entitlements.mac.plist','LICENSE','.gitattributes'])assert.equal(publicPathAllowed(relative),true,relative);
  for(const relative of ['accounts/key.json','desktop/accounts/key.json','data/chats.json','node_modules/tool/index.js','scripts/.env','scripts/signing.pem','scripts/output/key.json','src/assets/theme-art/a.png','../desktop/main.mjs','release-linux/app','unknown-root.txt'])assert.equal(publicPathAllowed(relative),false,relative);
 });
 
@@ -72,6 +72,9 @@ test('public export includes build and test inputs, Apache notices and platform 
  const result=await run(process.execPath,[path.join(root,'scripts/prepare-beta-release.mjs'),'--public','--output',output],{cwd:root,encoding:'utf8',timeout:60000,maxBuffer:65536});
  const receipt=JSON.parse(result.stdout),pkg=JSON.parse(await readFile(path.join(output,'package.json'),'utf8')),lock=JSON.parse(await readFile(path.join(output,'package-lock.json'),'utf8'));
  assert.equal(receipt.profile,'public');assert.equal(pkg.version,JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version);
+ assert.match(await readFile(path.join(output,'WORKFLOWS.txt'),'utf8'),/Scheduled report workflow pilot/);
+ assert.deepEqual(await readFile(path.join(output,'build/release-notes.txt')),await readFile(path.join(root,'build/release-notes.txt')),'Public build keeps the reviewed current release notes');
+ for(const file of ['workflow-journal.mjs','workflow-delivery.mjs','scoped-tool-discovery.mjs'])await access(path.join(output,'desktop',file));
  assert.equal(pkg.license,'Apache-2.0');assert.match(await readFile(path.join(output,'LICENSE'),'utf8'),/Apache License/);
  assert.match(await readFile(path.join(output,'NOTICE'),'utf8'),/Victor Taelin/);
  assert.ok(pkg.build.files.includes('!desktop/agent-spending.mjs'));
@@ -82,7 +85,47 @@ test('public export includes build and test inputs, Apache notices and platform 
  assert.deepEqual(lock.packages[''].optionalDependencies,pkg.optionalDependencies);assert.deepEqual(lock.packages[''].dependencies,pkg.dependencies);
  for(const name of Object.keys(pkg.optionalDependencies).filter(name=>name.startsWith('@xai-official/grok-')))assert.equal(lock.packages[`node_modules/${name}`].optional,true);
  for(const relative of ['scripts/check-changes.mjs','scripts/public-export.mjs','scripts/public-template/LICENSE','scripts/private-beta-installer-config.mjs','scripts/package-cross-platform.mjs','scripts/native-package-preflight.mjs','scripts/qa-native-install.mjs','scripts/package-version.mjs','scripts/qa-tool-update-archive.ps1','scripts/qa-installer-locks.ps1','build/entitlements.mac.plist','docs/index.html','.github/workflows/native-packages.yml'])await access(path.join(output,relative));
+ const security=await readFile(path.join(output,'.github/workflows/security.yml'),'utf8');assert.match(security,/pull_request:/);assert.match(security,/npm audit --audit-level=low/);assert.match(security,/github\/codeql-action\/analyze@/);
+ assert.match(await readFile(path.join(output,'.gitattributes'),'utf8'),/vendor\/analysis-node\/\*\* -text/);
+ // Native acceptance must retain the latest sign-in/protection gates and all
+ // helpers they invoke. A successful export used to silently restore an older
+ // entrypoint from the template, weakening the public install checks.
+ for(const script of ['package-dependencies.mjs','qa-native-install.mjs','qa-connector-forms.mjs','qa-connection-signin.mjs','qa-startup-protection-failure.mjs','qa-public-upgrade.mjs','qa-efs-upgrade-compat.mjs'])assert.deepEqual(await readFile(path.join(output,'scripts',script)),await readFile(path.join(root,'scripts',script)),script);
+ const nativeInstall=await readFile(path.join(output,'scripts/qa-native-install.mjs'),'utf8');assert.match(nativeInstall,/protectionRefusal/);assert.match(nativeInstall,/qa-connection-signin\.mjs/);
+ const publicExporter=await readFile(path.join(output,'scripts/prepare-beta-release.mjs'),'utf8');
+ assert.match(publicExporter,/const fixtureReplacements=\[\s*\];/);
+ assert.doesNotMatch(publicExporter,/\.replaceAll\((['"])([^'"]+)\1,\s*\1\2\1\)/,'Public source must not contain identity replacements');
  for(const command of Object.values(pkg.scripts))for(const match of command.matchAll(/node scripts\/([^\s]+)/g))await access(path.join(output,'scripts',match[1]));
+ // Packaging invokes these gates by name rather than importing them. A valid
+ // entry point alone used to conceal the omitted startup and handover checks.
+ const packaging=await readFile(path.join(output,'scripts/package-local.mjs'),'utf8');
+ for(const match of packaging.matchAll(/['"]([\w-]+\.mjs)['"]/g))await access(path.join(output,'scripts',match[1]));
+ // Check literal local imports from every exported top-level script without
+ // executing installers or touching a profile. Missing QA helpers must stop
+ // source qualification before a native build is submitted.
+ for(const entry of await readdir(path.join(output,'scripts'))){
+  if(!entry.endsWith('.mjs'))continue;
+  const script=path.join(output,'scripts',entry),text=await readFile(script,'utf8');
+  for(const match of text.matchAll(/^\s*(?:import|export)\b[^\r\n]*?\bfrom\s*['"](\.[^'"\r\n]+\.[mc]?js)['"]/gm))await access(path.resolve(path.dirname(script),match[1]));
+ }
+ for(const entry of await readdir(path.join(output,'test'))){
+  if(!entry.endsWith('.test.mjs'))continue;
+  const text=await readFile(path.join(output,'test',entry),'utf8');
+  for(const match of text.matchAll(/['"]\.\.\/scripts\/([\w.-]+\.(?:mjs|ps1))['"]/g))await access(path.join(output,'scripts',match[1]));
+ }
+ for(const name of ['Delivery','Installation'])await access(path.join(output,'test/fixtures/protocol-models',name+'.tla'));
+ // Fixture neutralization must preserve actual case-folding and single-word
+ // vocabulary semantics, including nested corpus/evaluator inputs.
+ const dictationEnv={...process.env};delete dictationEnv.NODE_TEST_CONTEXT;
+ const dictation=await run(process.execPath,['--test','--test-reporter=tap','--test-name-pattern=project vocabulary|WER counts',path.join(output,'test/dictation.test.mjs'),path.join(output,'test/dictation-evaluation.test.mjs')],{cwd:output,env:dictationEnv,encoding:'utf8',timeout:30000,maxBuffer:65536});assert.match(dictation.stdout,/pass 2/);
+ const neutralCorpus=JSON.parse(await readFile(path.join(output,'test/fixtures/dictation-evaluation-corpus.json'),'utf8'));assert.ok(neutralCorpus.cases.find(row=>row.id==='en-name-negation').protected.names.includes('Hamburg'));
+ assert.match(await readFile(path.join(output,'scripts/evaluate-dictation.mjs'),'utf8'),/vocabulary:\['Exomina','Hamburg'/);
+ // The emitted exporter has no private replacement configuration. It must
+ // still reproduce an already-public tree without damaging fixtures or CI.
+ const reexport=path.join(directory,'reexport');
+ await run(process.execPath,[path.join(output,'scripts/prepare-beta-release.mjs'),'--public','--output',reexport],{cwd:output,encoding:'utf8',timeout:60000,maxBuffer:65536});
+ assert.equal(await readFile(path.join(reexport,'scripts/prepare-beta-release.mjs'),'utf8'),publicExporter);
+ for(const relative of ['README.md','docs/index.html','.github/workflows/security.yml','.github/workflows/native-packages.yml','test/fixtures/dictation-evaluation-corpus.json','scripts/evaluate-dictation.mjs'])assert.deepEqual(await readFile(path.join(reexport,relative)),await readFile(path.join(output,relative)),relative);
  await assert.rejects(access(path.join(output,'PRIVATE-BETA.md')),{code:'ENOENT'});
  for(const relative of ['data','Private','accounts','node_modules','release','scripts/beta-docs'])await assert.rejects(access(path.join(output,relative)),{code:'ENOENT'});
  // Exercise the previously omitted verifier from the generated tree itself.

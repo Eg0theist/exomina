@@ -62,7 +62,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Dependency installation failed.' }
           node scripts/security-maintenance.mjs --check --security-only --report build/security-maintenance-validation.json
           if ($LASTEXITCODE) { throw 'Candidate security validation failed.' }
-          node node_modules/electron/install.js
+          node scripts/prepare-electron.mjs
           if ($LASTEXITCODE) { throw 'Pinned Electron preparation failed.' }
           node scripts/prepare-analysis-node.mjs
           if ($LASTEXITCODE) { throw 'Pinned analysis runtime preparation failed.' }
@@ -128,7 +128,7 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $PWD 'build/security-maintenance-report.json'), ($report | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
           npm ci --ignore-scripts
           if ($LASTEXITCODE) { throw 'Dependency installation failed.' }
-          node node_modules/electron/install.js
+          node scripts/prepare-electron.mjs
           if ($LASTEXITCODE) { throw 'Pinned Electron preparation failed.' }
           node scripts/prepare-analysis-node.mjs
           if ($LASTEXITCODE) { throw 'Analysis runtime preparation failed.' }

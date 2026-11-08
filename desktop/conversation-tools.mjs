@@ -79,7 +79,7 @@ export class ConversationTools {
   }
   async access(args, activeId) {
     identifier(activeId, 'active chat');
-    const conversations = await this.getConversations();
+    const conversations = await this.getConversations(activeId);
     if (!Array.isArray(conversations)) throw new Error('Conversation history is unavailable.');
     const current = conversations.find(item => item?.id === activeId);
     if (!current) throw new Error('No active conversation is available.');
