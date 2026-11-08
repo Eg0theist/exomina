@@ -30,13 +30,14 @@ async function fixture(t) {
   const server = createCloudServer({ auth, devices, service, distDir: dir }); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const url = `http://127.0.0.1:${server.address().port}`; auth.publicUrl = url;
   const clients = [];
-  async function device(name, overrides = {}) {
+  async function device(name, overrides = {}, prepare = async () => {}) {
     const dataDir = path.join(dir, name), store = new Store(dataDir), memory = new MemoryStore(dataDir), archive = new ArchiveStore(dataDir), assets = new AssetStore(dataDir);
     await store.init(); await memory.init(); await archive.init(); await assets.init();
     const encryption = testEncryption();
     const options = { dataDir, store, memory, archive, assets, encryption, allowLocalHttp: true, autoSync: false, ...overrides };
     const client = new CloudClient(options); await client.init();
     const value = { client, store, memory, archive, assets, options, dataDir }; clients.push(value);
+    await prepare(value);
     await client.configure({ url, pairingCode: devices.createPairingCode().code, name });
     return value;
   }
@@ -158,8 +159,13 @@ test('sync pauses during local work, refuses unavailable encryption before pairi
 });
 
 test('memory deletion propagates durably and initial sync follows multiple event pages', async t => {
-  const f = await fixture(t), a = await f.device('desktop-a'), b = await f.device('desktop-b');
-  for (let index = 0; index < 205; index++) await a.memory.note(`Synthetic note ${index}`, { id: `note-${index}`, createdAt: '2026-10-05T00:00:00.000Z' });
+  const f = await fixture(t); let requests = 0;
+  const a = await f.device('desktop-a', { fetchImpl: (...args) => { requests++; return fetch(...args); } }, async ({ memory }) => {
+    for (let index = 0; index < 205; index++) await memory.note(`Synthetic note ${index}`, { id: `note-${index}`, createdAt: '2026-10-05T00:00:00.000Z' });
+    assert.equal(requests, 0, 'synchronous setup finishes before opening a reusable HTTP connection');
+  });
+  assert.ok(requests > 0, 'pairing still uses the real HTTP service');
+  const b = await f.device('desktop-b');
   await a.client.sync(); await b.client.sync(); assert.equal((await b.memory.list('', 1000)).length, 205);
   await a.memory.remove('note-0'); await a.client.sync(); await b.client.sync();
   assert.equal((await b.memory.list('', 1000)).length, 204);
