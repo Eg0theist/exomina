@@ -10,6 +10,8 @@ Public source exports retain required packaging gates, evaluation helpers and pr
 
 Library backups and local databases use Windows extended paths at the SQLite boundary, allowing deeper client snapshot and restore destinations while retaining the existing file and link checks.
 
+Terminal update holds reject malformed durations while preserving an existing valid deadline. Export configuration remains stable across repeated source exports.
+
 Historical knowledge, reviewed procedure learning and client workspaces
 
 Memory can link original notes to typed entities, explicit aliases and dated facts. Changed sources are flagged and dependency links identify material that needs review. Annotations remain inspectable and removable without rewriting the originals.

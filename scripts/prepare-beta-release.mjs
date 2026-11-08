@@ -5,6 +5,9 @@ import {fileURLToPath} from 'node:url';
 import {applyPublicTemplate,applyPublicRuntimeScope,reconcilePublicBase,privatePublicPath,inspectPublicTree} from './public-export.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+// Export-only fixture substitutions; generated public source has no rules.
+const fixtureReplacements=[
+];
 const args=process.argv.slice(2),arg=name=>args[args.indexOf(name)+1];
 const publicRelease=args.includes('--public');
 const sourcePackage=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
@@ -66,7 +69,17 @@ async function fixtureTexts(relative='test'){
   const file=relative+'/'+entry.name;if(entry.isDirectory())files.push(...await fixtureTexts(file));else if(/\.(?:[mc]?js|json|txt|md|html|ps1|tla|cfg)$/i.test(file))files.push(file);
  }return files;
 }
-for(const file of [...await fixtureTexts(),'scripts/prepare-beta-release.mjs','scripts/evaluate-dictation.mjs','scripts/evaluate-dictation-local.mjs','src/theme-materials.css']){const target=path.join(output,file),text=await readFile(target,'utf8');await writeFile(target,text.replaceAll('Alex Example','Alex Example').replaceAll('Alex','Alex').replaceAll('alex','alex').replaceAll('Hamburg','Hamburg').replaceAll('hamburg','hamburg').replaceAll('ExampleCo','ExampleCo').replaceAll('exampleco','exampleco').replaceAll('SampleCo','SampleCo').replaceAll('sampleco','sampleco').replaceAll('Fantasy','Fantasy').replaceAll('fantasy','fantasy').replaceAll('Fantasy City','Fantasy City').replaceAll('fantasy-city','fantasy-city'),'utf8');}
+for(const file of [...await fixtureTexts(),'scripts/evaluate-dictation.mjs','scripts/evaluate-dictation-local.mjs','src/theme-materials.css']){
+ const target=path.join(output,file);let text=await readFile(target,'utf8');
+ for(const [original,replacement] of fixtureReplacements)text=text.replaceAll(original,replacement);
+ await writeFile(target,text,'utf8');
+}
+// Do not publish the private fixture rules or turn them into identity mappings.
+// An empty generated table also keeps public-to-public exports idempotent.
+const exportedExporter=path.join(output,'scripts/prepare-beta-release.mjs'),exporterText=await readFile(exportedExporter,'utf8');
+const fixtureRules=/^const fixtureReplacements=\[[\s\S]*?^\];/m;
+if(!fixtureRules.test(exporterText))throw Error('The exported fixture rules declaration needs review.');
+await writeFile(exportedExporter,exporterText.replace(fixtureRules,'const fixtureReplacements=[\n];'),'utf8');
 const pkg=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
 pkg.description=publicRelease?'Exomina desktop workspace for AI, memory and tools':publicSource?'Exomina cross-platform beta':'Exomina private Windows beta';pkg.author='Exomina';pkg.homepage=repository;
 delete pkg.dependencies['@anthropic-ai/claude-code-win32-x64'];

@@ -93,6 +93,26 @@ test('a hold expires when no desktop reattaches; a session kept by choice surviv
   }finally{t.mock.timers.reset();client.close();await cleanup();}
 });
 
+test('update hold rejects unsafe wire durations without clearing a valid deadline and preserves the ten-minute boundary',async t=>{
+  const {root,host,cleanup}=await hostFixture(),client=new ExecutionClient({root});
+  const until=async predicate=>{const end=Date.now()+5000;while(!await predicate()){if(Date.now()>end)throw Error('Validated hold expiry did not settle.');await new Promise(resolve=>setImmediate(resolve));}};
+  try{
+    await client.init();const plain=binding(root),kept=binding(root);await client.native.spawn(null,null,{exomina:plain});const keptPty=await client.native.spawn(null,null,{exomina:kept});await keptPty.setKeepAlive(true);
+    t.mock.timers.enable({apis:['setTimeout']});
+    assert.deepEqual(await client.holdForUpdate(1),{held:2,ms:1},'one millisecond is an integer timer boundary, not a fractional coercion');
+    assert.deepEqual(await client.holdForUpdate(30*60_000),{held:2,ms:30*60_000},'the maximum update hold remains thirty minutes');
+    for(const ms of ['600000',null,true,{},[],0.1,1.5,-1,30*60_000+1,Number.MAX_SAFE_INTEGER,Infinity,NaN]){
+      await assert.rejects(client.request('hold',{ms}),/Invalid execution update hold/);
+      assert.equal(host.sessions.get(plain.id).updateHold,true,'invalid input cannot release an earlier valid hold');
+    }
+    assert.deepEqual(await client.releaseHold(),{held:0});assert.equal(host.sessions.get(plain.id).updateHold,false,'zero remains the explicit release operation');
+    assert.deepEqual(await client.holdForUpdate(),{held:2,ms:10*60_000});
+    await client.detach();await until(()=>new Promise((resolve,reject)=>host.server.getConnections((error,count)=>error?reject(error):resolve(count===0))));
+    t.mock.timers.tick(10*60_000-1);assert.equal(host.sessions.get(plain.id).status,'running');
+    t.mock.timers.tick(1);await until(()=>host.sessions.get(plain.id).status==='stopped');assert.equal(host.sessions.get(kept.id).status,'running','explicit keep-alive survives update-hold expiry');
+  }finally{t.mock.timers.reset();client.close();await cleanup();}
+});
+
 test('a host without the runtime copy cannot hold; updates keep the old close-first rule',async()=>{
   const {root,cleanup}=await hostFixture();const descriptor=JSON.parse(await readFile(path.join(root,'endpoint.json'),'utf8'));delete descriptor.runtime;await writeFile(path.join(root,'endpoint.json'),JSON.stringify(descriptor));
   const client=new ExecutionClient({root});

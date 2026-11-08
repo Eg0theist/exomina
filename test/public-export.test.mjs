@@ -92,7 +92,9 @@ test('public export includes build and test inputs, Apache notices and platform 
  // entrypoint from the template, weakening the public install checks.
  for(const script of ['package-dependencies.mjs','qa-native-install.mjs','qa-connector-forms.mjs','qa-connection-signin.mjs','qa-startup-protection-failure.mjs','qa-public-upgrade.mjs','qa-efs-upgrade-compat.mjs'])assert.deepEqual(await readFile(path.join(output,'scripts',script)),await readFile(path.join(root,'scripts',script)),script);
  const nativeInstall=await readFile(path.join(output,'scripts/qa-native-install.mjs'),'utf8');assert.match(nativeInstall,/protectionRefusal/);assert.match(nativeInstall,/qa-connection-signin\.mjs/);
- assert.match(await readFile(path.join(output,'scripts/prepare-beta-release.mjs'),'utf8'),/replaceAll\('Alex','Alex'\)/);
+ const publicExporter=await readFile(path.join(output,'scripts/prepare-beta-release.mjs'),'utf8');
+ assert.match(publicExporter,/const fixtureReplacements=\[\s*\];/);
+ assert.doesNotMatch(publicExporter,/\.replaceAll\((['"])([^'"]+)\1,\s*\1\2\1\)/,'Public source must not contain identity replacements');
  for(const command of Object.values(pkg.scripts))for(const match of command.matchAll(/node scripts\/([^\s]+)/g))await access(path.join(output,'scripts',match[1]));
  // Packaging invokes these gates by name rather than importing them. A valid
  // entry point alone used to conceal the omitted startup and handover checks.
@@ -118,6 +120,12 @@ test('public export includes build and test inputs, Apache notices and platform 
  const dictation=await run(process.execPath,['--test','--test-reporter=tap','--test-name-pattern=project vocabulary|WER counts',path.join(output,'test/dictation.test.mjs'),path.join(output,'test/dictation-evaluation.test.mjs')],{cwd:output,env:dictationEnv,encoding:'utf8',timeout:30000,maxBuffer:65536});assert.match(dictation.stdout,/pass 2/);
  const neutralCorpus=JSON.parse(await readFile(path.join(output,'test/fixtures/dictation-evaluation-corpus.json'),'utf8'));assert.ok(neutralCorpus.cases.find(row=>row.id==='en-name-negation').protected.names.includes('Hamburg'));
  assert.match(await readFile(path.join(output,'scripts/evaluate-dictation.mjs'),'utf8'),/vocabulary:\['Exomina','Hamburg'/);
+ // The emitted exporter has no private replacement configuration. It must
+ // still reproduce an already-public tree without damaging fixtures or CI.
+ const reexport=path.join(directory,'reexport');
+ await run(process.execPath,[path.join(output,'scripts/prepare-beta-release.mjs'),'--public','--output',reexport],{cwd:output,encoding:'utf8',timeout:60000,maxBuffer:65536});
+ assert.equal(await readFile(path.join(reexport,'scripts/prepare-beta-release.mjs'),'utf8'),publicExporter);
+ for(const relative of ['README.md','docs/index.html','.github/workflows/security.yml','.github/workflows/native-packages.yml','test/fixtures/dictation-evaluation-corpus.json','scripts/evaluate-dictation.mjs'])assert.deepEqual(await readFile(path.join(reexport,relative)),await readFile(path.join(output,relative)),relative);
  await assert.rejects(access(path.join(output,'PRIVATE-BETA.md')),{code:'ENOENT'});
  for(const relative of ['data','Private','accounts','node_modules','release','scripts/beta-docs'])await assert.rejects(access(path.join(output,relative)),{code:'ENOENT'});
  // Exercise the previously omitted verifier from the generated tree itself.

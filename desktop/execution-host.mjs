@@ -73,10 +73,14 @@ export async function startExecutionHost({root,endpoint,token,nonce,load=()=>imp
     if(method==='hold'){
       // Keeps every running session alive through one desktop restart. If no
       // desktop reattaches in time, sessions that were not kept by choice stop.
-      const ms=Number(args.ms);releaseHold();if(!Number.isFinite(ms)||ms<=0)return {held:0};
+      // Socket input must not be coerced into a native timer. Validate before
+      // touching an existing hold: malformed control messages cannot shorten
+      // the deadline that is preserving a terminal through an update.
+      const ms=args.ms;if(typeof ms!=='number'||!Number.isSafeInteger(ms)||ms<0||ms>HOLD_MAX_MS)throw Error('Invalid execution update hold: use an integer from 0 to 1,800,000 milliseconds.');
+      releaseHold();if(ms===0)return {held:0};
       const live=[...sessions.values()].filter(session=>session.pty);for(const session of live)session.updateHold=true;
-      holdTimer=setTimeout(()=>{holdTimer=null;const expired=[...sessions.values()].filter(session=>session.updateHold);for(const session of expired){session.updateHold=false;if(!owner&&session.pty&&!survives(session))stop(session).catch(()=>{});}},Math.min(ms,HOLD_MAX_MS));holdTimer.unref?.();
-      await saveTranscripts();return {held:live.length,ms:Math.min(ms,HOLD_MAX_MS)};
+      holdTimer=setTimeout(()=>{holdTimer=null;const expired=[...sessions.values()].filter(session=>session.updateHold);for(const session of expired){session.updateHold=false;if(!owner&&session.pty&&!survives(session))stop(session).catch(()=>{});}},ms);holdTimer.unref?.();
+      await saveTranscripts();return {held:live.length,ms};
     }
     if(method==='spawn'){
       const binding=args.binding;if(!binding||typeof binding.conversationId!=='string'||!binding.conversationId||!['user','agent'].includes(binding.owner)||!/^pty:[-a-f0-9]{36}$/.test(binding.id)||sessions.has(binding.id))throw Error('Invalid execution binding.');
