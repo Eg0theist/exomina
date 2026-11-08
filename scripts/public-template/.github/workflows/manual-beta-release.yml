@@ -82,7 +82,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Dependency compatibility preparation failed.' }
           npm audit --audit-level=low --registry=https://registry.npmjs.org
           if ($LASTEXITCODE) { throw 'Dependency advisories block this installer.' }
-          foreach ($entry in @('node_modules/electron/install.js','scripts/prepare-beta-vendor.mjs','scripts/prepare-grok-runtime.mjs','scripts/prepare-analysis-node.mjs','scripts/prepare-taskbar-icon.mjs','scripts/prepare-windows-interop.mjs')) {
+          foreach ($entry in @('scripts/prepare-electron.mjs','scripts/prepare-beta-vendor.mjs','scripts/prepare-grok-runtime.mjs','scripts/prepare-analysis-node.mjs','scripts/prepare-taskbar-icon.mjs','scripts/prepare-windows-interop.mjs')) {
             node $entry
             if ($LASTEXITCODE) { throw "Runtime preparation failed: $entry" }
           }

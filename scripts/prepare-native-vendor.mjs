@@ -6,6 +6,7 @@ import {promisify} from 'node:util';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {nativeVendorTargets,validateNativeArchiveEntries} from './native-vendor-config.mjs';
+import {fetchRuntimeBytes} from './runtime-download.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const work=path.join(root,'.runtime-work');
 const vendor=path.join(root,'vendor');
@@ -38,11 +39,7 @@ for(const target of targets) {
  const archive=path.join(work,target.file);
  let bytes;try{bytes=await readFile(archive);}catch(error){if(error.code!=='ENOENT')throw error;}
  if(!bytes||createHash('sha256').update(bytes).digest('hex')!==target.sha256) {
-  const response=await fetch(target.url,{signal:AbortSignal.timeout(120000)});
-  if(!response.ok)throw Error(`Official ${target.dir} download failed (${response.status}).`);
-  const maximum=512*1024*1024;let size=0;const chunks=[];
-  for await(const chunk of response.body){size+=chunk.length;if(size>maximum)throw Error('Official runtime archive exceeds the download limit.');chunks.push(chunk);}
-  bytes=Buffer.concat(chunks,size);
+  bytes=await fetchRuntimeBytes(target.url,{label:`Official ${target.dir}`,maximumBytes:512*1024*1024});
   if(createHash('sha256').update(bytes).digest('hex')!==target.sha256)throw Error(`Official ${target.dir} archive checksum mismatch.`);
   await writeFile(archive,bytes,{mode:0o600});
  }

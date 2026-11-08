@@ -78,7 +78,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
           if ($LASTEXITCODE) { throw 'Dependency installation failed.' }
-          node node_modules/electron/install.js
+          node scripts/prepare-electron.mjs
           if ($LASTEXITCODE) { throw 'Pinned Electron preparation failed.' }
           node scripts/prepare-analysis-node.mjs
           if ($LASTEXITCODE) { throw 'Analysis runtime preparation failed.' }

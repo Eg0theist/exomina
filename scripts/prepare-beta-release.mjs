@@ -35,6 +35,7 @@ scripts.push('qa-profile-owner.mjs');
 scripts.push('package-dependencies.mjs','package-dependencies-before.mjs','package-dependencies-after.mjs');
 scripts.push('package-version.mjs','qa-tool-update-archive.ps1','qa-installer-locks.ps1');
 scripts.push('prepare-dependency-compat.mjs');
+scripts.push('runtime-download.mjs','prepare-electron.mjs');
 scripts.push('qa-update-candidate.mjs','qa-update-handoff.mjs');
 scripts.push('qa-update-recovery.ps1','dictation-evaluation.mjs','evaluate-dictation.mjs','evaluate-dictation-local.mjs','evaluate-dictation-windows.ps1','crosscheck-protocols.mjs','check-protocols.mjs','evaluate-memory-blind.mjs','qa-report-workflow.mjs','qa-report-workflow-permissions.mjs');
 scripts.push('prepare-report-model-evaluation.mjs','score-report-model-evaluation.mjs');
